@@ -12,6 +12,48 @@ from ragbot.outputs.logger import logger
 from ragbot.rag.store.base import BaseVectorStore
 
 
+class AwaitableStoreProxy(BaseVectorStore):
+    """Transparent proxy that allows vector stores to be used both synchronously and awaited."""
+
+    def __init__(self, target: Any) -> None:
+        self.__dict__["_target"] = target
+
+    def __await__(self):
+        async def _resolve():
+            return self.__dict__["_target"]
+        return _resolve().__await__()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.__dict__["_target"], name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_target":
+            self.__dict__["_target"] = value
+        else:
+            setattr(self.__dict__["_target"], name, value)
+
+    def get_store_type(self) -> str:
+        target = self.__dict__["_target"]
+        if hasattr(target, "get_store_type"):
+            return target.get_store_type()
+        return getattr(target, "store_type", "unknown")
+
+    def add_documents(self, *args: Any, **kwargs: Any) -> Any:
+        return self.__dict__["_target"].add_documents(*args, **kwargs)
+
+    def search(self, *args: Any, **kwargs: Any) -> Any:
+        return self.__dict__["_target"].search(*args, **kwargs)
+
+    def delete_documents(self, *args: Any, **kwargs: Any) -> Any:
+        return self.__dict__["_target"].delete_documents(*args, **kwargs)
+
+    def get_document_count(self, *args: Any, **kwargs: Any) -> Any:
+        target = self.__dict__["_target"]
+        if hasattr(target, "get_document_count"):
+            return target.get_document_count(*args, **kwargs)
+        return len(getattr(target, "documents", []))
+
+
 class VectorStoreFactory:
     """
     Factory for creating vector store instances with advanced features.
@@ -26,7 +68,7 @@ class VectorStoreFactory:
     # Registry of available store implementations
     _store_registry: Dict[str, Dict[str, Any]] = {
         "faiss": {
-            "class_name": "FAISSStore",
+            "class_name": "FAISSVectorStore",
             "module_path": "ragbot.rag.store.faiss_store",
             "dependencies": ["faiss", "numpy"],
             "capabilities": {
@@ -141,7 +183,9 @@ class VectorStoreFactory:
                 class_name=store_info["class_name"],
             )
 
-            return store_instance
+            if isinstance(store_instance, AwaitableStoreProxy):
+                return store_instance
+            return AwaitableStoreProxy(store_instance)
 
         except ImportError as e:
             logger.error(
@@ -297,9 +341,14 @@ class VectorStoreFactory:
         Returns:
             bool: True if all dependencies are available
         """
+        package_to_module = {
+            "weaviate-client": "weaviate",
+            "qdrant-client": "qdrant_client",
+        }
         for dep in dependencies:
+            mod = package_to_module.get(dep, dep.replace("-", "_"))
             try:
-                importlib.import_module(dep.replace("-", "_"))
+                importlib.import_module(mod)
             except ImportError:
                 return False
         return True
@@ -330,7 +379,8 @@ class VectorStoreFactory:
                 fallback_kwargs["path"] = str(settings.store_path)
 
             # Create FAISS store directly
-            return FAISSStore(**fallback_kwargs)
+            fallback_store = FAISSStore(**fallback_kwargs)
+            return AwaitableStoreProxy(fallback_store)
         except Exception as e:
             logger.error(f"Failed to create fallback store: {e}")
             raise RuntimeError(

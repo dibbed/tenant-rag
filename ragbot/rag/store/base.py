@@ -117,8 +117,13 @@ class VectorDocument:
             raise ValueError("Document ID must be a non-empty string")
         if not isinstance(self.content, str):
             raise ValueError("Document content must be a string")
-        if not isinstance(self.embedding, list):
-            raise ValueError("Document embedding must be a list")
+        if hasattr(self.embedding, "tolist"):
+            self.embedding = self.embedding.tolist()
+        elif not isinstance(self.embedding, list):
+            try:
+                self.embedding = list(self.embedding)
+            except Exception:
+                raise ValueError("Document embedding must be a list")
         if not isinstance(self.metadata, dict):
             raise ValueError("Document metadata must be a dictionary")
 
@@ -284,6 +289,12 @@ class BaseVectorStore(ABC):
         self.keep_embeddings = kwargs.get("keep_embeddings", True)
         self.index_path = kwargs.get("index_path", "./vector_index")
 
+    def __await__(self):
+        """Allow vector store instances to be used directly with await."""
+        async def _resolve():
+            return self
+        return _resolve().__await__()
+
     @abstractmethod
     def get_store_type(self) -> str:
         """
@@ -403,13 +414,13 @@ class BaseVectorStore(ABC):
 
     # --------- Optional convenience upsert helpers (non-abstract) ---------
     async def add_chunks(
-        self, chunks: List[object], *, embedder: object, **kwargs: Any
+        self, chunks: List[object], *, embedder: Optional[object] = None, **kwargs: Any
     ) -> List[str]:
         """
         Convenience: accept TextChunk-like objects and embed+add.
 
         Expects each chunk to have `.content` and `.metadata` attributes.
-        Requires an `embedder` providing `embed_texts` (async or sync).
+        Requires an `embedder` providing `embed_texts` (async or sync), or precomputed `embeddings` in kwargs.
         """
         if not chunks:
             return []
@@ -428,18 +439,48 @@ class BaseVectorStore(ABC):
             return v
 
         # Embed
-        if hasattr(embedder, "embed_texts"):
+        if "embeddings" in kwargs and kwargs["embeddings"] is not None:
+            embeddings = kwargs.pop("embeddings")
+        elif embedder is not None and hasattr(embedder, "embed_texts"):
             embeddings = await _maybe_await(embedder.embed_texts(texts))
-        elif hasattr(embedder, "embed_texts_sync"):
+        elif embedder is not None and hasattr(embedder, "embed_texts_sync"):
             embeddings = embedder.embed_texts_sync(texts)
         else:
             embeddings = [[0.0] * self.embedding_dimension for _ in texts]
 
         docs = []
-        for i, (t, m, e) in enumerate(zip(texts, metadatas, embeddings)):
-            chunk_id = getattr(chunks[i], "chunk_id", None)
-            doc_id = str(chunk_id or f"chunk_{i}")
-            docs.append(VectorDocument(id=doc_id, content=t, embedding=e, metadata=m))
+        for i, (t, m) in enumerate(zip(texts, metadatas)):
+            ch = chunks[i]
+            chunk_id = getattr(ch, "chunk_id", getattr(ch, "id", None))
+            doc_id = str(chunk_id if chunk_id is not None else f"chunk_{i}")
+            if isinstance(embeddings, dict):
+                e = embeddings.get(chunk_id, embeddings.get(doc_id, [0.0] * self.embedding_dimension))
+            elif hasattr(embeddings, "__getitem__"):
+                e = embeddings[i]
+            else:
+                e = [0.0] * self.embedding_dimension
+
+            if hasattr(e, "tolist"):
+                e = e.tolist()
+            elif not isinstance(e, list):
+                try:
+                    e = list(e)
+                except Exception:
+                    e = [0.0] * self.embedding_dimension
+
+            chunk_metadata = m.copy() if isinstance(m, dict) else {}
+            if "chunk_type" not in chunk_metadata:
+                chunk_metadata["chunk_type"] = getattr(ch, "chunk_type", "semantic_chunk")
+            if "is_semantic" not in chunk_metadata:
+                chunk_metadata["is_semantic"] = getattr(ch, "is_semantic", True)
+            if "chunk_id" not in chunk_metadata:
+                chunk_metadata["chunk_id"] = doc_id
+            if hasattr(ch, "start_index") and "start_index" not in chunk_metadata:
+                chunk_metadata["start_index"] = getattr(ch, "start_index", 0)
+            if hasattr(ch, "end_index") and "end_index" not in chunk_metadata:
+                chunk_metadata["end_index"] = getattr(ch, "end_index", len(t))
+
+            docs.append(VectorDocument(id=doc_id, content=t, embedding=e, metadata=chunk_metadata))
 
         return await self.add_documents(docs, **kwargs)
 
@@ -447,7 +488,7 @@ class BaseVectorStore(ABC):
         self,
         documents: List[object],
         *,
-        embedder: object,
+        embedder: Optional[object] = None,
         chunker: Optional[object] = None,
         **kwargs: Any,
     ) -> List[str]:
@@ -462,6 +503,7 @@ class BaseVectorStore(ABC):
         for i, d in enumerate(documents):
             text = getattr(d, "text", getattr(d, "content", "")) or ""
             metadata = getattr(d, "metadata", {}) or {}
+            doc_id = getattr(d, "id", getattr(d, "chunk_id", f"doc_{i}"))
             if chunker is not None and hasattr(chunker, "chunk_with_metadata"):
                 try:
                     parts = chunker.chunk_with_metadata(text)
@@ -473,7 +515,7 @@ class BaseVectorStore(ABC):
             chunk = type(
                 "_Chunk",
                 (),
-                {"content": text, "metadata": metadata, "chunk_id": f"doc_{i}"},
+                {"content": text, "metadata": metadata, "chunk_id": doc_id, "id": doc_id},
             )
             chunks_like.append(chunk)
 

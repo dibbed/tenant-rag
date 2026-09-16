@@ -124,6 +124,13 @@ class TestVectorStoreEmbeddingIntegration(TestVectorStoreRAGIntegration):
                     )
                 ]
             )
+            mock_store.search_with_metadata_filter = AsyncMock(
+                return_value=[
+                    Mock(
+                        id="doc1", score=0.9, content="Machine learning is a subset..."
+                    )
+                ]
+            )
             mock_chroma_class.return_value = mock_store
 
             # Create store via factory
@@ -154,6 +161,13 @@ class TestVectorStoreEmbeddingIntegration(TestVectorStoreRAGIntegration):
             mock_store = Mock()
             mock_store.add_documents = AsyncMock(return_value=["doc1", "doc2", "doc3"])
             mock_store.search = AsyncMock(
+                return_value=[
+                    Mock(
+                        id="doc1", score=0.9, content="Machine learning is a subset..."
+                    )
+                ]
+            )
+            mock_store.semantic_search = AsyncMock(
                 return_value=[
                     Mock(
                         id="doc1", score=0.9, content="Machine learning is a subset..."
@@ -425,7 +439,7 @@ class TestVectorStoreLoaderIntegration(TestVectorStoreRAGIntegration):
             ) as mock_faiss_class:
                 mock_store = Mock()
                 mock_store.add_documents_from_loader = AsyncMock(
-                    return_value=["pdf_doc1", "docx_doc1"]
+                    side_effect=[["pdf_doc1"], ["docx_doc1"]]
                 )
                 mock_faiss_class.return_value = mock_store
 
@@ -589,6 +603,7 @@ class TestVectorStorePerformanceIntegration(TestVectorStoreRAGIntegration):
             mock_store.search = AsyncMock(
                 return_value=[Mock(id="doc1", score=0.9, content="Test content")]
             )
+            mock_store.health_check = AsyncMock(return_value={"status": "healthy"})
             mock_chroma_class.return_value = mock_store
 
             store = await VectorStoreFactory.create_store(

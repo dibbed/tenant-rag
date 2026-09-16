@@ -17,7 +17,8 @@ import pytest
 from ragbot.configs.settings import VectorStoreConfig
 from ragbot.rag.store.base import VectorDocument
 from ragbot.rag.store.factory import VectorStoreFactory
-from ragbot.services.rag_service import RAGService
+import ragbot.services.rag_service as _rag_service_mod
+RAGService = lambda *args, **kwargs: _rag_service_mod.RAGService(*args, **kwargs)
 
 
 class TestVectorStoreE2E:
@@ -410,13 +411,15 @@ class TestRAGServiceIntegrationE2E(TestVectorStoreE2E):
     @pytest.mark.asyncio
     async def test_rag_service_with_faiss(self, sample_config, sample_documents):
         """Test RAG service integration with FAISS store."""
-        with patch("ragbot.services.RAGService") as mock_rag_service_class:
+        with patch("ragbot.services.rag_service.RAGService") as mock_rag_service_class:
             mock_rag_service = Mock()
-            mock_rag_service.process_query.return_value = {
-                "answer": "Machine learning is a subset of artificial intelligence that enables computers to learn from data.",
-                "sources": ["ml_intro", "ml_algorithms"],
-                "confidence": 0.95,
-            }
+            mock_rag_service.process_query = AsyncMock(
+                return_value={
+                    "answer": "Machine learning is a subset of artificial intelligence that enables computers to learn from data.",
+                    "sources": ["ml_intro", "ml_algorithms"],
+                    "confidence": 0.95,
+                }
+            )
             mock_rag_service_class.return_value = mock_rag_service
 
             # Mock vector store creation
@@ -453,14 +456,16 @@ class TestRAGServiceIntegrationE2E(TestVectorStoreE2E):
     @pytest.mark.asyncio
     async def test_rag_service_with_chroma(self, sample_config, sample_documents):
         """Test RAG service integration with Chroma store."""
-        with patch("ragbot.services.RAGService") as mock_rag_service_class:
+        with patch("ragbot.services.rag_service.RAGService") as mock_rag_service_class:
             mock_rag_service = Mock()
-            mock_rag_service.process_query_with_metadata.return_value = {
-                "answer": "Machine learning algorithms can be supervised or unsupervised.",
-                "sources": ["ml_intro"],
-                "metadata": {"topic": "machine_learning", "difficulty": "beginner"},
-                "confidence": 0.92,
-            }
+            mock_rag_service.process_query_with_metadata = AsyncMock(
+                return_value={
+                    "answer": "Machine learning algorithms can be supervised or unsupervised.",
+                    "sources": ["ml_intro"],
+                    "metadata": {"topic": "machine_learning", "difficulty": "beginner"},
+                    "confidence": 0.92,
+                }
+            )
             mock_rag_service_class.return_value = mock_rag_service
 
             # Mock vector store creation

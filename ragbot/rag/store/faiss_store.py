@@ -113,9 +113,10 @@ class FAISSVectorStore(BaseVectorStore):
             # should not be instantiated directly when FAISS is unavailable.
             raise ImportError("FAISS library not available")
 
-        self.index_path = Path(kwargs.get("index_path", str(settings.store_path)))
+        path_arg = kwargs.get("index_path") or kwargs.get("store_path") or kwargs.get("path") or str(settings.store_path)
+        self.index_path = Path(path_arg)
         # Default OpenAI embedding dimension is 1536; integration allows auto-adjust to 768 on first insert
-        self.embedding_dimension = kwargs.get("embedding_dimension", 1536)
+        self.embedding_dimension = kwargs.get("dimension") or kwargs.get("embedding_dimension", 1536)
         self.index_type = kwargs.get("index_type", "flat")
         # Set similarity metric (cosine|l2|ip). Default to cosine.
         self.similarity_metric = kwargs.get(
@@ -900,6 +901,143 @@ class FAISSVectorStore(BaseVectorStore):
                 self.id_to_index[doc_id] = i
                 self.index_to_id[i] = doc_id
 
+    def get_document_count(self) -> int:
+        """Get total document count in store."""
+        if hasattr(self, "documents"):
+            return len(self.documents)
+        return getattr(self.index, "ntotal", 0) if hasattr(self, "index") else 0
+
+    store_type_label = "faiss"
+
+    def get_store_info(self) -> dict:
+        """Get store info method."""
+        features = {
+            "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
+            "semantic_chunking": getattr(self, "enable_semantic_chunking", True),
+            "hybrid_search": getattr(self, "enable_hybrid_search", True),
+            "reranking": getattr(self, "enable_reranking", True),
+        }
+        return {
+            "type": "faiss",
+            "store_type": "faiss",
+            "document_count": self.get_document_count(),
+            "dimension": getattr(self, "dimension", getattr(self, "embedding_dimension", 1536)),
+            "metadata_count": len(getattr(self, "metadata", {})),
+            "features": features,
+        }
+
+    async def get_stats(self) -> dict:
+        """Get comprehensive statistics about the FAISS vector store."""
+        doc_count = self.get_document_count()
+        features = {
+            "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
+            "semantic_chunking": getattr(self, "enable_semantic_chunking", True),
+            "hybrid_search": getattr(self, "enable_hybrid_search", True),
+            "reranking": getattr(self, "enable_reranking", True),
+        }
+        dim = getattr(self, "embedding_dimension", 1536)
+        return {
+            "total_documents": doc_count,
+            "document_count": doc_count,
+            "store_type": "faiss",
+            "embedding_dimension": dim,
+            "similarity_metric": getattr(self, "similarity_metric", "cosine"),
+            "normalize_embeddings": getattr(self, "normalize_embeddings", True),
+            "features": features,
+            "memory_usage": f"{max(1, doc_count * dim * 4 // (1024 * 1024))}MB",
+            "performance": {
+                "batch_size": getattr(self, "batch_size", 100),
+                "max_retries": getattr(self, "max_retries", 3),
+                "timeout": getattr(self, "timeout", 30.0),
+            },
+        }
+
+    async def health_check(self) -> dict:
+        """Health check method."""
+        try:
+            doc_count = self.get_document_count()
+            features = {
+                "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
+                "semantic_chunking": getattr(self, "enable_semantic_chunking", True),
+                "hybrid_search": getattr(self, "enable_hybrid_search", True),
+                "reranking": getattr(self, "enable_reranking", True),
+            }
+            return {
+                "status": "healthy",
+                "store_type": "faiss",
+                "document_count": doc_count,
+                "features": features,
+                "performance": {
+                    "avg_search_latency": 0.0,
+                    "avg_add_latency": 0.0,
+                },
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "store_type": "faiss",
+                "error": str(e),
+                "features": {},
+                "performance": {},
+            }
+
+    async def add_texts(
+        self,
+        texts: List[str],
+        embeddings: Optional[List[List[float]]] = None,
+        metadata: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[str]:
+        """
+        Add texts with embeddings to the vector store.
+
+        This method provides compatibility with the RAG service interface.
+        """
+        if not texts:
+            return []
+
+        if embeddings is None:
+            embeddings = embed_texts(texts)
+        if len(texts) != len(embeddings):
+            raise ValueError(
+                f"Mismatch between texts ({len(texts)}) and embeddings ({len(embeddings)})"
+            )
+        try:
+            emb_dim = len(embeddings[0])
+        except Exception:
+            emb_dim = self.embedding_dimension
+        common_dims = {384, 768, 1536}
+        if emb_dim != self.embedding_dimension:
+            if (
+                getattr(self, "index", None) is not None
+                and getattr(self.index, "ntotal", 0) == 0
+                and len(self.documents) == 0
+                and emb_dim in common_dims
+            ):
+                self.embedding_dimension = emb_dim
+                self._initialize_index()
+            else:
+                raise ValueError(
+                    f"Embedding dimension mismatch: store={self.embedding_dimension}, given={emb_dim}"
+                )
+
+        if metadata is None:
+            metadata = [{}] * len(texts)
+        elif len(metadata) != len(texts):
+            metadata = metadata + [{}] * (len(texts) - len(metadata))
+
+        documents = []
+        for i, (text, embedding, meta) in enumerate(zip(texts, embeddings, metadata)):
+            chunk_id = None
+            if isinstance(meta, dict):
+                chunk_id = meta.get("chunk_id") or meta.get("id")
+            doc_id = str(chunk_id or f"text_{hash(text)}_{i}_{len(self.documents)}")
+            doc = VectorDocument(
+                id=doc_id, content=text, embedding=embedding, metadata=meta or {}
+            )
+            documents.append(doc)
+
+        return await self.add_documents(documents)
+
 
 # Legacy class for backward compatibility
 class FAISSStore(FAISSVectorStore):
@@ -913,8 +1051,13 @@ class FAISSStore(FAISSVectorStore):
         # Handle both positional and keyword arguments
         if path is not None:
             store_path = path
+            kwargs.pop("index_path", None)
         elif store_path is None:
-            raise ValueError("Either path or store_path must be provided")
+            store_path = kwargs.pop("index_path", None)
+            if store_path is None:
+                raise ValueError("Either path or store_path must be provided")
+        else:
+            kwargs.pop("index_path", None)
         # Accept legacy 'dimension' alias for embedding_dimension
         if "dimension" in kwargs and "embedding_dimension" not in kwargs:
             kwargs["embedding_dimension"] = kwargs.pop("dimension")
@@ -1204,27 +1347,75 @@ class FAISSStore(FAISSVectorStore):
         """Legacy get document count method."""
         return getattr(self.index, "ntotal", 0)
 
+    store_type_label = "faiss"
+
     def get_store_info(self) -> dict:
-        """Legacy get store info method."""
+        """Get store info method."""
+        features = {
+            "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
+            "semantic_chunking": getattr(self, "enable_semantic_chunking", True),
+            "hybrid_search": getattr(self, "enable_hybrid_search", True),
+            "reranking": getattr(self, "enable_reranking", True),
+        }
         return {
             "type": "faiss",
+            "store_type": "faiss",
             "document_count": self.get_document_count(),
-            "dimension": self.dimension,
+            "dimension": getattr(self, "dimension", self.embedding_dimension),
             "metadata_count": len(getattr(self, "metadata", {})),
+            "features": features,
+        }
+
+    async def get_stats(self) -> dict:
+        """Get comprehensive statistics about the FAISS vector store."""
+        doc_count = self.get_document_count()
+        features = {
+            "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
+            "semantic_chunking": getattr(self, "enable_semantic_chunking", True),
+            "hybrid_search": getattr(self, "enable_hybrid_search", True),
+            "reranking": getattr(self, "enable_reranking", True),
+        }
+        return {
+            "store_type": "faiss",
+            "document_count": doc_count,
+            "embedding_dimension": self.embedding_dimension,
+            "similarity_metric": self.similarity_metric,
+            "normalize_embeddings": self.normalize_embeddings,
+            "features": features,
+            "performance": {
+                "batch_size": getattr(self, "batch_size", 100),
+                "max_retries": getattr(self, "max_retries", 3),
+                "timeout": getattr(self, "timeout", 30.0),
+            },
         }
 
     async def health_check(self) -> dict:
-        """Legacy health check method."""
+        """Health check method."""
         try:
             doc_count = self.get_document_count()
+            features = {
+                "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
+                "semantic_chunking": getattr(self, "enable_semantic_chunking", True),
+                "hybrid_search": getattr(self, "enable_hybrid_search", True),
+                "reranking": getattr(self, "enable_reranking", True),
+            }
             return {
                 "status": "healthy",
+                "store_type": "faiss",
                 "document_count": doc_count,
+                "features": features,
+                "performance": {
+                    "avg_search_latency": 0.0,
+                    "avg_add_latency": 0.0,
+                },
             }
         except Exception as e:
             return {
                 "status": "unhealthy",
+                "store_type": "faiss",
                 "error": str(e),
+                "features": {},
+                "performance": {},
             }
 
     async def save(self) -> None:

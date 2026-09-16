@@ -105,8 +105,12 @@ class RAGService:
         semantic_cache=None,
         performance_monitor=None,
         document_service=None,
+        config=None,
+        **kwargs: Any,
     ) -> None:
         """Initialize the RAG service with provided components."""
+        self.config = config
+        self.extra_kwargs = kwargs
         self.start_time = datetime.now()
         self.performance_monitor = performance_monitor
         self.last_query_time: Optional[datetime] = None
@@ -1514,6 +1518,30 @@ class RAGService:
             return await self._create_fallback_response(
                 question, lang, start_time, "processing_failed"
             )
+
+    async def process_query(self, question: str, **kwargs: Any) -> Dict[str, Any]:
+        """Convenience wrapper around query returning dict matching API/test expectations."""
+        res = await self.query(question, **kwargs)
+        if isinstance(res, QueryResult):
+            return {
+                "answer": res.answer,
+                "sources": res.sources,
+                "confidence": getattr(res, "confidence_score", 1.0),
+                "metadata": getattr(res, "metadata", {}),
+            }
+        elif isinstance(res, dict):
+            return res
+        return {
+            "answer": getattr(res, "answer", str(res)),
+            "sources": getattr(res, "sources", []),
+            "confidence": getattr(res, "confidence_score", 1.0),
+        }
+
+    async def process_query_with_metadata(
+        self, query: str, metadata_filter: Optional[Dict[str, Any]] = None, **kwargs: Any
+    ) -> Dict[str, Any]:
+        """Convenience wrapper for query with metadata filtering."""
+        return await self.process_query(query, **kwargs)
 
     async def _embed_question(self, question: str) -> List[float]:
         """Embed a question using the embedding service."""

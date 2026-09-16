@@ -17,12 +17,11 @@ router = Router()
 
 @router.message(Command("start"))
 async def start_handler(message: Message) -> None:
-    # Start timing
     timer = PerformanceTimer()
-    timer.start()
+    user_id = message.from_user.id if message.from_user else None
 
     try:
-        user_id = message.from_user.id if message.from_user else None
+        timer.start()
         username = message.from_user.username if message.from_user else "unknown"
 
         timer.checkpoint("message_received")
@@ -48,8 +47,14 @@ async def start_handler(message: Message) -> None:
         log_timing_details("start_command", user_id, duration, timer.checkpoints)
 
     except Exception as e:
-        timer.end()
-        logger.error(f"Error in start_handler for user {user_id}: {e}")
+        try:
+            timer.end()
+        except Exception:
+            pass
+        try:
+            logger.error(f"Error in start_handler for user {user_id}: {e}")
+        except Exception:
+            pass
         error_msg = (
             "خطا در شروع ربات."
             if settings.default_lang == "fa"
