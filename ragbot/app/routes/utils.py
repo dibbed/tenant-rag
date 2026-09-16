@@ -31,6 +31,13 @@ async def maybe_await(value: Any) -> Any:
 
 
 async def get_integration_service() -> IntegrationService:
+    import sys
+    routes_mod = sys.modules.get("ragbot.app.routes")
+    if routes_mod is not None:
+        patched = getattr(routes_mod, "get_integration_service", None)
+        if patched is not None and patched is not get_integration_service:
+            res = patched()
+            return await res if hasattr(res, "__await__") else res
     global _integration_service
     if _integration_service is None:
         _integration_service = IntegrationService()
@@ -39,6 +46,13 @@ async def get_integration_service() -> IntegrationService:
 
 
 async def get_rag_service() -> RAGService:
+    import sys
+    routes_mod = sys.modules.get("ragbot.app.routes")
+    if routes_mod is not None:
+        patched = getattr(routes_mod, "get_rag_service", None)
+        if patched is not None and patched is not get_rag_service:
+            res = patched()
+            return await res if hasattr(res, "__await__") else res
     global _rag_service
     if _rag_service is None:
         integration_service = await get_integration_service()
@@ -48,9 +62,17 @@ async def get_rag_service() -> RAGService:
 
 async def get_document_service() -> DocumentService:
     global _document_service
+    import sys
+    routes_mod = sys.modules.get("ragbot.app.routes")
+    if routes_mod is not None:
+        patched = getattr(routes_mod, "get_document_service", None)
+        if patched is not None and patched is not get_document_service:
+            res = patched()
+            return await res if hasattr(res, "__await__") else res
     if _document_service is None:
+        DocServiceClass = getattr(routes_mod, "DocumentService", DocumentService) if routes_mod else DocumentService
         integration_service = await get_integration_service()
-        _document_service = DocumentService(
+        _document_service = DocServiceClass(
             loaders=integration_service.components["loaders"],
             chunker=integration_service.components["chunker"],
             embedder=integration_service.components["embedder"],
@@ -61,6 +83,13 @@ async def get_document_service() -> DocumentService:
 
 
 async def get_bot():
+    import sys
+    routes_mod = sys.modules.get("ragbot.app.routes")
+    if routes_mod is not None:
+        patched = getattr(routes_mod, "get_bot", None)
+        if patched is not None and patched is not get_bot:
+            res = patched()
+            return await res if hasattr(res, "__await__") else res
     try:
         from aiogram import Bot
 
@@ -107,8 +136,15 @@ async def safe_reply_with_kb(
 
 
 def is_user_authorized(user_id: int) -> bool:
+    import sys
+    routes_mod = sys.modules.get("ragbot.app.routes")
+    if routes_mod is not None:
+        patched = getattr(routes_mod, "is_user_authorized", None)
+        if patched is not None and patched is not is_user_authorized:
+            return patched(user_id)
     try:
-        allowed = settings.allow_users_list
+        current_settings = getattr(routes_mod, "settings", settings) if routes_mod else settings
+        allowed = current_settings.allow_users_list
         return not allowed or user_id in allowed
     except Exception:
         return True
@@ -118,18 +154,26 @@ def check_rate_limit(user_id: int) -> bool:
     return True
 
 
+_safe_reply = safe_reply
+_maybe_await = maybe_await
+
 __all__ = [
     "settings",
     "logger",
     "maybe_await",
+    "_maybe_await",
     "get_integration_service",
     "get_rag_service",
     "get_document_service",
     "get_bot",
     "safe_reply",
+    "_safe_reply",
     "safe_log_error",
     "build_performance_keyboard",
     "safe_reply_with_kb",
     "is_user_authorized",
     "check_rate_limit",
+    "DocumentService",
+    "IntegrationService",
+    "RAGService",
 ]

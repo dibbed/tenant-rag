@@ -44,3 +44,68 @@ router.include_router(_advanced_queries.router)
 router.include_router(_security.router)
 router.include_router(_plugins.router)
 router.include_router(_admin.router)
+
+# Re-export route handlers for backward compatibility and tests
+from .start_help import start_handler, help_handler
+from .system_config import (
+    status_handler,
+    config_handler,
+    ocr_on_handler,
+    ocr_off_handler,
+    set_ocr_engine_handler,
+)
+from .qa import ask_handler
+from .ingest import add_handler
+from .maintenance import reset_handler
+from .utils import (
+    get_integration_service,
+    get_rag_service,
+    get_document_service,
+    get_bot,
+    safe_reply,
+    _safe_reply,
+    safe_log_error,
+    build_performance_keyboard,
+    safe_reply_with_kb,
+    is_user_authorized,
+    check_rate_limit,
+    maybe_await,
+    _maybe_await,
+    settings,
+    logger,
+    DocumentService,
+    IntegrationService,
+    RAGService,
+)
+
+__all__ = [
+    "router",
+    "start_handler",
+    "help_handler",
+    "status_handler",
+    "config_handler",
+    "ocr_on_handler",
+    "ocr_off_handler",
+    "set_ocr_engine_handler",
+    "ask_handler",
+    "add_handler",
+    "reset_handler",
+    "get_integration_service",
+    "get_rag_service",
+    "get_document_service",
+    "get_bot",
+    "safe_reply",
+    "_safe_reply",
+    "safe_log_error",
+    "build_performance_keyboard",
+    "safe_reply_with_kb",
+    "is_user_authorized",
+    "check_rate_limit",
+    "maybe_await",
+    "_maybe_await",
+    "settings",
+    "logger",
+    "DocumentService",
+    "IntegrationService",
+    "RAGService",
+]

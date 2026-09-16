@@ -2242,24 +2242,28 @@ class Settings(PydanticBaseSettings):
         load_dotenv(override=True)
 
         # Update settings from environment
-        for field_name, field in self.__fields__.items():
-            env_name = field.field_info.extra.get("env", field_name.upper())
+        fields_dict = getattr(self, "model_fields", getattr(self, "__fields__", {}))
+        for field_name, field in fields_dict.items():
+            field_info = getattr(field, "field_info", field)
+            extra = getattr(field_info, "extra", {}) or {}
+            env_name = extra.get("env", field_name.upper()) if isinstance(extra, dict) else field_name.upper()
             env_value = os.getenv(env_name)
 
             if env_value is not None:
                 # Convert string to appropriate type
+                field_type = getattr(field, "annotation", getattr(field, "type_", str))
                 try:
-                    if field.type_ == bool:
+                    if field_type == bool:
                         setattr(
                             self,
                             field_name,
                             env_value.lower() in ("true", "1", "yes", "on"),
                         )
-                    elif field.type_ == int:
+                    elif field_type == int:
                         setattr(self, field_name, int(env_value))
-                    elif field.type_ == float:
+                    elif field_type == float:
                         setattr(self, field_name, float(env_value))
-                    elif field.type_ == Path:
+                    elif field_type == Path:
                         setattr(self, field_name, Path(env_value))
                     else:
                         setattr(self, field_name, env_value)
@@ -2285,9 +2289,13 @@ class Settings(PydanticBaseSettings):
 # Global settings instance
 def _create_settings() -> Settings:
     """Create settings instance with fallback for testing."""
+    import os
     from dotenv import load_dotenv
 
-    load_dotenv()
+    if os.getenv("TESTING") == "true" and os.path.exists(".env.test"):
+        load_dotenv(".env.test", override=True)
+    else:
+        load_dotenv()
     # Map alternative VECTOR_STORE_* envs to STORE_* keys before instantiation
     try:
         import os

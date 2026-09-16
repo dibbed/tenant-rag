@@ -23,14 +23,21 @@ from .utils import (
 router = Router()
 
 
+def _get_active_logger():
+    import sys
+    routes_mod = sys.modules.get("ragbot.app.routes")
+    return getattr(routes_mod, "logger", logger) if routes_mod else logger
+
+
 @router.message(Command("ask"))
 async def ask_handler(message: Message) -> None:
     user_id = message.from_user.id if message.from_user else 0
     start_time = asyncio.get_event_loop().time()
+    active_logger = _get_active_logger()
 
     try:
-        logger.log_user_action(user_id=user_id, action="ask_question_start")
-        logger.info("ask_handler invoked", user_id=user_id)
+        active_logger.log_user_action(user_id=user_id, action="ask_question_start")
+        active_logger.info("ask_handler invoked", user_id=user_id)
 
         if not is_user_authorized(user_id):
             msg = (
@@ -88,49 +95,73 @@ async def ask_handler(message: Message) -> None:
         # Track analytics (best-effort)
         try:
             integration_service = await get_integration_service()
+            sources_len = len(result.sources) if hasattr(result, "sources") and hasattr(result.sources, "__len__") else 0
             await integration_service.track_user_action(
                 str(user_id),
                 "query",
                 {
                     "query": question,
                     "processing_time": processing_time,
-                    "confidence_score": result.confidence_score,
-                    "sources_count": len(result.sources),
+                    "confidence_score": getattr(result, "confidence_score", None),
+                    "sources_count": sources_len,
                 },
             )
         except Exception:
             pass
 
+        # Robust string extraction for metrics
+        proc_time_str = ""
+        raw_proc = getattr(result, "processing_time", None)
+        if raw_proc is not None:
+            try:
+                proc_time_str = f"{float(raw_proc):.2f}"
+            except (ValueError, TypeError):
+                proc_time_str = str(raw_proc)
+
+        conf_str = ""
+        raw_conf = getattr(result, "confidence_score", None)
+        if raw_conf is not None:
+            try:
+                conf_str = f"{float(raw_conf):.1%}"
+            except (ValueError, TypeError):
+                conf_str = str(raw_conf)
+
+        sources_list = getattr(result, "sources", None) or []
+        answer_str = getattr(result, "answer", "")
+
         if settings.default_lang == "fa":
-            response_msg = f"💬 <b>پاسخ:</b>\n{result.answer}\n\n"
-            if result.sources:
+            response_msg = f"💬 <b>پاسخ:</b>\n{answer_str}\n\n"
+            if sources_list and hasattr(sources_list, "__iter__"):
                 response_msg += "📚 <b>منابع:</b>\n"
-                for i, source in enumerate(result.sources[:3], 1):
-                    response_msg += f"{i}. {source[:100]}...\n"
-            response_msg += f"\n⚡ زمان پردازش: {result.processing_time:.2f} ثانیه"
-            if result.confidence_score:
-                response_msg += f"\n🎯 اعتماد: {result.confidence_score:.1%}"
+                for i, source in enumerate(sources_list[:3], 1):
+                    response_msg += f"{i}. {str(source)[:100]}...\n"
+            if proc_time_str:
+                response_msg += f"\n⚡ زمان پردازش: {proc_time_str} ثانیه"
+            if conf_str:
+                response_msg += f"\n🎯 اعتماد: {conf_str}"
         else:
-            response_msg = f"💬 <b>Answer:</b>\n{result.answer}\n\n"
-            if result.sources:
+            response_msg = f"💬 <b>Answer:</b>\n{answer_str}\n\n"
+            if sources_list and hasattr(sources_list, "__iter__"):
                 response_msg += "📚 <b>Sources:</b>\n"
-                for i, source in enumerate(result.sources[:3], 1):
-                    response_msg += f"{i}. {source[:100]}...\n"
-            response_msg += (
-                f"\n⚡ Processing time: {result.processing_time:.2f} seconds"
-            )
-            if result.confidence_score:
-                response_msg += f"\n🎯 Confidence: {result.confidence_score:.1%}"
+                for i, source in enumerate(sources_list[:3], 1):
+                    response_msg += f"{i}. {str(source)[:100]}...\n"
+            if proc_time_str:
+                response_msg += (
+                    f"\n⚡ Processing time: {proc_time_str} seconds"
+                )
+            if conf_str:
+                response_msg += f"\n🎯 Confidence: {conf_str}"
 
         await status_message.edit_text(response_msg)
 
-        logger.log_user_action(
+        sources_count = len(sources_list) if hasattr(sources_list, "__len__") else 0
+        active_logger.log_user_action(
             user_id=user_id,
             action="ask_question_success",
             question=question[:100],
             processing_time=processing_time,
-            confidence_score=result.confidence_score,
-            sources_count=len(result.sources),
+            confidence_score=raw_conf,
+            sources_count=sources_count,
         )
     except EmbeddingError as e:
         error_msg = (
