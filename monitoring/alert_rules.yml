@@ -1,0 +1,94 @@
+# Prometheus alert rules for RAG Telegram Bot
+
+groups:
+  - name: ragbot_alerts
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: rate(ragbot_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "RAG Bot error rate is {{ $value }} errors per second"
+
+      # High response time
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(ragbot_request_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }} seconds"
+
+      # Memory usage
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes{name="ragbot"} / container_spec_memory_limit_bytes{name="ragbot"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      # CPU usage
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{name="ragbot"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      # Service down
+      - alert: ServiceDown
+        expr: up{job="ragbot"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "RAG Bot service is down"
+          description: "RAG Bot has been down for more than 1 minute"
+
+      # Redis down
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis service is down"
+          description: "Redis has been down for more than 1 minute"
+
+      # Disk space
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is {{ $value }}% full"
+
+      # OpenAI API errors
+      - alert: OpenAIAPIErrors
+        expr: rate(ragbot_openai_errors_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High OpenAI API error rate"
+          description: "OpenAI API error rate is {{ $value }} errors per second"
+
+      # Vector store errors
+      - alert: VectorStoreErrors
+        expr: rate(ragbot_vector_store_errors_total[5m]) > 0.02
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Vector store errors detected"
+          description: "Vector store error rate is {{ $value }} errors per second"

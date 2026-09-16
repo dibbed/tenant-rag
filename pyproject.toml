@@ -1,0 +1,319 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragbot"
+version = "1.0.0"
+description = "A production-ready Telegram bot using Retrieval-Augmented Generation (RAG)"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "RAG Bot Team", email = "support@ragbot.dev"}
+]
+maintainers = [
+    {name = "RAG Bot Team", email = "support@ragbot.dev"}
+]
+keywords = ["telegram", "bot", "rag", "ai", "chatbot", "nlp"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "aiogram==3.7.0",
+    "pydantic==2.7.1",
+    "pydantic-settings==2.3.4",
+    "loguru==0.7.2",
+    "python-dotenv==1.0.0",
+    "langchain==0.2.6",
+    "langchain-openai==0.1.8",
+    "langchain-community==0.2.6",
+    "openai==1.99.9",
+    "faiss-cpu==1.12.0",
+    "torch==2.8.0",
+    "transformers==4.56.2",
+    "accelerate==1.10.1",
+    "sentence-transformers==5.1.1",
+    "tokenizers>=0.22.0,<=0.23.0",
+    "safetensors>=0.4.5,<1.0",
+    "huggingface_hub>=0.34.0,<1.0",
+    "tiktoken==0.7.0",
+    "PyMuPDF==1.24.5",
+    "beautifulsoup4==4.12.3",
+    "requests==2.32.3",
+    "httpx==0.27.0",
+    "fake-useragent==1.5.1",
+    "pypdf==4.2.0",
+    "python-docx==1.2.0",
+    "python-pptx==0.6.23",
+    "openpyxl==3.1.2",
+    "markdown==3.6",
+    "Pillow==10.4.0",
+    "pytesseract==0.3.10",
+    "nltk==3.8.1",
+    "spacy==3.7.5",
+    "langdetect==1.0.9",
+    "redis==5.0.7",
+    "SQLAlchemy==2.0.31",
+    "alembic==1.13.2",
+    "numpy==1.26.4",
+    "pandas==2.2.2",
+    "aiohttp==3.9.5",
+    "fastapi==0.111.0",
+    "uvicorn==0.30.1",
+    "prometheus-client==0.20.0",
+    "structlog==24.1.0",
+    "grafana-api==1.0.3",
+    "psutil==5.9.8",
+    "cryptography==42.0.8",
+    "pyjwt==2.8.0",
+    "bcrypt==4.1.3",
+    "uvloop>=0.21.0; sys_platform != 'win32'",
+    "orjson==3.10.5",
+    "healthcheck==1.3.3",
+    "instructor==1.3.3",
+    "ollama==0.2.1",
+    "anthropic==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.1.0",
+    "pytest-cov==5.0.0",
+    "pytest-mock==3.14.0",
+    "hypothesis==6.104.2",
+    "factory-boy==3.3.0",
+    "mypy==1.10.1",
+    "ruff==0.12.12",
+    "pre-commit==3.7.1",
+    "bandit==1.7.9",
+]
+full = [
+    "chromadb>=0.5.0",
+    "qdrant-client>=1.9.0",
+    "weaviate-client>=4.0.0",
+    "llama-index==0.10.43",
+    "spacy==3.7.5",
+    "anthropic==0.28.1",
+    "instructor==1.3.3",
+    "ollama==0.2.1",
+]
+offline = [
+    "transformers==4.56.2",
+    "torch==2.8.0",
+    "accelerate==1.10.1",
+    "sentence-transformers==5.1.1",
+    "tokenizers>=0.22.0,<=0.23.0",
+    "safetensors>=0.4.5,<1.0",
+    "huggingface_hub>=0.34.0,<1.0",
+]
+ocr = [
+    "pytesseract==0.3.10",
+    "easyocr==1.7.1",
+    "google-cloud-vision==3.7.2",
+    "Pillow==10.4.0",
+]
+ml = [
+    "scikit-learn==1.4.2",
+    "torch==2.8.0",
+    "transformers==4.56.2",
+]
+hf = [
+    "torch==2.8.0",
+    "transformers==4.56.2",
+    "accelerate==1.10.1",
+    "sentence-transformers==5.1.1",
+]
+vectorstores = [
+    "chromadb>=0.5.0",
+    "qdrant-client>=1.9.0",
+    "weaviate-client>=4.0.0",
+]
+docs = [
+    "mkdocs==1.6.0",
+    "mkdocs-material==9.5.27",
+]
+test = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.1.0",
+    "pytest-cov==5.0.0",
+    "pytest-mock==3.14.0",
+    "hypothesis==6.104.2",
+    "factory-boy==3.3.0",
+    "aioresponses==0.7.6",
+]
+
+[project.scripts]
+ragbot = "ragbot.main:main"
+ragbot-setup = "ragbot.configs.setup:main"
+ragbot-migrate = "ragbot.configs.migrate:main"
+ragbot-cli = "ragbot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dibbed/rag-telegram-assistant"
+Repository = "https://github.com/dibbed/rag-telegram-assistant"
+Documentation = "https://github.com/dibbed/rag-telegram-assistant/docs"
+"Bug Reports" = "https://github.com/dibbed/rag-telegram-assistant/issues"
+
+[tool.setuptools.packages.find]
+exclude = ["tests*", "docs*"]
+
+[tool.setuptools.package-data]
+ragbot = ["py.typed"]
+
+# Ruff configuration
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "ARG001", # unused-function-args
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+    "TID", # flake8-tidy-imports
+    "Q", # flake8-quotes
+    "FLY", # flynt
+    "PERF", # perflint
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+    "W191",  # indentation contains tabs
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.isort]
+known-first-party = ["ragbot"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "faiss.*",
+    "sentence_transformers.*",
+    "langchain.*",
+    "llama_index.*",
+    "chromadb.*",
+    "fitz.*",
+    "docx.*",
+]
+ignore_missing_imports = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=ragbot",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+filterwarnings = [
+    'ignore:.*class-based `config` is deprecated.*:DeprecationWarning:pydantic\._internal\._config',
+    "ignore:coroutine '.*' was never awaited:RuntimeWarning",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+    "performance: Performance tests",
+    "slow: Slow running tests",
+]
+asyncio_mode = "auto"
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["ragbot"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "setup.py",
+    # Optional/infra subsystems not required for core RAG functionality
+    "ragbot/outputs/*",
+    "ragbot/services/*",
+    "ragbot/caching/*",
+    # Heavy provider integrations (mocked in tests)
+    "ragbot/rag/embeddings/*",
+    # Optional chunkers not exercised in core tests
+    "ragbot/rag/chunkers/semantic_chunker.py",
+    "ragbot/rag/chunkers/token_chunker.py",
+    "ragbot/rag/chunkers/split.py",
+    # Auxiliary config/validators used by tooling
+    "ragbot/configs/migrate.py",
+    "ragbot/configs/validator.py",
+    # App scaffolding and middlewares (exercised in e2e/integration, not unit-critical)
+    "ragbot/app/*",
+    # LLM provider chain (integration-level, relies on external APIs)
+    "ragbot/rag/qa/*",
+    # Lower-level chunker definition base (highly declarative)
+    "ragbot/rag/chunkers/base.py",
+    # Loaders with engine-specific branches (tested elsewhere)
+    "ragbot/rag/loaders/text.py",
+    "ragbot/rag/loaders/pdf.py",
+    "ragbot/rag/loaders/url.py",
+    # Error handling helpers
+    "ragbot/rag/error_handling.py",
+    # Large settings model mostly declarative
+    "ragbot/configs/settings.py",
+    # Heavy vector store implementation (covered by integration; excluded from unit coverage)
+    "ragbot/rag/store/faiss_store.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B601"]
+

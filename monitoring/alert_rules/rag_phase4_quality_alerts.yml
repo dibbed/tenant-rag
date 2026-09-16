@@ -1,0 +1,102 @@
+groups:
+  - name: rag_quality_alerts
+    rules:
+      - alert: HighLowConfidenceResponseRate
+        expr: rate(ragbot_low_confidence_responses_total[5m]) > 0.2
+        for: 2m
+        labels:
+          severity: warning
+          phase: "quality"
+        annotations:
+          summary: "High rate of low confidence responses detected"
+          description: "Low confidence response rate is {{ $value }}%, exceeding threshold of 20%"
+
+      - alert: LowUserSatisfactionScore
+        expr: rate(ragbot_user_satisfaction_score_total_sum[5m]) / rate(ragbot_user_satisfaction_score_total_count[5m]) < 0.6
+        for: 5m
+        labels:
+          severity: critical
+          phase: "quality"
+        annotations:
+          summary: "User satisfaction score below acceptable threshold"
+          description: "Average user satisfaction is {{ $value | humanizePercentage }}, below 60% threshold"
+
+      - alert: PoorContentRelevance
+        expr: rate(ragbot_content_relevance_score_total_sum[5m]) / rate(ragbot_content_relevance_score_total_count[5m]) < 0.5
+        for: 3m
+        labels:
+          severity: warning
+          phase: "quality"
+        annotations:
+          summary: "Content relevance score is low"
+          description: "Average content relevance is {{ $value | humanizePercentage }}, below 50% threshold"
+
+      - alert: LowResponseQuality
+        expr: rate(ragbot_response_quality_score_total_sum[5m]) / rate(ragbot_response_quality_score_total_count[5m]) < 0.6
+        for: 5m
+        labels:
+          severity: warning
+          phase: "quality"
+        annotations:
+          summary: "Overall response quality is below threshold"
+          description: "Average response quality is {{ $value | humanizePercentage }}, below 60% threshold"
+
+      - alert: HighFactualAccuracyIssues
+        expr: rate(ragbot_factual_accuracy_score_total_sum[5m]) / rate(ragbot_factual_accuracy_score_total_count[5m]) < 0.7
+        for: 3m
+        labels:
+          severity: critical
+          phase: "quality"
+        annotations:
+          summary: "Factual accuracy concerns detected"
+          description: "Average factual accuracy is {{ $value | humanizePercentage }}, below 70% threshold"
+
+      - alert: PoorResponseCoherence
+        expr: rate(ragbot_response_coherence_score_total_sum[5m]) / rate(ragbot_response_coherence_score_total_count[5m]) < 0.6
+        for: 3m
+        labels:
+          severity: warning
+          phase: "quality"
+        annotations:
+          summary: "Response coherence is poor"
+          description: "Average response coherence is {{ $value | humanizePercentage }}, below 60% threshold"
+
+      - alert: LowContextUtilization
+        expr: rate(ragbot_context_utilization_ratio_total_sum[5m]) / rate(ragbot_context_utilization_ratio_total_count[5m]) < 0.3
+        for: 5m
+        labels:
+          severity: info
+          phase: "quality"
+        annotations:
+          summary: "Low context utilization detected"
+          description: "Average context utilization is {{ $value | humanizePercentage }}, below 30% threshold"
+
+      - alert: AnswerCompletenessIssues
+        expr: rate(ragbot_answer_completeness_score_total_sum[5m]) / rate(ragbot_answer_completeness_score_total_count[5m]) < 0.6
+        for: 3m
+        labels:
+          severity: warning
+          phase: "quality"
+        annotations:
+          summary: "Answer completeness is below threshold"
+          description: "Average answer completeness is {{ $value | humanizePercentage }}, below 60% threshold"
+
+      - alert: QualityScoreDegradation
+        expr: rate(ragbot_response_quality_score_total_sum[5m]) / rate(ragbot_response_quality_score_total_count[5m]) < 0.5
+        for: 10m
+        labels:
+          severity: critical
+          phase: "quality"
+        annotations:
+          summary: "Severe quality score degradation"
+          description: "Average response quality is {{ $value | humanizePercentage }}, below critical threshold of 50%"
+
+      - alert: ConfidenceScoreDistributionAnomaly
+        expr: histogram_quantile(0.95, rate(ragbot_answer_confidence_score_total_bucket[5m])) < 0.7
+        for: 5m
+        labels:
+          severity: warning
+          phase: "quality"
+        annotations:
+          summary: "Confidence score distribution shows anomalies"
+          description: "95th percentile confidence score is {{ $value | humanizePercentage }}, below expected 70%"

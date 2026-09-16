@@ -1,0 +1,441 @@
+# Grafana Dashboard Configuration for RAG System Performance
+
+## Dashboard Overview
+This dashboard provides comprehensive monitoring of the RAG Telegram Assistant's retrieval performance, including Phase 1 metrics for Recall@K, MRR, NDCG, and query expansion effectiveness.
+
+## Dashboard JSON Configuration
+
+```json
+{
+    "dashboard": {
+        "id": null,
+        "title": "RAG System Performance - Phase 1",
+        "tags": [
+            "rag",
+            "retrieval",
+            "performance"
+        ],
+        "timezone": "browser",
+        "panels": [
+            {
+                "id": 1,
+                "title": "Retrieval Performance Overview",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "ragbot_retrieval_recall_at_5_total",
+                        "legendFormat": "Recall@5"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_mrr_total",
+                        "legendFormat": "MRR"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_ndcg_at_10_total",
+                        "legendFormat": "NDCG@10"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.5
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 0.7
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            {
+                "id": 2,
+                "title": "Recall@K Metrics",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_retrieval_recall_at_1_total",
+                        "legendFormat": "Recall@1"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_recall_at_3_total",
+                        "legendFormat": "Recall@3"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_recall_at_5_total",
+                        "legendFormat": "Recall@5"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_recall_at_10_total",
+                        "legendFormat": "Recall@10"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 0
+                }
+            },
+            {
+                "id": 3,
+                "title": "MRR and NDCG Trends",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_retrieval_mrr_total",
+                        "legendFormat": "Mean Reciprocal Rank"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_ndcg_at_5_total",
+                        "legendFormat": "NDCG@5"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_ndcg_at_10_total",
+                        "legendFormat": "NDCG@10"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 24,
+                    "x": 0,
+                    "y": 8
+                }
+            },
+            {
+                "id": 4,
+                "title": "Query Expansion Effectiveness",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_query_expansion_recall_delta_total",
+                        "legendFormat": "Recall Delta"
+                    },
+                    {
+                        "expr": "ragbot_query_expansion_mrr_improvement_total",
+                        "legendFormat": "MRR Improvement"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "short",
+                        "min": -1,
+                        "max": 1
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 16
+                }
+            },
+            {
+                "id": 5,
+                "title": "Query Expansion Issues",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_query_expansion_timeout_rate_total[5m])",
+                        "legendFormat": "Timeout Rate"
+                    },
+                    {
+                        "expr": "rate(ragbot_query_expansion_fallback_rate_total[5m])",
+                        "legendFormat": "Fallback Rate"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "reqps",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.1
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 0.5
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 16
+                }
+            },
+            {
+                "id": 6,
+                "title": "Retrieval Performance by Strategy",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_retrieval_recall_at_k_by_strategy{strategy=\"success_with_metadata\"}",
+                        "legendFormat": "With Metadata Reranking"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_recall_at_k_by_strategy{strategy=\"success_basic\"}",
+                        "legendFormat": "Basic Reranking"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_recall_at_k_by_strategy{strategy=\"disabled\"}",
+                        "legendFormat": "No Reranking"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 24
+                }
+            },
+            {
+                "id": 7,
+                "title": "NDCG by Chunking Strategy",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_retrieval_ndcg_by_chunking_strategy{strategy=\"adaptive\"}",
+                        "legendFormat": "Adaptive Chunking"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_ndcg_by_chunking_strategy{strategy=\"semantic\"}",
+                        "legendFormat": "Semantic Chunking"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_ndcg_by_chunking_strategy{strategy=\"hierarchical\"}",
+                        "legendFormat": "Hierarchical Chunking"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 24
+                }
+            },
+            {
+                "id": 8,
+                "title": "MRR by Query Type",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_retrieval_mrr_by_query_type{type=\"factual\"}",
+                        "legendFormat": "Factual Queries"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_mrr_by_query_type{type=\"analytical\"}",
+                        "legendFormat": "Analytical Queries"
+                    },
+                    {
+                        "expr": "ragbot_retrieval_mrr_by_query_type{type=\"creative\"}",
+                        "legendFormat": "Creative Queries"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 24,
+                    "x": 0,
+                    "y": 32
+                }
+            }
+        ],
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "refresh": "30s"
+    }
+}
+```
+
+## Alert Rules Configuration
+
+```yaml
+groups:
+  - name: rag_retrieval_performance
+    rules:
+      - alert: LowRecallAt5
+        expr: ragbot_retrieval_recall_at_5_total < 0.75
+        for: 5m
+        labels:
+          severity: warning
+          component: retrieval
+        annotations:
+          summary: "Retrieval Recall@5 below threshold"
+          description: "Recall@5 has been below 0.75 for more than 5 minutes"
+
+      - alert: LowMRR
+        expr: ragbot_retrieval_mrr_total < 0.65
+        for: 5m
+        labels:
+          severity: warning
+          component: retrieval
+        annotations:
+          summary: "Mean Reciprocal Rank below threshold"
+          description: "MRR has been below 0.65 for more than 5 minutes"
+
+      - alert: LowNDCGAt10
+        expr: ragbot_retrieval_ndcg_at_10_total < 0.70
+        for: 5m
+        labels:
+          severity: warning
+          component: retrieval
+        annotations:
+          summary: "NDCG@10 below threshold"
+          description: "NDCG@10 has been below 0.70 for more than 5 minutes"
+
+      - alert: HighQueryExpansionTimeoutRate
+        expr: rate(ragbot_query_expansion_timeout_rate_total[
+    5m
+]) > 0.1
+        for: 3m
+        labels:
+          severity: critical
+          component: query_expansion
+        annotations:
+          summary: "High query expansion timeout rate"
+          description: "Query expansion timeout rate is above 0.1 per second"
+
+      - alert: HighQueryExpansionFallbackRate
+        expr: rate(ragbot_query_expansion_fallback_rate_total[
+    5m
+]) > 0.2
+        for: 3m
+        labels:
+          severity: warning
+          component: query_expansion
+        annotations:
+          summary: "High query expansion fallback rate"
+          description: "Query expansion fallback rate is above 0.2 per second"
+```
+
+## Dashboard Setup Instructions
+
+### 1. Import Dashboard
+1. Open Grafana
+2. Go to "+" → "Import"
+3. Paste the JSON configuration above
+4. Click "Load"
+5. Configure data source (Prometheus)
+6. Click "Import"
+
+### 2. Configure Data Source
+Ensure your Prometheus data source is configured to scrape metrics from:
+- **URL**: `http: //localhost:8000/metrics` (or your configured metrics port)
+- **Scrape Interval**: 15s
+- **Timeout**: 10s
+
+### 3. Verify Metrics
+Check that the following metrics are being collected:
+- `ragbot_retrieval_recall_at_1_total`
+- `ragbot_retrieval_recall_at_3_total`
+- `ragbot_retrieval_recall_at_5_total`
+- `ragbot_retrieval_recall_at_10_total`
+- `ragbot_retrieval_mrr_total`
+- `ragbot_retrieval_ndcg_at_5_total`
+- `ragbot_retrieval_ndcg_at_10_total`
+- `ragbot_query_expansion_recall_delta_total`
+- `ragbot_query_expansion_mrr_improvement_total`
+- `ragbot_query_expansion_timeout_rate_total`
+- `ragbot_query_expansion_fallback_rate_total`
+
+### 4. Configure Alerting
+1. Go to "Alerting" → "Alert Rules"
+2. Import the YAML configuration above
+3. Configure notification channels
+4. Test alert rules
+
+## Expected Metrics Values
+
+### Target Thresholds (Phase 1 Success Criteria)
+- **Recall@5**: ≥ 0.75
+- **MRR**: ≥ 0.65
+- **NDCG@10**: ≥ 0.70
+- **Query Expansion Timeout Rate**: ≤ 0.1/sec
+- **Query Expansion Fallback Rate**: ≤ 0.2/sec
+
+### Performance Indicators
+- **Good Performance**: Green indicators (above thresholds)
+- **Warning**: Yellow indicators (approaching thresholds)
+- **Critical**: Red indicators (below thresholds)
+
+## Troubleshooting
+
+### No Data Appearing
+1. Check Prometheus is scraping metrics endpoint
+2. Verify metrics are being generated by the application
+3. Check time range in dashboard
+4. Verify metric names match exactly
+
+### Incorrect Values
+1. Check metric calculation logic in `RetrievalEvaluator`
+2. Verify ground truth data quality
+3. Check evaluation frequency and sample size
+4. Review query expansion effectiveness
+
+### Alert Issues
+1. Verify alert rule expressions
+2. Check notification channel configuration
+3. Test alert rules with manual queries
+4. Review alert thresholds for your use case

@@ -1,0 +1,379 @@
+{
+    "dashboard": {
+        "id": null,
+        "title": "RAG Quality & Confidence Metrics - Phase 4",
+        "tags": [
+            "rag",
+            "quality",
+            "confidence",
+            "phase4"
+        ],
+        "style": "dark",
+        "timezone": "browser",
+        "refresh": "30s",
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "panels": [
+            {
+                "id": 1,
+                "title": "Answer Confidence Distribution",
+                "type": "histogram",
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.5, rate(ragbot_answer_confidence_score_total_bucket[5m]))",
+                        "legendFormat": "50th percentile"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.9, rate(ragbot_answer_confidence_score_total_bucket[5m]))",
+                        "legendFormat": "90th percentile"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.95, rate(ragbot_answer_confidence_score_total_bucket[5m]))",
+                        "legendFormat": "95th percentile"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                },
+                "yAxes": [
+                    {
+                        "label": "Confidence Score",
+                        "min": 0,
+                        "max": 1
+                    }
+                ]
+            },
+            {
+                "id": 2,
+                "title": "Response Quality Score Trends",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_response_quality_score_total_sum[5m]) / rate(ragbot_response_quality_score_total_count[5m])",
+                        "legendFormat": "Average Quality Score"
+                    },
+                    {
+                        "expr": "rate(ragbot_response_accuracy_total_sum[5m]) / rate(ragbot_response_accuracy_total_count[5m])",
+                        "legendFormat": "Average Accuracy"
+                    },
+                    {
+                        "expr": "rate(ragbot_answer_completeness_score_total_sum[5m]) / rate(ragbot_answer_completeness_score_total_count[5m])",
+                        "legendFormat": "Average Completeness"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 0
+                },
+                "yAxes": [
+                    {
+                        "label": "Quality Score",
+                        "min": 0,
+                        "max": 1
+                    }
+                ]
+            },
+            {
+                "id": 3,
+                "title": "User Satisfaction Metrics",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_user_satisfaction_score_total_sum[5m]) / rate(ragbot_user_satisfaction_score_total_count[5m])",
+                        "legendFormat": "Average Satisfaction"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 0,
+                    "y": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.6
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 0.8
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 4,
+                "title": "Content Relevance Score",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_content_relevance_score_total_sum[5m]) / rate(ragbot_content_relevance_score_total_count[5m])",
+                        "legendFormat": "Average Relevance"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 6,
+                    "y": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percentunit",
+                        "min": 0,
+                        "max": 1,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.6
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 0.8
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 5,
+                "title": "Low Confidence Response Rate",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_low_confidence_responses_total[5m])",
+                        "legendFormat": "Low Confidence Rate"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 12,
+                    "y": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 10
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 20
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 6,
+                "title": "High Quality Response Rate",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_high_quality_responses_total[5m])",
+                        "legendFormat": "High Quality Rate"
+                    }
+                ],
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 18,
+                    "y": 8
+                },
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 60
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 80
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "id": 7,
+                "title": "Response Length Distribution",
+                "type": "histogram",
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.5, rate(ragbot_response_length_distribution_total_bucket[5m]))",
+                        "legendFormat": "50th percentile"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.9, rate(ragbot_response_length_distribution_total_bucket[5m]))",
+                        "legendFormat": "90th percentile"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 12
+                },
+                "yAxes": [
+                    {
+                        "label": "Response Length (chars)",
+                        "min": 0
+                    }
+                ]
+            },
+            {
+                "id": 8,
+                "title": "Context Utilization Ratio",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_context_utilization_ratio_total_sum[5m]) / rate(ragbot_context_utilization_ratio_total_count[5m])",
+                        "legendFormat": "Average Context Utilization"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 12
+                },
+                "yAxes": [
+                    {
+                        "label": "Utilization Ratio",
+                        "min": 0,
+                        "max": 1
+                    }
+                ]
+            },
+            {
+                "id": 9,
+                "title": "Quality Metrics by Model",
+                "type": "table",
+                "targets": [
+                    {
+                        "expr": "ragbot_answer_confidence_by_model_total",
+                        "legendFormat": "{{model_name}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 20
+                },
+                "transformations": [
+                    {
+                        "id": "organize",
+                        "options": {
+                            "excludeByName": {
+                                "Time": true,
+                                "__name__": true,
+                                "job": true,
+                                "instance": true
+                            },
+                            "renameByName": {
+                                "model_name": "Model",
+                                "Value": "Confidence Score"
+                            }
+                        }
+                    }
+                ]
+            },
+            {
+                "id": 10,
+                "title": "Factual Accuracy & Coherence",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "rate(ragbot_factual_accuracy_score_total_sum[5m]) / rate(ragbot_factual_accuracy_score_total_count[5m])",
+                        "legendFormat": "Factual Accuracy"
+                    },
+                    {
+                        "expr": "rate(ragbot_response_coherence_score_total_sum[5m]) / rate(ragbot_response_coherence_score_total_count[5m])",
+                        "legendFormat": "Response Coherence"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 20
+                },
+                "yAxes": [
+                    {
+                        "label": "Quality Score",
+                        "min": 0,
+                        "max": 1
+                    }
+                ]
+            }
+        ],
+        "templating": {
+            "list": [
+                {
+                    "name": "model",
+                    "type": "query",
+                    "query": "label_values(ragbot_answer_confidence_by_model_total, model_name)",
+                    "refresh": 1,
+                    "includeAll": true,
+                    "multi": true
+                }
+            ]
+        },
+        "annotations": {
+            "list": [
+                {
+                    "name": "Quality Threshold Breach",
+                    "datasource": "Prometheus",
+                    "expr": "ragbot_low_confidence_responses_total > 10",
+                    "iconColor": "red",
+                    "title": "High Low Confidence Rate"
+                }
+            ]
+        }
+    }
+}

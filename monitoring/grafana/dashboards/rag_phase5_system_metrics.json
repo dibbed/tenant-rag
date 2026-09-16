@@ -1,0 +1,430 @@
+{
+    "dashboard": {
+        "id": null,
+        "title": "RAG System Performance & Resource Monitoring",
+        "tags": [
+            "rag",
+            "system",
+            "performance",
+            "resources"
+        ],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+            {
+                "id": 1,
+                "title": "CPU Usage",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_cpu_usage_percent",
+                        "legendFormat": "CPU Usage %"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 70
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 90
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 6,
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            {
+                "id": 2,
+                "title": "Memory Usage",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_memory_usage_percent",
+                        "legendFormat": "Memory Usage %"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 80
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 95
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 6,
+                    "x": 6,
+                    "y": 0
+                }
+            },
+            {
+                "id": 3,
+                "title": "Disk Usage",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_disk_usage_percent",
+                        "legendFormat": "Disk Usage %"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 85
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 95
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 6,
+                    "x": 12,
+                    "y": 0
+                }
+            },
+            {
+                "id": 4,
+                "title": "GPU Usage",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_gpu_usage_percent",
+                        "legendFormat": "GPU Usage %"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 80
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 95
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 6,
+                    "x": 18,
+                    "y": 0
+                }
+            },
+            {
+                "id": 5,
+                "title": "System Response Time",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_response_time_seconds",
+                        "legendFormat": "Response Time"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "s",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 5
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 10
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 8
+                }
+            },
+            {
+                "id": 6,
+                "title": "Network Latency",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_network_latency_seconds",
+                        "legendFormat": "Network Latency"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "s",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 0.5
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 1.0
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 8
+                }
+            },
+            {
+                "id": 7,
+                "title": "System Throughput",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_throughput_requests_per_second",
+                        "legendFormat": "Throughput (req/s)"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "reqps"
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 8,
+                    "x": 0,
+                    "y": 16
+                }
+            },
+            {
+                "id": 8,
+                "title": "Concurrent Users",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_concurrent_users_total",
+                        "legendFormat": "Concurrent Users"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "short"
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 8,
+                    "x": 8,
+                    "y": 16
+                }
+            },
+            {
+                "id": 9,
+                "title": "Queue Length",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_queue_length_total",
+                        "legendFormat": "Queue Length"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "short"
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 8,
+                    "x": 16,
+                    "y": 16
+                }
+            },
+            {
+                "id": 10,
+                "title": "System Error Rate",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_error_rate_percent",
+                        "legendFormat": "Error Rate %"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 5
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 10
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 24
+                }
+            },
+            {
+                "id": 11,
+                "title": "Memory Usage (Bytes)",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_memory_usage_bytes",
+                        "legendFormat": "Memory Usage"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes"
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 24
+                }
+            },
+            {
+                "id": 12,
+                "title": "GPU Memory Usage",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_gpu_memory_usage_bytes",
+                        "legendFormat": "GPU Memory Usage"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes"
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 32
+                }
+            },
+            {
+                "id": 13,
+                "title": "Disk Usage (Bytes)",
+                "type": "timeseries",
+                "targets": [
+                    {
+                        "expr": "ragbot_system_disk_usage_bytes",
+                        "legendFormat": "Disk Usage"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes"
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 32
+                }
+            }
+        ],
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "refresh": "30s",
+        "schemaVersion": 27,
+        "version": 1,
+        "links": []
+    }
+}

@@ -1,0 +1,125 @@
+# سوالات مخصوص پروژه RAG Telegram Assistant
+
+## سوالات کلی پروژه
+
+1. **این پروژه RAG Telegram Assistant چه کاری انجام می‌دهد؟**
+
+2. **معماری RAG در این پروژه چطور پیاده‌سازی شده؟**
+
+3. **چرا از FAISS برای vector storage استفاده شده؟**
+
+4. **تفاوت این پروژه با سایر chatbot های معمولی چیه؟**
+
+## سوالات فنی
+
+5. **چطور embeddings در این پروژه تولید می‌شه؟**
+
+6. **Chunking strategy در این پروژه چطور کار می‌کنه؟**
+
+7. **چرا RAG_CHUNK_SIZE روی 400 تنظیم شده؟**
+
+8. **Similarity threshold 0.6 چه معنایی داره؟**
+
+9. **چرا RAG_TOP_K روی 3 تنظیم شده؟**
+
+## سوالات مربوط به مدل‌ها
+
+10. **چرا از e5-small-v2 برای embedding استفاده شده؟**
+
+11. **مزایای Grok-4-fast نسبت به سایر مدل‌ها چیه؟**
+
+12. **چطور می‌تونم مدل LLM رو تغییر بدم؟**
+
+13. **پشتیبانی از چندین مدل LLM چطور پیاده‌سازی شده؟**
+
+## سوالات Caching
+
+14. **سیستم caching در این پروژه چطور کار می‌کنه؟**
+
+15. **تفاوت Redis cache و Memory cache چیه؟**
+
+16. **چرا CACHE_TTL روی 1800 ثانیه تنظیم شده؟**
+
+17. **چطور cache invalidation انجام می‌شه؟**
+
+## سوالات Performance
+
+18. **چرا EMBED_BATCH_SIZE روی 200 تنظیم شده؟**
+
+19. **چطور performance رو در این پروژه بهینه کنم؟**
+
+20. **LLM_TIMEOUT 60 ثانیه چرا انتخاب شده؟**
+
+21. **چطور concurrent requests رو handle می‌کنه؟**
+
+## سوالات امنیتی
+
+22. **سیستم user allowlist چطور کار می‌کنه؟**
+
+23. **Rate limiting در این پروژه چطور پیاده‌سازی شده؟**
+
+24. **چطور file upload ها validate می‌شن؟**
+
+25. **چه file type هایی پشتیبانی می‌شه؟**
+
+## سوالات Monitoring
+
+26. **Prometheus metrics در این پروژه چطور کار می‌کنه؟**
+
+27. **چطور performance رو monitor کنم؟**
+
+28. **Health check endpoints چه اطلاعاتی می‌دن؟**
+
+29. **Structured logging چطور پیاده‌سازی شده؟**
+
+## سوالات Deployment
+
+30. **چطور این پروژه رو در production deploy کنم؟**
+
+31. **Docker configuration چطوره؟**
+
+32. **Environment variables چطور manage می‌شن؟**
+
+33. **چطور graceful shutdown انجام می‌شه؟**
+
+## سوالات تست‌نویسی
+
+34. **تست‌نویسی در این پروژه چطور انجام می‌شه؟**
+
+35. **Coverage target چقدره؟**
+
+36. **چطور integration tests نوشته شده؟**
+
+37. **E2E tests چه چیزهایی رو test می‌کنن؟**
+
+## سوالات خاص پروژه
+
+38. **چطور OCR برای PDF ها کار می‌کنه؟**
+
+39. **پشتیبانی از فارسی و انگلیسی چطور پیاده‌سازی شده؟**
+
+40. **Error handling strategy چطوره؟**
+
+41. **Retry logic برای API calls چطور کار می‌کنه؟**
+
+42. **چطور می‌تونم logging level رو تغییر بدم؟**
+
+## سوالات تنظیمات
+
+43. **فایل .env_deepseek چه تنظیماتی داره؟**
+
+44. **چطور می‌تونم database pool size رو تغییر بدم؟**
+
+45. **Redis connection settings چطور تنظیم می‌شن؟**
+
+46. **چطور می‌تونم chunk overlap رو تغییر بدم؟**
+
+## سوالات Troubleshooting
+
+47. **اگه embedding generation کند باشه چیکار کنم؟**
+
+48. **اگه LLM response timeout بشه چیکار کنم؟**
+
+49. **چطور memory usage رو optimize کنم؟**
+
+50. **اگه Redis connection fail بشه چیکار کنم؟**

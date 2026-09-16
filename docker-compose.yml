@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  ragbot:
+    build: .
+    container_name: ragbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    # Telegram bot does outbound connections; no port needed unless exposing metrics
+    ports:
+      - "8080:8080"  # if MONITORING_ENABLE_METRICS=true
+
+    # --- Optional: Enable GPU for local 7B+ models ---
+    # Pick ONE of the following approaches depending on your environment.
+
+    # 1) Compose device requests (works in many setups)
+    # device_requests:
+    #   - capabilities: ["gpu"]
+
+    # 2) NVIDIA runtime (legacy but still used in some environments)
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=all

@@ -1,0 +1,116 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-8.4.2, pluggy-1.6.0 -- F:\rag\venv\Scripts\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default' -> database=DirectoryBasedExampleDatabase(WindowsPath('F:/rag/.hypothesis/examples'))
+rootdir: F:\rag
+configfile: pyproject.toml
+plugins: anyio-4.15.1, Faker-40.39.0, hypothesis-6.104.2, asyncio-1.1.0, cov-5.0.0, mock-3.14.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 8 items
+
+tests/e2e/test_project_e2e_complete.py::TestIntegrationServiceE2E::test_integration_service_initializes PASSED [ 12%]
+tests/e2e/test_project_e2e_complete.py::TestVectorStoreE2E::test_faiss_add_search_update_delete PASSED [ 25%]
+tests/e2e/test_project_e2e_complete.py::TestQueryComponentsE2E::test_query_aggregator_with_faiss PASSED [ 37%]
+tests/e2e/test_project_e2e_complete.py::TestQueryComponentsE2E::test_advanced_filter_with_faiss PASSED [ 50%]
+tests/e2e/test_project_e2e_complete.py::TestRAGServiceE2E::test_rag_ingest_and_query_mocked PASSED [ 62%]
+tests/e2e/test_project_e2e_complete.py::TestHealthCheckE2E::test_health_checker_vector_store PASSED [ 75%]
+tests/e2e/test_project_e2e_complete.py::TestAnalyticsE2E::test_analytics_dashboard_ml_insights PASSED [ 87%]
+tests/e2e/test_project_e2e_complete.py::TestFullPipelineE2E::test_full_pipeline_with_mocks PASSED [100%]
+
+============================== warnings summary ===============================
+tests/e2e/test_project_e2e_complete.py::TestIntegrationServiceE2E::test_integration_service_initializes
+  F:\rag\venv\Lib\site-packages\pydantic\_internal\_config.py:284: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.7/migration/
+    warnings.warn(DEPRECATION_MESSAGE, DeprecationWarning)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform win32, python 3.11.9-final-0 -----------
+Name                                          Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------------
+ragbot\__init__.py                                6      0   100%
+ragbot\analytics\__init__.py                      7      0   100%
+ragbot\analytics\analytics_dashboard.py         304    245    19%   31, 40, 51-53, 59-70, 81-93, 97-100, 104-107, 111-123, 127-141, 145-160, 164-172, 176-187, 191-262, 266-285, 289-335, 339-355, 359-373, 377-395, 399-406, 410-415, 421, 450-452, 456-502, 506-555, 561-625, 636-640, 647-649
+ragbot\analytics\ml_insights.py                 540    329    39%   117-124, 157-159, 172-181, 185-203, 214-216, 228-235, 240-247, 252-259, 267-269, 308-310, 314-351, 355-400, 405-422, 433-455, 466-501, 512-532, 536-548, 557-578, 586-588, 596, 605-607, 616-646, 666-668, 672-705, 718-738, 750-783, 812-834, 862-880, 893-895, 920-922, 947-949, 953-982, 986-1006, 1012-1027, 1033-1052, 1058-1131, 1135-1203, 1207-1208
+ragbot\analytics\predictive.py                  392    300    23%   108-158, 164-210, 214-254, 258-298, 303-337, 343-374, 380-404, 410-432, 438-450, 454-488, 492-498, 502-513, 519-528, 534-559, 565-577, 583-591, 595-621, 625-651, 657-683, 689-715, 719-733, 739-773, 779-813, 819-853, 859-893, 897-898, 902-903
+ragbot\analytics\satisfaction_tracker.py        216    182    16%   45-72, 76-125, 129-146, 150-184, 188-237, 241-275, 279-288, 292-323, 327-345, 349-368, 372-392, 396-411, 417-441, 445-468
+ragbot\analytics\usage_patterns.py              156    131    16%   28-53, 57-64, 68-71, 77-90, 94-111, 115-149, 153-173, 177-197, 201-233, 237-255, 259-321, 325-366, 370-384
+ragbot\analytics\user_behavior.py               520    456    12%   52-91, 95-108, 112-191, 195-244, 256-291, 295-308, 312-334, 338-359, 363-381, 385-414, 418-449, 453-505, 509-563, 567-603, 608-616, 622-650, 654-693, 697-715, 719-736, 740-753, 759-785, 791-807, 811-838, 842-872, 876-889, 893-901, 905-921, 925-948, 952-986, 990-1005, 1011-1028, 1032-1048, 1054-1068, 1074-1084, 1088-1102, 1106-1133
+ragbot\benchmark.py                             182    182     0%   9-441
+ragbot\cli.py                                   636    636     0%   13-1111
+ragbot\configs\__init__.py                        0      0   100%
+ragbot\main.py                                   53     53     0%   8-95
+ragbot\multi_tenant\__init__.py                   5      0   100%
+ragbot\multi_tenant\models.py                   127      0   100%
+ragbot\multi_tenant\tenant_analytics.py         307    280     9%   18-21, 25-78, 87-145, 153-254, 262-317, 325-398, 402-431, 440-480, 488-501, 509-532, 540-564, 572-598, 602-625, 629-642, 650-657, 661-667, 671-694, 698-717, 726-748, 757-779, 783-796
+ragbot\multi_tenant\tenant_auth.py              303    250    17%   125-129, 140-197, 205-242, 254-311, 321-356, 365-395, 399-403, 412-431, 442-488, 497-521, 527-561, 565-574, 578-582, 586-601, 610-623, 627-633, 645, 660-681, 685-703
+ragbot\multi_tenant\tenant_manager.py           335    302    10%   32-43, 55-106, 110-120, 126-151, 155, 159-180, 184-205, 209-229, 235-265, 271-301, 305-357, 366-411, 417-491, 497-517, 523-548, 554-577, 581-591, 597-618, 631-654, 658, 662, 666, 674-688
+ragbot\plugins\__init__.py                        7      0   100%
+ragbot\plugins\base_plugin.py                   113     41    64%   109-114, 183-192, 202-204, 214-218, 233-248, 257-265, 269, 273, 277, 290, 300, 309-311
+ragbot\plugins\plugin_loader.py                 175    147    16%   68-105, 117-143, 155-190, 204-239, 248-260, 276-304, 316-334, 347-374, 386-409
+ragbot\plugins\plugin_manager.py                188    152    19%   68, 75-77, 96-118, 130-148, 160-181, 196-235, 247-278, 293-312, 327-350, 364-385, 399-404, 416-422, 431, 443-445, 454-459, 468-483
+ragbot\plugins\plugin_marketplace.py            166    128    23%   67-72, 93-147, 159-191, 206-241, 256-272, 286-303, 318-342, 354-374, 380-408, 412-451
+ragbot\plugins\plugin_registry.py               175    134    23%   55-103, 115-157, 169, 181-182, 191, 207, 221-238, 250-276, 288-306, 318-342, 354-360, 372-378, 392-395, 408, 412-439, 447-448, 456, 464-465
+ragbot\plugins\plugin_validator.py              201    183     9%   46-60, 83-147, 159-226, 239-281, 293-321, 333-349, 361-383, 395-421, 433, 445-455
+ragbot\rag\__init__.py                            9      0   100%
+ragbot\rag\chunkers\__init__.py                  17      3    82%   14-16
+ragbot\rag\chunkers\adaptive_chunker.py         229    148    35%   42, 59-60, 66-67, 70-89, 91-110, 118-124, 136-137, 143-144, 154-178, 180-186, 191-192, 203-220, 223-224, 237-238, 245-319, 323-327, 337-344, 347-361, 371-377, 384-388, 392-395
+ragbot\rag\chunkers\chunk_optimizer.py          139    112    19%   31-34, 46-89, 92-196, 199-224, 233-234, 238-254, 259-273
+ragbot\rag\chunkers\hierarchical_chunker.py     220     99    55%   61-62, 66, 74-100, 112-119, 123-131, 138, 143, 147-164, 185-191, 217-218, 238-239, 264-265, 274-280, 285-290, 314-329, 332-341, 345, 352, 360-361, 386, 394
+ragbot\rag\exceptions.py                         51     29    43%   22-24, 28-30, 52-54, 76-78, 100-102, 119-120, 144-147, 167-168, 190-192, 214-216
+ragbot\rag\loaders\__init__.py                   12      0   100%
+ragbot\rag\loaders\advanced_loaders.py           72     22    69%   81-91, 126-154
+ragbot\rag\loaders\base.py                       39      8    79%   50, 52, 57, 124, 139, 192-193, 232
+ragbot\rag\loaders\docx.py                      430    402     7%   23-26, 36-47, 51-60, 64-73, 77-84, 88-119, 123-156, 160-180, 198-202, 205, 208-712
+ragbot\rag\loaders\html_loader.py               251    225    10%   47-71, 80-99, 108-111, 120-121, 126-163, 169-255, 260-270, 274-286, 290-303, 309-324, 330-343, 349-356, 360-387, 391-429
+ragbot\rag\loaders\markdown_loader.py           119    100    16%   39-81, 89-160, 166-170, 173-179, 182-203
+ragbot\rag\loaders\ocr_loader.py                103     85    17%   39-104, 113-121, 126-135, 138-149, 155-170, 173-180, 185-194, 197-223
+ragbot\rag\loaders\pptx_loader.py               313    286     9%   24-25, 40-44, 47, 50-213, 222-249, 253-263, 282-455, 462-480, 484-494, 498-510, 514-524, 528-545, 549-573, 577-586
+ragbot\rag\loaders\xlsx_loader.py               145    131    10%   32-160, 168-222, 226-252, 256-265
+ragbot\rag\query\__init__.py                      5      0   100%
+ragbot\rag\query\aggregation.py                 256    176    31%   105-125, 148-155, 170-198, 213-227, 258, 289-314, 329-343, 354-369, 373-402, 408-446, 454-482
+ragbot\rag\query\filters.py                     263    190    28%   95, 102, 109-110, 117-118, 137-154, 169-194, 211-235, 257-262, 281-304, 325-357, 373-394, 398-449, 455-467, 474-482, 486, 490, 498-505
+ragbot\rag\query\optimizer.py                   217     90    59%   130, 133, 136, 152, 178-179, 183-184, 188-189, 193-194, 198-199, 217-226, 235-236, 245, 247, 249, 281-291, 298-307, 311-319, 326, 341, 346, 349, 352, 357, 362, 367, 421, 437-460, 473, 477-506
+ragbot\rag\query\scoring.py                     185     79    57%   110-111, 158-164, 192-231, 238, 280-300, 306-329, 334, 338, 343, 358-370, 378-393, 399, 407, 413-459
+ragbot\rag\retrieve\__init__.py                   6      0   100%
+ragbot\rag\retrieve\advanced_retriever.py       257    122    53%   189, 219-220, 237-238, 246-257, 274, 283, 289, 296-298, 324-344, 350-351, 389-390, 415-418, 424-434, 450-494, 510-532, 538-558, 562-575, 579, 600-627, 663-689, 752-753
+ragbot\rag\retrieve\hybrid_search.py            173     33    81%   68-75, 79, 81-83, 92, 104-105, 120-121, 131-132, 138-139, 159-161, 178-194, 221, 249-252
+ragbot\rag\retrieve\query_expansion.py          214    135    37%   18-20, 76-81, 115, 119-120, 128-129, 140-141, 152-153, 165-181, 190, 193-199, 203-220, 229, 246-253, 257-259, 263-305, 309-324, 328-365, 369-377, 439-461, 505, 520-535
+ragbot\rag\retrieve\reranker.py                 276    169    39%   20-22, 85-90, 121-218, 228-276, 280-285, 291-331, 354, 357-358, 407-408, 420-426, 437-438, 445, 451-453, 459-475, 506, 511, 516, 518, 532-537, 541, 547, 549-550, 557-559, 563, 578-597, 626-677
+ragbot\rag\retrieve\retriever.py                234    214     9%   45-55, 86-343, 366-396, 413-438, 452-474, 485-546, 550, 561-575
+ragbot\rag\store\__init__.py                      7      0   100%
+ragbot\rag\store\base.py                        323    210    35%   40-41, 65-89, 117, 119, 121, 123, 127, 138, 188-216, 220, 341-357, 414-444, 458-480, 510-511, 525, 538-554, 590-600, 640-643, 657-660, 678-699, 704, 708, 726-729, 751-752, 759-776, 779-781, 785-786, 806-844, 853, 869-879, 893-903, 907-910, 914-919, 933-949
+ragbot\rag\store\chroma_store.py                411    351    15%   28-29, 51-92, 96, 100, 105-134, 141-187, 196-216, 223, 229-247, 253-323, 326-334, 337-352, 356-380, 384-411, 414-417, 426-437, 441-460, 465, 470, 473, 483-508, 522-549, 561-580, 592-604, 618-651, 667-705, 719-749, 770, 793-816, 825-833, 838-880, 889-911, 916-932, 943-953, 970-984, 987-994
+ragbot\rag\store\factory.py                     141    100    29%   110-111, 120-125, 146-160, 170, 183-193, 203, 226-287, 303-304, 318-336, 364-373, 386-393, 409-442
+ragbot\rag\store\qdrant_store.py                457    392    14%   37-38, 60-106, 110, 113, 116-121, 124-139, 143-190, 195-250, 253-261, 267-331, 340-359, 365, 371-391, 397-446, 458-468, 472-487, 493-515, 518-522, 526-546, 550, 554, 557, 560-568, 584-593, 604-632, 636-644, 649-665, 676-700, 738-746, 751-767, 770-777, 787-815, 827-847, 859-871, 885-918, 934-972, 986-999, 1020-1043
+ragbot\rag\store\weaviate_store.py              271    227    16%   27-28, 54-76, 85, 89-99, 103-108, 112-135, 139, 155-195, 212-260, 287-329, 346-381, 397-444, 453-459, 464-475, 487, 493, 503-530, 544-573, 585-606, 618-632, 647-680, 696-734, 750-764, 776-783, 795-830, 844-859, 880-903
+ragbot\security\__init__.py                       4      0   100%
+ragbot\security\content_filter.py               105    105     0%   7-225
+ragbot\security\encryption.py                   229    124    46%   53-54, 69-70, 86-88, 92-95, 138-173, 188-236, 254, 282-288, 297-332, 344, 348, 358-363, 369-371, 375-376, 401-411, 415-424, 446, 450, 473-477, 494, 498, 510-524, 533-537, 560-572
+ragbot\security\key_manager.py                  263    179    32%   118-169, 181, 197-234, 247-268, 283-313, 328-359, 368-395, 407-409, 413-418, 516-527, 531-544, 550-554, 560-564, 570-587, 591-600, 604-612, 616-625, 629-638, 644, 648, 652, 656, 660-662, 666-669
+ragbot\security\secure_backup.py                324    233    28%   61-62, 77-78, 92-93, 148-216, 245-297, 316-357, 375-400, 412-436, 446-485, 495-548, 553-568, 575-588, 592-596, 600-607, 611-613, 617-619, 668-689, 695-710, 716-730, 740-757, 769-814
+ragbot\security\security_monitor.py               9      9     0%   5-25
+ragbot\security\spam_detector.py                 15     15     0%   7-38
+ragbot\security\toxicity_detector.py             14     14     0%   7-28
+ragbot\utils\__init__.py                          0      0   100%
+ragbot\utils\async_processor.py                  54     41    24%   24-42, 51-65, 71-84, 88-93, 97-100
+ragbot\utils\batch_processor.py                  26     26     0%   5-56
+ragbot\utils\config_migration.py                 29     29     0%   7-62
+ragbot\utils\debug_helpers.py                    56     48    14%   20-28, 46-95, 109-127, 150-163, 173-199
+ragbot\utils\language_detector.py                27     27     0%   5-58
+ragbot\utils\memory_optimizer.py                 91     54    41%   44-45, 56, 59-61, 65-94, 98-104, 108-114, 118-133, 137-166, 170-175
+ragbot\utils\migration.py                       112    112     0%   8-213
+ragbot\utils\signal_handler.py                   57     57     0%   5-103
+ragbot\utils\timing.py                           92     92     0%   3-145
+ragbot\utils\vector_store_migration.py          298    298     0%   8-676
+---------------------------------------------------------------------------
+TOTAL                                         12764   9732    24%
+Coverage HTML written to dir htmlcov
+Coverage XML written to file coverage.xml
+
+=================== 8 passed, 1 warning in 63.44s (0:01:03) ===================
+
+
+=== STDERR ===
+
+
+=== EXIT CODE: 0 ===

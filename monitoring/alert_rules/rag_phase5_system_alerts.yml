@@ -1,0 +1,192 @@
+groups:
+  - name: rag_system_performance_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: ragbot_system_cpu_usage_percent > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: CriticalCPUUsage
+        expr: ragbot_system_cpu_usage_percent > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is {{ $value }}% for more than 2 minutes"
+
+      - alert: HighMemoryUsage
+        expr: ragbot_system_memory_usage_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: CriticalMemoryUsage
+        expr: ragbot_system_memory_usage_percent > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is {{ $value }}% for more than 2 minutes"
+
+      - alert: HighDiskUsage
+        expr: ragbot_system_disk_usage_percent > 90
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value }}% for more than 10 minutes"
+
+      - alert: CriticalDiskUsage
+        expr: ragbot_system_disk_usage_percent > 95
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical disk usage detected"
+          description: "Disk usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: SlowResponseTime
+        expr: ragbot_system_response_time_seconds > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Slow system response time"
+          description: "System response time is {{ $value }}s for more than 5 minutes"
+
+      - alert: CriticalResponseTime
+        expr: ragbot_system_response_time_seconds > 30
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical system response time"
+          description: "System response time is {{ $value }}s for more than 2 minutes"
+
+      - alert: HighNetworkLatency
+        expr: ragbot_system_network_latency_seconds > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High network latency detected"
+          description: "Network latency is {{ $value }}s for more than 5 minutes"
+
+      - alert: CriticalNetworkLatency
+        expr: ragbot_system_network_latency_seconds > 5
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical network latency detected"
+          description: "Network latency is {{ $value }}s for more than 2 minutes"
+
+      - alert: HighErrorRate
+        expr: ragbot_system_error_rate_percent > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High system error rate"
+          description: "System error rate is {{ $value }}% for more than 5 minutes"
+
+      - alert: CriticalErrorRate
+        expr: ragbot_system_error_rate_percent > 20
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical system error rate"
+          description: "System error rate is {{ $value }}% for more than 2 minutes"
+
+      - alert: LowThroughput
+        expr: ragbot_system_throughput_requests_per_second < 1
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Low system throughput"
+          description: "System throughput is {{ $value }} req/s for more than 10 minutes"
+
+      - alert: HighQueueLength
+        expr: ragbot_system_queue_length_total > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High queue length detected"
+          description: "Queue length is {{ $value }} for more than 5 minutes"
+
+      - alert: CriticalQueueLength
+        expr: ragbot_system_queue_length_total > 500
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical queue length detected"
+          description: "Queue length is {{ $value }} for more than 2 minutes"
+
+      - alert: HighGPUUsage
+        expr: ragbot_system_gpu_usage_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High GPU usage detected"
+          description: "GPU usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: HighGPUMemoryUsage
+        expr: ragbot_system_gpu_memory_usage_bytes > 8000000000
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High GPU memory usage detected"
+          description: "GPU memory usage is {{ $value }} bytes for more than 5 minutes"
+
+      - alert: SystemResourceExhaustion
+        expr: (ragbot_system_cpu_usage_percent > 95) or (ragbot_system_memory_usage_percent > 95) or (ragbot_system_disk_usage_percent > 95)
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "System resource exhaustion detected"
+          description: "Critical resource usage detected: CPU={{ $value }}%, Memory={{ $value }}%, Disk={{ $value }}%"
+
+      - alert: SystemPerformanceDegradation
+        expr: (ragbot_system_response_time_seconds > 10) and (ragbot_system_error_rate_percent > 5)
+        for: 3m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "System performance degradation detected"
+          description: "Response time is {{ $value }}s and error rate is {{ $value }}%"
