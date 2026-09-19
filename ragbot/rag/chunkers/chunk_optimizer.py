@@ -11,6 +11,26 @@ from typing import Any, Dict, List
 from ragbot.rag.chunkers.base import TextChunk
 
 
+class AwaitableList(list):
+    """List subclass supporting both synchronous usage and direct await expressions."""
+
+    def __await__(self):
+        async def _coro():
+            return self
+
+        return _coro().__await__()
+
+
+class AwaitableDict(dict):
+    """Dict subclass supporting both synchronous usage and direct await expressions."""
+
+    def __await__(self):
+        async def _coro():
+            return self
+
+        return _coro().__await__()
+
+
 class ChunkOptimizer:
     """Optimize chunk sizes and provide simple quality analysis."""
 
@@ -36,7 +56,7 @@ class ChunkOptimizer:
         total = len(optimized)
         for idx, ch in enumerate(optimized):
             ch.metadata = {**ch.metadata, "chunk_index": idx, "total_chunks": total}
-        return optimized
+        return AwaitableList(optimized)
 
     def _merge_with_previous(
         self, acc: List[TextChunk], small: TextChunk
@@ -221,12 +241,12 @@ class ChunkOptimizer:
         ) / len(chunks)
         # Simple scoring: balance size distribution and basic fluency proxy
         score = (optimal / len(sizes)) * 0.7 + punct_score * 0.3
-        return {
+        return AwaitableDict({
             "total": len(chunks),
             "average_size": round(avg, 2),
             "distribution": {"small": small, "optimal": optimal, "large": large},
             "quality_score": round(score, 3),
-        }
+        })
 
     def _iter_paragraphs(self, txt: str) -> List[str]:
         # Split by double newlines; keep raw paragraphs

@@ -106,12 +106,17 @@ class HierarchicalChunker(BaseChunker):
         chunks: List[TextChunk] = []
 
         # Level 1: title
-        parent_map: Dict[str, str] = {}
+        parent_map: Dict[Any, str] = {}
         last_parent_id: Optional[str] = None
         if title:
+            t_txt = title[0] if isinstance(title, (tuple, list)) else str(title)
+            t_start = title[1] if isinstance(title, (tuple, list)) and len(title) > 1 else None
+            t_end = title[2] if isinstance(title, (tuple, list)) and len(title) > 2 else None
             t_chunk = self._make_chunk(
                 text,
-                title,
+                t_txt,
+                start=t_start,
+                end=t_end,
                 meta=_HierChunkMeta(level=1, parent_id=None, type="title"),
                 index=len(chunks),
             )
@@ -120,13 +125,19 @@ class HierarchicalChunker(BaseChunker):
 
         # Level 2: sections
         for sec in sections:
+            s_txt = sec[0] if isinstance(sec, (tuple, list)) else str(sec)
+            s_start = sec[1] if isinstance(sec, (tuple, list)) and len(sec) > 1 else None
+            s_end = sec[2] if isinstance(sec, (tuple, list)) and len(sec) > 2 else None
             chunk = self._make_chunk(
                 text,
-                sec,
+                s_txt,
+                start=s_start,
+                end=s_end,
                 meta=_HierChunkMeta(level=2, parent_id=last_parent_id, type="section"),
                 index=len(chunks),
             )
             chunks.append(chunk)
+            parent_map[s_txt] = chunk.chunk_id or f"chunk_{len(chunks) - 1}"
             parent_map[sec] = chunk.chunk_id or f"chunk_{len(chunks) - 1}"
             last_parent_id = chunk.chunk_id or last_parent_id
 
@@ -373,13 +384,24 @@ class HierarchicalChunker(BaseChunker):
     def _make_chunk(
         self,
         original_text: str,
-        content: str,
+        content: Any,
         *,
         meta: _HierChunkMeta,
         index: int,
         start: Optional[int] = None,
         end: Optional[int] = None,
     ) -> TextChunk:
+        if isinstance(content, (tuple, list)):
+            if len(content) >= 3 and isinstance(content[1], int) and isinstance(content[2], int):
+                if start is None:
+                    start = content[1]
+                if end is None:
+                    end = content[2]
+                content = str(content[0])
+            elif len(content) > 0:
+                content = str(content[0])
+            else:
+                content = ""
         if start is None or end is None:
             start = original_text.find(content)
             if start < 0:

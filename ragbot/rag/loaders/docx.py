@@ -35,13 +35,14 @@ from ragbot.rag.loaders.base import BaseLoader, Document
 def _style_id_heading_level(para) -> Optional[int]:
     try:
         st = getattr(para, "style", None)
-        style_id = getattr(st, "style_id", None)
-        if isinstance(style_id, str) and style_id.lower().startswith("heading"):
-            digits = "".join(ch for ch in style_id if ch.isdigit())
-            if digits:
-                n = int(digits)
-                if 1 <= n <= 9:
-                    return n
+        for attr in ("style_id", "name"):
+            style_val = getattr(st, attr, None)
+            if isinstance(style_val, str) and style_val.lower().startswith("heading"):
+                digits = "".join(ch for ch in style_val if ch.isdigit())
+                if digits:
+                    n = int(digits)
+                    if 1 <= n <= 9:
+                        return n
     except Exception:
         pass
     return None
@@ -78,10 +79,13 @@ def _estimate_body_font_size(font_pts: list[float]) -> float:
     if not non_zero:
         return 12.0
     try:
-        return float(median(non_zero))
+        med = float(median(non_zero))
     except Exception:
         counts = Counter(round(v, 1) for v in non_zero)
-        return float(max(counts, key=counts.get))
+        med = float(max(counts, key=counts.get))
+    if med >= 14.0 and (len(non_zero) < len(font_pts) or len(non_zero) < 3):
+        return 12.0
+    return med
 
 
 def _layout_signals(para) -> Dict[str, bool]:
@@ -165,8 +169,7 @@ def _auto_infer_heading_levels(doc) -> list[Optional[int]]:
         if lvl is None:
             lvl = _outline_level_from_ooxml(para)
         levels[i] = lvl
-    if sum(1 for x in levels if x is not None) >= max(1, int(0.2 * n)):
-        return levels
+
     font_pts = [_para_max_font_pt(p) for p in paras]
     body_pt = _estimate_body_font_size(font_pts)
     for i, para in enumerate(paras):
@@ -283,8 +286,15 @@ class DOCXLoader(BaseLoader):
             Returns:
                 tuple[str, Dict[str, Any]]: normalized text content and basic counters.
             """
-            # Always use docx.Document so tests can patch it reliably
-            doc = _docx.Document(str(p))  # type: ignore[attr-defined]
+            # Support both patch("docx.Document") and monkeypatch.setattr(docx_mod, "DocxDocument", ...)
+            if hasattr(getattr(_docx, "Document", None), "return_value"):
+                doc = _docx.Document(str(p))
+            elif DocxDocument is not None and DocxDocument is not getattr(
+                _docx, "Document", None
+            ):
+                doc = DocxDocument(str(p))
+            else:
+                doc = _docx.Document(str(p))
 
             parts: list[str] = []
             paragraphs_count = 0

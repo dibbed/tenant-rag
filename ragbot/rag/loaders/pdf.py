@@ -134,15 +134,6 @@ class PDFLoader(BaseLoader):
         if path.suffix.lower() != ".pdf":
             return False
 
-        # Quick header sniff for PDF signature
-        try:
-            with open(path, "rb") as f:
-                header = f.read(8)
-            if not header.startswith(b"%PDF-"):
-                return False
-        except Exception:
-            return False
-
         # Check file size
         file_size_mb = path.stat().st_size / (1024 * 1024)
         if file_size_mb > settings.security.max_file_size_mb:

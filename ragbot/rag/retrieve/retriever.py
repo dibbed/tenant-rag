@@ -132,27 +132,13 @@ class DocumentRetriever:
                     f"Failed to embed query: {str(e)}", query=query, details=str(e)
                 ) from e
 
-            # Dynamic parameter tuning based on query length
-            q_len = len(query.split())
-            dyn_top_k = int(top_k or self.top_k)
+            # Determine top_k and similarity threshold
+            k = int(top_k or self.top_k)
             dyn_threshold = (
                 similarity_threshold
                 if similarity_threshold is not None
                 else self.similarity_threshold
             )
-            # Short queries → fewer results, higher threshold; long queries → more results, lower threshold
-            try:
-                if q_len <= 5:
-                    dyn_top_k = max(1, int(dyn_top_k * 0.8))
-                    dyn_threshold = min(1.0, max(0.0, dyn_threshold + 0.05))
-                elif q_len >= 20:
-                    dyn_top_k = max(1, int(dyn_top_k * 1.2))
-                    dyn_threshold = min(1.0, max(0.0, dyn_threshold - 0.05))
-            except Exception:
-                pass
-
-            # Perform vector search or query depending on store API
-            k = dyn_top_k
             docs: List[Any] = []
             path_used = "unknown"
             try:
@@ -228,33 +214,28 @@ class DocumentRetriever:
             except Exception:
                 pass
 
-            # Apply post-filtering by similarity_threshold for both paths when possible
-            threshold_to_use = dyn_threshold
+            # Apply post-filtering by similarity_threshold for both paths when explicitly provided
+            threshold_to_use = similarity_threshold
 
-            try:
-                filtered_docs = [
-                    d
-                    for d in docs
-                    if getattr(d, "score", None) is None
-                    or getattr(d, "score", 0.0) >= threshold_to_use
-                ]
-            except Exception:
+            if threshold_to_use is not None:
+                try:
+                    filtered_docs = [
+                        d
+                        for d in docs
+                        if getattr(d, "score", None) is None
+                        or getattr(d, "score", 0.0) >= threshold_to_use
+                    ]
+                except Exception:
+                    filtered_docs = docs
+            else:
                 filtered_docs = docs
 
-            # Limit to requested number (with fail-soft threshold relax if too few)
+            # Limit to requested number
             final_docs = filtered_docs[:k]
-            if not final_docs and filtered_docs:
-                try:
-                    relaxed = max(0.0, threshold_to_use - 0.05)
-                    final_docs = [
-                        d for d in docs if getattr(d, "score", 0.0) >= relaxed
-                    ][:k]
-                except Exception:
-                    pass
 
             # Ensure context length limit (operate only on VectorDocument to avoid mutating unknown types)
             if final_docs and isinstance(final_docs[0], VectorDocument):
-                final_docs = self._limit_context_length_tokensafe(final_docs)
+                final_docs = self._limit_context_length(final_docs)
 
             # Optional internal reranking (lightweight) if enabled
             try:

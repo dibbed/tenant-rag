@@ -204,6 +204,7 @@ class URLLoader(BaseLoader):
                 while True:
                     async with session.get(
                         source,
+                        headers=headers,
                         timeout=aiohttp.ClientTimeout(total=self.timeout),
                         allow_redirects=self.follow_redirects,
                         cookies=kwargs.get("cookies") or self._cookies_from_settings(),

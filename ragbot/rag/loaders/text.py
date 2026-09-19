@@ -488,3 +488,6 @@ def load_text_content(content: str, **kwargs: Any) -> Document:
             document_type="text",
             source=content[:100] + "..." if len(content) > 100 else content,
         ) from e
+
+
+TXTLoader = TextLoader

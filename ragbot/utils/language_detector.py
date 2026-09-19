@@ -42,7 +42,7 @@ class LanguageDetector:
         english_ratio = english_chars / total_chars
         
         # Determine primary language
-        if persian_ratio > 0.3:
+        if persian_ratio >= 0.2:
             if english_ratio > 0.3:
                 return 'mixed'
             return 'fa'

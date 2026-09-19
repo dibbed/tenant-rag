@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 
-@dataclass(slots=True)
 class Document:
     """
     Represents a loaded document with metadata.
@@ -32,20 +31,28 @@ class Document:
         metadata: Additional metadata about the document
         source: Source identifier (file path, URL, etc.)
         document_type: Type of document (pdf, url, text, etc.)
-
-    Notes:
-        For better interoperability, loaders should standardize important fields
-        via `metadata`, such as page numbers and text spans. See module notes for
-        the recommended keys.
     """
 
     text: str
     metadata: Dict[str, Any]
-    source: Optional[str] = None
-    document_type: Optional[str] = None
+    source: Optional[str]
+    document_type: Optional[str]
 
-    def __post_init__(self) -> None:
-        """Post-initialization validation."""
+    def __init__(
+        self,
+        text: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        source: Optional[str] = None,
+        document_type: Optional[str] = None,
+        *,
+        content: Optional[str] = None,
+    ) -> None:
+        """Initialize Document supporting both text and legacy content kwargs."""
+        self.text = text if text is not None else content
+        self.metadata = metadata if metadata is not None else {}
+        self.source = source
+        self.document_type = document_type
+
         if not isinstance(self.text, str):
             raise ValueError("Document text must be a string")
         if not isinstance(self.metadata, dict):

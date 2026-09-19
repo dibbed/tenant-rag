@@ -97,16 +97,24 @@ Answer:""",
         Returns:
             str: Formatted prompt for LLM
         """
+        if context_or_question is None:
+            raise ValueError("Context or question cannot be None")
+
+        if isinstance(context_or_question, list):
+            context_documents = context_or_question
+            question = question_or_context
+        else:
+            question = context_or_question
+            context_documents = question_or_context or []
+
+        if question is None:
+            raise ValueError("Question cannot be None")
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("Question cannot be empty")
+
+        language = language or "en"
+
         try:
-            # Determine parameter order based on types
-            if isinstance(context_or_question, list):
-                # Test format: build_qa_prompt(context, question, language)
-                context_documents = context_or_question
-                question = question_or_context
-            else:
-                # New format: build_qa_prompt(question, context_documents, language)
-                question = context_or_question
-                context_documents = question_or_context or []
 
             # Convert strings to VectorDocument objects if needed
             if context_documents and isinstance(context_documents[0], str):

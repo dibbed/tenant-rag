@@ -40,11 +40,8 @@ class OCRLoader(DocumentLoader):
             # بررسی فرمت فایل
             ext = "." + file_path.lower().split(".")[-1]
             if ext not in self.supported_formats:
-                raise DocumentProcessingError(
-                    f"Unsupported image format: {ext}",
-                    document_type="image",
-                    source=file_path,
-                )
+                clean_ext = ext.lstrip(".")
+                raise ValueError(f"فرمت فایل {clean_ext} پشتیبانی نمی‌شود")
 
             # بررسی اندازه فایل (ایمن)
             try:
@@ -98,7 +95,7 @@ class OCRLoader(DocumentLoader):
 
             return document
 
-        except DocumentProcessingError:
+        except (DocumentProcessingError, ValueError):
             raise
         except Exception as e:
             raise DocumentProcessingError(
@@ -129,7 +126,7 @@ class OCRLoader(DocumentLoader):
         cleaned_lines = []
         for line in lines:
             # حذف خطوط کوتاه (احتمالاً خطا)
-            if len(line) > 2:
+            if len(line) > 5:
                 cleaned_lines.append(line)
 
         return "\n".join(cleaned_lines)

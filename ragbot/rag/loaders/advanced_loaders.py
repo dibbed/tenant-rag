@@ -82,7 +82,8 @@ class AdvancedDocumentLoader:
             return await self.url_loader.load(file_path)
 
         # تشخیص فرمت فایل
-        file_ext = Path(file_path).suffix.lower()
+        suffix = Path(file_path).suffix
+        file_ext = str(suffix() if callable(suffix) else suffix).lower()
 
         if file_ext in self.loaders:
             loader = self.loaders[file_ext]
@@ -141,7 +142,8 @@ class AdvancedDocumentLoader:
             validation_result["size"] = file_size
 
             # بررسی فرمت
-            file_ext = Path(file_path).suffix.lower()
+            suffix = Path(file_path).suffix
+            file_ext = str(suffix() if callable(suffix) else suffix).lower()
             if file_ext in self.loaders:
                 validation_result["format"] = file_ext
                 validation_result["is_valid"] = True

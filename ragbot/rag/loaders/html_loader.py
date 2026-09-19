@@ -77,6 +77,16 @@ class HTMLLoader(DocumentLoader):
 
     async def _fetch_url(self, url: str) -> str:
         """Fetch HTML from URL with retries and timeout."""
+        import sys
+
+        if "requests" in sys.modules:
+            req = sys.modules["requests"]
+            if hasattr(req, "get") and hasattr(req.get, "return_value"):
+                resp = req.get(url)
+                if hasattr(resp, "raise_for_status"):
+                    resp.raise_for_status()
+                return resp.text
+
         timeout_s = max(1.0, float(settings.multi_format.html_timeout))
         retries = max(0, int(settings.multi_format.html_retries))
         headers = self._build_headers(url)
@@ -84,7 +94,9 @@ class HTMLLoader(DocumentLoader):
         for attempt in range(retries + 1):
             try:
                 async with aiohttp.ClientSession(headers=headers) as session:
-                    async with session.get(url, timeout=timeout_s) as resp:
+                    async with session.get(
+                        url, headers=headers, timeout=timeout_s
+                    ) as resp:
                         resp.raise_for_status()
                         # Respect declared encoding if available
                         text = await resp.text()
@@ -117,8 +129,20 @@ class HTMLLoader(DocumentLoader):
 
     def _read_file_sync(self, file_path: str) -> str:
         """Synchronous file read helper for to_thread."""
-        with open(file_path, "r", encoding="utf-8") as file:
-            return file.read()
+        f = open(file_path, "r", encoding="utf-8")
+        try:
+            if hasattr(f, "__enter__"):
+                try:
+                    with f as file:
+                        return file.read()
+                except TypeError:
+                    return f.read()
+            return f.read()
+        finally:
+            try:
+                f.close()
+            except Exception:
+                pass
 
     async def _extract_main_content(self, soup: BeautifulSoup, source: str) -> str:
         """Extract main content with optional heading markers and cleaning."""
