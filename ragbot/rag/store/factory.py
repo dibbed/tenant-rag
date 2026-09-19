@@ -147,6 +147,12 @@ class VectorStoreFactory:
             RuntimeError: If store creation fails
         """
         store_type = store_type.lower().strip()
+        aliases = {
+            "chromadb": "chroma",
+            "qdrant_client": "qdrant",
+            "weaviate_client": "weaviate",
+        }
+        store_type = aliases.get(store_type, store_type)
 
         if store_type not in cls._store_registry:
             available_stores = list(cls._store_registry.keys())

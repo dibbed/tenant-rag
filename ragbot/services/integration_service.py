@@ -600,6 +600,43 @@ class IntegrationService:
 
         return summary
 
+    async def track_user_action(
+        self, user_id: str, action: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Track user action in analytics dashboard"""
+        if self.analytics_dashboard:
+            await self.analytics_dashboard.track_user_action(user_id, action, metadata)
+
+    async def record_satisfaction_feedback(
+        self,
+        user_id: str,
+        query: str,
+        answer: str,
+        rating: int,
+        feedback_text: Optional[str] = None,
+    ) -> None:
+        """Record user satisfaction feedback"""
+        if self.analytics_dashboard:
+            await self.analytics_dashboard.record_satisfaction_feedback(
+                user_id, query, answer, rating, feedback_text
+            )
+
+    async def get_user_analytics(self, user_id: str) -> Dict[str, Any]:
+        """Get analytics for specific user"""
+        if self.analytics_dashboard:
+            return await self.analytics_dashboard.get_user_analytics(user_id)
+        return {"user_id": user_id, "behavior_insights": {}, "satisfaction_profile": {}}
+
+    async def get_analytics_report(self, days: int = 30) -> Dict[str, Any]:
+        """Get analytics report"""
+        if self.analytics_dashboard:
+            return await self.analytics_dashboard.get_analytics_report(days=days)
+        return {}
+
+    async def get_analytics_dashboard(self) -> Any:
+        """Get analytics dashboard instance"""
+        return self.analytics_dashboard
+
 
 async def get_integration_service() -> IntegrationService:
     """Get global integration service instance"""

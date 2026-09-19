@@ -8,6 +8,7 @@ SearchResult/VectorDocument compatibility and optional metadata filtering.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import Any, Dict, List, Optional
 
@@ -104,6 +105,9 @@ class ChromaVectorStore(BaseVectorStore):
     ) -> Dict[str, Any]:
         if not metadata_filter:
             return {}
+        if "$and" in metadata_filter or "$or" in metadata_filter:
+            return metadata_filter
+
         where: Dict[str, Any] = {}
         for k, v in metadata_filter.items():
             if isinstance(v, dict):
@@ -122,7 +126,7 @@ class ChromaVectorStore(BaseVectorStore):
                         "$not_contains",
                     }:
                         w[op] = val
-                if not w and "$and" in v or "$or" in v:
+                if not w and ("$and" in v or "$or" in v):
                     # passthrough compound (rare)
                     where[k] = v
                 elif w:
@@ -131,6 +135,9 @@ class ChromaVectorStore(BaseVectorStore):
                 where[k] = {"$in": v}
             else:
                 where[k] = {"$eq": v}
+
+        if len(where) > 1:
+            return {"$and": [{k: v} for k, v in where.items()]}
         return where
 
     # -------------- interface --------------
@@ -259,7 +266,7 @@ class ChromaVectorStore(BaseVectorStore):
                 query_embeddings=[query_embedding],
                 n_results=int(top_k),
                 where=where or None,
-                include=["documents", "metadatas", "distances", "ids"],
+                include=["documents", "metadatas", "distances"],
             )
 
         try:
@@ -330,20 +337,23 @@ class ChromaVectorStore(BaseVectorStore):
         if isinstance(value, list):
             return [self._sanitize_metadata_value(v) for v in value]
         if isinstance(value, dict):
-            return {str(k): self._sanitize_metadata_value(v) for k, v in value.items()}
+            return json.dumps(value, ensure_ascii=False)
         return str(value)
 
     def _prepare_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         normalized: Dict[str, Any] = {}
-        for key, value in metadata.items():
-            normalized[key] = self._sanitize_metadata_value(value)
-
-        span = normalized.get("span")
+        # Extract span if present before sanitization
+        span = metadata.get("span")
         if isinstance(span, dict):
-            if "start" in span and "span_start" not in normalized:
+            if "start" in span:
                 normalized["span_start"] = span["start"]
-            if "end" in span and "span_end" not in normalized:
+            if "end" in span:
                 normalized["span_end"] = span["end"]
+
+        for key, value in metadata.items():
+            if key == "span" and isinstance(value, dict):
+                continue  # already flattened into span_start / span_end
+            normalized[key] = self._sanitize_metadata_value(value)
 
         for key in self._DUP_KEYS:
             if key in normalized:
@@ -357,24 +367,22 @@ class ChromaVectorStore(BaseVectorStore):
             # get by ids
             return self.collection.get(
                 ids=[document_id],
-                include=["documents", "metadatas", "embeddings", "ids"],
+                include=["documents", "metadatas", "embeddings"],
             )  # type: ignore
 
         try:
             res = await self._to_thread(_get)
-            ids = res.get("ids") or [[]]
-            if not ids[0]:
+            ids = res.get("ids") or []
+            if not ids:
                 return None
-            content = (
-                (res.get("documents") or [[]])[0][0] if res.get("documents") else ""
-            )
-            meta = (res.get("metadatas") or [[]])[0][0] if res.get("metadatas") else {}
-            emb = (res.get("embeddings") or [[]])[0][0] if res.get("embeddings") else []
+            docs = res.get("documents") or []
+            metas = res.get("metadatas") or []
+            embs = res.get("embeddings") or []
             return VectorDocument(
-                id=str(ids[0][0]),
-                content=content or "",
-                embedding=emb or [],
-                metadata=meta or {},
+                id=str(ids[0]),
+                content=docs[0] if docs else "",
+                embedding=embs[0] if embs is not None and len(embs) > 0 else [],
+                metadata=metas[0] if metas else {},
             )
         except Exception:
             return None
@@ -387,23 +395,23 @@ class ChromaVectorStore(BaseVectorStore):
         def _get():
             return self.collection.get(
                 ids=document_ids,
-                include=["documents", "metadatas", "embeddings", "ids"],
+                include=["documents", "metadatas", "embeddings"],
             )  # type: ignore
 
         try:
             res = await self._to_thread(_get)
-            ids = res.get("ids") or [[]]
-            docs = res.get("documents") or [[]]
-            metas = res.get("metadatas") or [[]]
-            embs = res.get("embeddings") or [[]]
+            ids = res.get("ids") or []
+            docs = res.get("documents") or []
+            metas = res.get("metadatas") or []
+            embs = res.get("embeddings") or []
             out: List[VectorDocument] = []
-            for i in range(len(ids[0])):
+            for i, doc_id in enumerate(ids):
                 out.append(
                     VectorDocument(
-                        id=str(ids[0][i]),
-                        content=docs[0][i] if i < len(docs[0]) else "",
-                        embedding=embs[0][i] if i < len(embs[0]) else [],
-                        metadata=metas[0][i] if i < len(metas[0]) else {},
+                        id=str(doc_id),
+                        content=docs[i] if i < len(docs) else "",
+                        embedding=embs[i] if embs is not None and i < len(embs) else [],
+                        metadata=metas[i] if metas and i < len(metas) else {},
                     )
                 )
             return out
@@ -722,7 +730,7 @@ class ChromaVectorStore(BaseVectorStore):
 
             def _get():
                 return self.collection.get(
-                    where=where, include=["documents", "metadatas", "ids"]
+                    where=where, include=["documents", "metadatas"]
                 )
 
             results = await self._to_thread(_get)
@@ -848,7 +856,7 @@ class ChromaVectorStore(BaseVectorStore):
                         query_texts=[keyword],
                         n_results=top_k,
                         where_document={"$contains": keyword},
-                        include=["documents", "metadatas", "ids"],
+                        include=["documents", "metadatas"],
                     )
                 )
             except Exception:
@@ -1001,23 +1009,23 @@ class ChromaVectorStore(BaseVectorStore):
 
             def _get(current_offset=offset):
                 return self.collection.get(  # type: ignore
-                    include=["ids", "documents", "metadatas", "embeddings"],
+                    include=["documents", "metadatas", "embeddings"],
                     limit=batch_size,
                     offset=current_offset,
                 )
 
             res = await self._to_thread(_get)
-            ids = res.get("ids") or [[]]
-            if not ids[0]:
+            ids = res.get("ids") or []
+            if not ids:
                 break
-            docs = res.get("documents") or [[]]
-            metas = res.get("metadatas") or [[]]
-            embs = res.get("embeddings") or [[]]
-            for i, doc_id in enumerate(ids[0]):
+            docs = res.get("documents") or []
+            metas = res.get("metadatas") or []
+            embs = res.get("embeddings") or []
+            for i, doc_id in enumerate(ids):
                 yield VectorDocument(
                     id=str(doc_id),
-                    content=docs[0][i] if i < len(docs[0]) else "",
-                    embedding=embs[0][i] if i < len(embs[0]) else [],
-                    metadata=metas[0][i] if i < len(metas[0]) else {},
+                    content=docs[i] if i < len(docs) else "",
+                    embedding=embs[i] if embs is not None and i < len(embs) else [],
+                    metadata=metas[i] if metas and i < len(metas) else {},
                 )
-            offset += len(ids[0])
+            offset += len(ids)

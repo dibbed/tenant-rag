@@ -108,7 +108,7 @@ class VectorDocument:
     id: str
     content: str
     embedding: List[float]
-    metadata: Dict[str, Any]
+    metadata: Optional[Dict[str, Any]] = None
     score: Optional[float] = None
 
     def __post_init__(self) -> None:
@@ -124,7 +124,9 @@ class VectorDocument:
                 self.embedding = list(self.embedding)
             except Exception:
                 raise ValueError("Document embedding must be a list")
-        if not isinstance(self.metadata, dict):
+        if self.metadata is None:
+            self.metadata = {}
+        elif not isinstance(self.metadata, dict):
             raise ValueError("Document metadata must be a dictionary")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -479,6 +481,8 @@ class BaseVectorStore(ABC):
                 chunk_metadata["start_index"] = getattr(ch, "start_index", 0)
             if hasattr(ch, "end_index") and "end_index" not in chunk_metadata:
                 chunk_metadata["end_index"] = getattr(ch, "end_index", len(t))
+            if "chunk_length" not in chunk_metadata:
+                chunk_metadata["chunk_length"] = len(t)
 
             docs.append(VectorDocument(id=doc_id, content=t, embedding=e, metadata=chunk_metadata))
 
@@ -608,8 +612,9 @@ class BaseVectorStore(ABC):
         Raises:
             VectorStoreError: If retrieval fails
         """
-        # Default implementation: raise NotImplementedError
-        # Concrete implementations must override this method
+        # Default implementation: return from documents dict if available, otherwise raise NotImplementedError
+        if hasattr(self, "documents") and isinstance(self.documents, dict):
+            return self.documents.get(document_id)
         raise NotImplementedError(
             f"{self.__class__.__name__} must implement get_document method"
         )
@@ -640,6 +645,27 @@ class BaseVectorStore(ABC):
                 continue
 
         return documents
+
+    async def get_documents_by_metadata(
+        self, filters: Dict[str, Any]
+    ) -> List[VectorDocument]:
+        """
+        Get documents matching metadata filter criteria.
+
+        Args:
+            filters: Dictionary of filter criteria
+
+        Returns:
+            List[VectorDocument]: Matching documents
+        """
+        if hasattr(self, "get_all_documents") and callable(self.get_all_documents):
+            res = self.get_all_documents()
+            all_docs = await res if hasattr(res, "__await__") else res
+        elif hasattr(self, "documents") and isinstance(self.documents, dict):
+            all_docs = list(self.documents.values())
+        else:
+            all_docs = []
+        return self.filter_documents(all_docs, filters)
 
     def get_document_count(self) -> int:
         """
@@ -892,11 +918,22 @@ class BaseVectorStore(ABC):
         Returns:
             Dict[str, Any]: Store information
         """
+        store_type = (
+            self.get_store_type()
+            if hasattr(self, "get_store_type") and callable(self.get_store_type)
+            else getattr(self, "store_type", self.__class__.__name__)
+        )
         return {
-            "store_type": self.__class__.__name__,
+            "store_type": store_type,
             "embedding_dimension": self.embedding_dimension,
             "similarity_metric": self.similarity_metric,
             "document_count": self.get_document_count(),
+            "features": {
+                "metadata_filtering": self.enable_metadata_filtering,
+                "semantic_chunking": self.enable_semantic_chunking,
+                "hybrid_search": self.enable_hybrid_search,
+                "reranking": self.enable_reranking,
+            },
             "index_path": self.index_path,
             "config": self.config,
         }
@@ -908,22 +945,73 @@ class BaseVectorStore(ABC):
         Returns:
             Dict[str, Any]: Health check results
         """
+        store_type = (
+            self.get_store_type()
+            if hasattr(self, "get_store_type") and callable(self.get_store_type)
+            else getattr(self, "store_type", self.__class__.__name__)
+        )
         try:
+            if hasattr(self, "documents") and self.documents is None:
+                raise RuntimeError("Vector store storage is unavailable")
             document_count = self.get_document_count()
             return {
                 "status": "healthy",
-                "store_type": self.__class__.__name__,
+                "store_type": store_type,
                 "document_count": document_count,
                 "embedding_dimension": self.embedding_dimension,
+                "features": {
+                    "metadata_filtering": self.enable_metadata_filtering,
+                    "semantic_chunking": self.enable_semantic_chunking,
+                    "hybrid_search": self.enable_hybrid_search,
+                    "reranking": self.enable_reranking,
+                },
+                "performance": {
+                    "batch_size": self.batch_size,
+                    "timeout": self.timeout,
+                },
                 "test_successful": True,
             }
         except Exception as e:
             return {
                 "status": "unhealthy",
-                "store_type": self.__class__.__name__,
+                "store_type": store_type,
                 "error": str(e),
                 "test_successful": False,
             }
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """
+        Get vector store statistics.
+
+        Returns:
+            Dict[str, Any]: Statistics dictionary
+        """
+        store_type = (
+            self.get_store_type()
+            if hasattr(self, "get_store_type") and callable(self.get_store_type)
+            else getattr(self, "store_type", self.__class__.__name__)
+        )
+        try:
+            document_count = self.get_document_count()
+        except Exception:
+            document_count = 0
+
+        return {
+            "store_type": store_type,
+            "document_count": document_count,
+            "embedding_dimension": self.embedding_dimension,
+            "similarity_metric": self.similarity_metric,
+            "features": {
+                "metadata_filtering": self.enable_metadata_filtering,
+                "semantic_chunking": self.enable_semantic_chunking,
+                "hybrid_search": self.enable_hybrid_search,
+                "reranking": self.enable_reranking,
+            },
+            "performance": {
+                "batch_size": self.batch_size,
+                "timeout": self.timeout,
+            },
+        }
 
     # --------- Maintenance/analytics helpers (optional) ---------
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Any, Dict, List, Optional
+import uuid
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -55,6 +56,14 @@ class QdrantVectorStore(BaseVectorStore):
         "file_name",
         "canonical_url",
     }
+
+    @staticmethod
+    def _to_qdrant_id(doc_id: Any) -> str:
+        s = str(doc_id)
+        try:
+            return str(uuid.UUID(s))
+        except Exception:
+            return str(uuid.uuid5(uuid.NAMESPACE_DNS, s))
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -291,12 +300,17 @@ class QdrantVectorStore(BaseVectorStore):
             payload: Dict[str, Any] = {
                 "content": d.content,
                 "metadata": normalized_meta,
+                "_doc_id": d.id,
             }
             payload.update(duplicates)
             return payload
 
         points = [
-            PointStruct(id=d.id, vector=d.embedding, payload=_payload_for(d))
+            PointStruct(
+                id=self._to_qdrant_id(d.id),
+                vector=d.embedding,
+                payload=_payload_for(d),
+            )
             for d in documents
         ]
 
@@ -342,7 +356,7 @@ class QdrantVectorStore(BaseVectorStore):
         if embeddings is None:
             embeddings = [[0.0] * int(self.vector_size) for _ in texts]
         normalized_meta = [
-            self._prepare_metadata(m) for m in (metadata or [{} for _ in texts])
+            self._prepare_metadata(m)[0] for m in (metadata or [{} for _ in texts])
         ]
         docs: List[VectorDocument] = []
         for i, t in enumerate(texts):
@@ -375,7 +389,8 @@ class QdrantVectorStore(BaseVectorStore):
 
         def _delete():
             self.client.delete(
-                collection_name=self.collection_name, points_selector=document_ids
+                collection_name=self.collection_name,
+                points_selector=[self._to_qdrant_id(i) for i in document_ids],
             )
 
         await self._to_thread(_delete)
@@ -399,25 +414,35 @@ class QdrantVectorStore(BaseVectorStore):
         started = time.time()
 
         def _search():
-            return self.client.search(
+            if hasattr(self.client, "search"):
+                return self.client.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_embedding,
+                    limit=int(top_k),
+                    query_filter=flt,
+                )
+            resp = self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_embedding,
+                query=query_embedding,
                 limit=int(top_k),
                 query_filter=flt,
             )
+            return getattr(resp, "points", resp)
 
         res = await self._to_thread(_search)
         duration = time.time() - started
         docs: List[VectorDocument] = []
         for pt in res:
             try:
-                content = (pt.payload or {}).get("content", "")
-                metadata = (pt.payload or {}).get("metadata", {})
+                payload = pt.payload or {}
+                content = payload.get("content", "")
+                metadata = payload.get("metadata", {})
+                doc_id = payload.get("_doc_id", str(pt.id))
             except Exception:
-                content, metadata = "", {}
+                content, metadata, doc_id = "", {}, str(pt.id)
             docs.append(
                 VectorDocument(
-                    id=str(pt.id),
+                    id=doc_id,
                     content=content,
                     embedding=query_embedding,
                     metadata=metadata,
@@ -471,7 +496,7 @@ class QdrantVectorStore(BaseVectorStore):
     async def get_document(self, document_id: str) -> Optional[VectorDocument]:
         def _retrieve():
             return self.client.retrieve(
-                collection_name=self.collection_name, ids=[document_id]
+                collection_name=self.collection_name, ids=[self._to_qdrant_id(document_id)]
             )
 
         pts = await self._to_thread(_retrieve)
@@ -482,10 +507,11 @@ class QdrantVectorStore(BaseVectorStore):
             payload = pt.payload or {}
             content = payload.get("content", "")
             metadata = payload.get("metadata", {})
+            doc_id = payload.get("_doc_id", str(pt.id))
         except Exception:
-            content, metadata = "", {}
+            content, metadata, doc_id = "", {}, str(pt.id)
         return VectorDocument(
-            id=str(pt.id), content=content, embedding=[], metadata=metadata
+            id=doc_id, content=content, embedding=[], metadata=metadata
         )
 
     @log_store_errors("get_documents")
@@ -495,7 +521,8 @@ class QdrantVectorStore(BaseVectorStore):
 
         def _retrieve():
             return self.client.retrieve(
-                collection_name=self.collection_name, ids=document_ids
+                collection_name=self.collection_name,
+                ids=[self._to_qdrant_id(i) for i in document_ids],
             )
 
         pts = await self._to_thread(_retrieve)
@@ -505,11 +532,12 @@ class QdrantVectorStore(BaseVectorStore):
                 payload = pt.payload or {}
                 content = payload.get("content", "")
                 metadata = payload.get("metadata", {})
+                doc_id = payload.get("_doc_id", str(pt.id))
             except Exception:
-                content, metadata = "", {}
+                content, metadata, doc_id = "", {}, str(pt.id)
             out.append(
                 VectorDocument(
-                    id=str(pt.id), content=content, embedding=[], metadata=metadata
+                    id=doc_id, content=content, embedding=[], metadata=metadata
                 )
             )
         return out
