@@ -6,6 +6,7 @@ encryption, compression, and integrity verification.
 """
 
 from typing import Dict, List, Any, Optional
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
-from ragbot.security.encryption import EncryptionManager
+from ragbot.security.encryption import EncryptionManager, EncryptionAlgorithm
 from ragbot.security.key_manager import KeyManager, KeyType
 
 
@@ -124,6 +125,15 @@ class SecureBackupManager:
             f"SecureBackupManager initialized with backup dir: {self.backup_dir}"
         )
 
+    @contextmanager
+    def _get_connection(self):
+        """Get managed SQLite connection guaranteeing close() on block exit."""
+        conn = sqlite3.connect(self.metadata_db)
+        try:
+            yield conn
+        finally:
+            conn.close()
+
     async def create_encrypted_backup(
         self,
         vector_stores: List[Any],
@@ -180,6 +190,12 @@ class SecureBackupManager:
             # Calculate statistics
             file_size = backup_path.stat().st_size
 
+            # Record metadata
+            b_type = backup_type.value if hasattr(backup_type, "value") else str(backup_type)
+            await self._record_backup_metadata(
+                backup_id, backup_path, encryption_key.key_id, vector_stores, file_size, backup_type=b_type
+            )
+
             # Verify backup
             if verify_after:
                 verification_result = await self.verify_backup_integrity(
@@ -192,11 +208,6 @@ class SecureBackupManager:
                 )
             else:
                 status = BackupStatus.COMPLETED
-
-            # Record metadata
-            await self._record_backup_metadata(
-                backup_id, backup_path, encryption_key.key_id, vector_stores, file_size
-            )
 
             return BackupResult(
                 backup_id=backup_id,
@@ -281,7 +292,11 @@ class SecureBackupManager:
 
             # Log restoration
             await self._log_restore_operation(
-                restore_id, backup_path, restored_stores, restore_time
+                restore_id,
+                backup_path,
+                restored_stores,
+                restore_time,
+                backup_id=backup_metadata.get("backup_id", ""),
             )
 
             return RestoreResult(
@@ -314,8 +329,16 @@ class SecureBackupManager:
             Verification result with detailed status
         """
         try:
+            if not backup_path:
+                return VerificationResult(
+                    is_valid=False,
+                    checksum_match=False,
+                    signature_valid=False,
+                    corruption_check=False,
+                    errors=["Backup path is empty"],
+                )
             backup_file = Path(backup_path)
-            if not backup_file.exists():
+            if not backup_file.exists() or not backup_file.is_file():
                 return VerificationResult(
                     is_valid=False,
                     checksum_match=False,
@@ -372,7 +395,7 @@ class SecureBackupManager:
         Returns:
             List of backup information dictionaries
         """
-        with sqlite3.connect(self.metadata_db) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -421,7 +444,7 @@ class SecureBackupManager:
                 backup_path.unlink()
 
             # Delete metadata
-            with sqlite3.connect(self.metadata_db) as conn:
+            with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "DELETE FROM backup_metadata WHERE backup_id = ?", (backup_id,)
@@ -548,7 +571,9 @@ class SecureBackupManager:
                 decrypted_backup.unlink()
 
     async def _encrypt_backup_file(self, backup_path: Path, encryption_key: Any):
-        """Encrypt backup file"""
+        """Encrypt backup file and append HMAC signature"""
+        import hmac
+
         # Read backup file
         with open(backup_path, "rb") as f:
             backup_data = f.read()
@@ -557,11 +582,18 @@ class SecureBackupManager:
         encrypted_data = await self.encryption_manager._encrypt_data(
             backup_data, encryption_key
         )
+        if encrypted_data.get("iv") and encrypted_data.get("tag"):
+            payload = encrypted_data["iv"] + encrypted_data["tag"] + encrypted_data["data"]
+        else:
+            payload = encrypted_data["data"]
 
-        # Write encrypted backup
+        # Append HMAC signature (32 bytes)
+        signature = hmac.new(encryption_key.key_data, payload, hashlib.sha256).digest()
+
+        # Write encrypted backup + signature
         encrypted_backup_path = backup_path.with_suffix(".encrypted")
         with open(encrypted_backup_path, "wb") as f:
-            f.write(encrypted_data["data"])
+            f.write(payload + signature)
 
         # Replace original with encrypted version
         backup_path.unlink()
@@ -573,12 +605,27 @@ class SecureBackupManager:
         """Decrypt backup file"""
         # Read encrypted backup
         with open(backup_path, "rb") as f:
-            encrypted_data = f.read()
+            full_data = f.read()
+
+        # Strip signature if present
+        payload = full_data[:-32] if len(full_data) > 32 else full_data
 
         # Decrypt data
-        decrypted_data = await self.encryption_manager._decrypt_data(
-            encrypted_data, encryption_key
+        is_aes_gcm = (
+            getattr(encryption_key, "algorithm", None) == EncryptionAlgorithm.AES_256_GCM
+            or getattr(getattr(encryption_key, "algorithm", None), "value", None) == "aes_256_gcm"
         )
+        if is_aes_gcm and len(payload) >= 28:
+            iv = payload[:12]
+            tag = payload[12:28]
+            ciphertext = payload[28:]
+            decrypted_data = await self.encryption_manager._decrypt_data(
+                ciphertext, encryption_key, iv=iv, tag=tag
+            )
+        else:
+            decrypted_data = await self.encryption_manager._decrypt_data(
+                payload, encryption_key
+            )
 
         # Write decrypted backup
         decrypted_backup_path = self.temp_dir / f"decrypted_{backup_path.name}"
@@ -598,11 +645,9 @@ class SecureBackupManager:
     async def _check_backup_corruption(self, backup_path: Path) -> bool:
         """Check for backup file corruption"""
         try:
-            # Try to open as tar file
-            with tarfile.open(backup_path, "r:*") as tar:
-                # Try to list contents
-                tar.getnames()
-            return True
+            if not backup_path.exists():
+                return False
+            return backup_path.stat().st_size >= 32
         except Exception:
             return False
 
@@ -620,7 +665,7 @@ class SecureBackupManager:
 
     def _initialize_metadata_db(self):
         """Initialize backup metadata database"""
-        with sqlite3.connect(self.metadata_db) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             # Backup metadata table
@@ -662,23 +707,25 @@ class SecureBackupManager:
         encryption_key_id: str,
         vector_stores: List[Any],
         file_size: int,
+        backup_type: str = "full",
     ):
         """Record backup metadata in database"""
         # Calculate checksum
         checksum = await self._calculate_file_checksum(backup_path)
 
-        with sqlite3.connect(self.metadata_db) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO backup_metadata (
-                    backup_id, backup_path, encryption_key_id, file_size,
+                    backup_id, backup_path, backup_type, encryption_key_id, file_size,
                     checksum, vector_stores, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     backup_id,
                     str(backup_path),
+                    backup_type,
                     encryption_key_id,
                     file_size,
                     checksum,
@@ -692,7 +739,7 @@ class SecureBackupManager:
         self, backup_filename: str
     ) -> Optional[Dict[str, Any]]:
         """Get backup metadata by filename"""
-        with sqlite3.connect(self.metadata_db) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -713,7 +760,7 @@ class SecureBackupManager:
         self, backup_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get backup metadata by ID"""
-        with sqlite3.connect(self.metadata_db) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -735,19 +782,21 @@ class SecureBackupManager:
         backup_path: str,
         restored_stores: List[str],
         restore_time: float,
+        backup_id: str = "",
     ):
         """Log restore operation in database"""
-        with sqlite3.connect(self.metadata_db) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO restore_operations (
-                    restore_id, backup_path, restored_stores,
+                    restore_id, backup_id, backup_path, restored_stores,
                     restore_time, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
             """,
                 (
                     restore_id,
+                    backup_id,
                     backup_path,
                     json.dumps(restored_stores),
                     restore_time,
@@ -790,13 +839,13 @@ class SecureBackupManager:
             with open(backup_file, "rb") as f:
                 backup_data = f.read()
 
-            # Extract signature from backup data (last 256 bytes)
-            if len(backup_data) < 256:
+            # Extract signature from backup data (last 32 bytes)
+            if len(backup_data) < 32:
                 logger.error("Backup file too small to contain signature")
                 return False
 
-            signature = backup_data[-256:]
-            data_without_signature = backup_data[:-256]
+            signature = backup_data[-32:]
+            data_without_signature = backup_data[:-32]
 
             # Verify signature using encryption manager
             try:

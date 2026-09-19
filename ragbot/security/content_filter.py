@@ -61,11 +61,11 @@ class ContentFilter:
 
         # Spam patterns
         self.spam_patterns = [
-            # r"https?://[^\s]+",  # URLs
-            # r"@\w+",  # mentions
-            # r"#\w+",  # hashtags
-            # r"\$\w+",  # crypto tickers
-            # r"[A-Z]{3,}",  # long uppercase runs
+            r"https?://[^\s]+",  # URLs
+            r"@\w+",  # mentions
+            r"#\w+",  # hashtags
+            r"\$\w+",  # crypto tickers
+            r"[A-Z]{3,}",  # long uppercase runs
         ]
 
         # Sensitive words removed to avoid false positives for educational content

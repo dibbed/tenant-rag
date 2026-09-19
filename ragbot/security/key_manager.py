@@ -6,6 +6,7 @@ key generation, storage, rotation, and lifecycle management.
 """
 
 from typing import Dict, List, Any, Optional
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 import os
@@ -92,6 +93,15 @@ class KeyManager:
         self._initialize_database()
 
         logger.info(f"KeyManager initialized with storage at {self.storage_path}")
+
+    @contextmanager
+    def _get_connection(self):
+        """Get managed SQLite connection guaranteeing close() on block exit."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     async def generate_key(
         self,
@@ -325,7 +335,7 @@ class KeyManager:
         Returns:
             List of key information dictionaries
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             query = "SELECT * FROM keys WHERE 1=1"
@@ -365,7 +375,7 @@ class KeyManager:
         Returns:
             Dictionary with key statistics
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             # Total keys
@@ -468,7 +478,7 @@ class KeyManager:
 
     def _initialize_database(self):
         """Initialize key management database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             # Keys table
@@ -567,7 +577,7 @@ class KeyManager:
         self, key: EncryptionKey, key_type: KeyType, algorithm: str
     ):
         """Record key creation in database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -588,7 +598,7 @@ class KeyManager:
 
     async def _get_key_info(self, key_id: str) -> Optional[Dict[str, Any]]:
         """Get key information from database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM keys WHERE key_id = ?", (key_id,))
             row = cursor.fetchone()
@@ -601,7 +611,7 @@ class KeyManager:
 
     async def _update_key_status(self, key_id: str, status: KeyStatus):
         """Update key status in database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -613,7 +623,7 @@ class KeyManager:
 
     async def _log_key_action(self, key_id: str, action: str, details: str):
         """Log key action in database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -626,7 +636,7 @@ class KeyManager:
 
     async def _record_key_rotation(self, old_key_id: str, new_key_id: str):
         """Record key rotation in database"""
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """

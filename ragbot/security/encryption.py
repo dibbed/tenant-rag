@@ -145,19 +145,35 @@ class EncryptionManager:
             content_bytes = document.content.encode("utf-8")
             encrypted_content = await self._encrypt_data(content_bytes, key)
 
-            # Encrypt metadata (use same IV and tag for consistency)
+            # Encrypt metadata
             metadata_bytes = json.dumps(document.metadata).encode("utf-8")
             encrypted_metadata = await self._encrypt_data(metadata_bytes, key)
 
-            # Encrypt embeddings (use same IV and tag for consistency)
+            # Encrypt embeddings
             embeddings_bytes = json.dumps(document.embedding).encode("utf-8")
             encrypted_embeddings = await self._encrypt_data(embeddings_bytes, key)
+
+            # Bundle IV and tag for metadata and embeddings for AES-GCM
+            if key.algorithm == EncryptionAlgorithm.AES_256_GCM:
+                meta_data = (
+                    encrypted_metadata.get("iv", b"")
+                    + encrypted_metadata.get("tag", b"")
+                    + encrypted_metadata["data"]
+                )
+                emb_data = (
+                    encrypted_embeddings.get("iv", b"")
+                    + encrypted_embeddings.get("tag", b"")
+                    + encrypted_embeddings["data"]
+                )
+            else:
+                meta_data = encrypted_metadata["data"]
+                emb_data = encrypted_embeddings["data"]
 
             encrypted_doc = EncryptedDocument(
                 document_id=document.id,
                 encrypted_content=encrypted_content["data"],
-                encrypted_metadata=encrypted_metadata["data"],
-                encrypted_embeddings=encrypted_embeddings["data"],
+                encrypted_metadata=meta_data,
+                encrypted_embeddings=emb_data,
                 encryption_algorithm=self.algorithm,
                 key_id=self.active_key_id,
                 iv=encrypted_content.get("iv"),
@@ -200,22 +216,44 @@ class EncryptionManager:
             )
             content = decrypted_content.decode("utf-8")
 
-            # Decrypt metadata (use same IV and tag as content)
-            decrypted_metadata = await self._decrypt_data(
-                encrypted_doc.encrypted_metadata,
-                key,
-                iv=encrypted_doc.iv,
-                tag=encrypted_doc.tag,
-            )
+            # Decrypt metadata
+            if (
+                key.algorithm == EncryptionAlgorithm.AES_256_GCM
+                and len(encrypted_doc.encrypted_metadata) >= 28
+            ):
+                meta_iv = encrypted_doc.encrypted_metadata[:12]
+                meta_tag = encrypted_doc.encrypted_metadata[12:28]
+                meta_ciphertext = encrypted_doc.encrypted_metadata[28:]
+                decrypted_metadata = await self._decrypt_aes_gcm(
+                    meta_ciphertext, key, meta_iv, meta_tag
+                )
+            else:
+                decrypted_metadata = await self._decrypt_data(
+                    encrypted_doc.encrypted_metadata,
+                    key,
+                    iv=encrypted_doc.iv,
+                    tag=encrypted_doc.tag,
+                )
             metadata = json.loads(decrypted_metadata.decode("utf-8"))
 
-            # Decrypt embeddings (use same IV and tag as content)
-            decrypted_embeddings = await self._decrypt_data(
-                encrypted_doc.encrypted_embeddings,
-                key,
-                iv=encrypted_doc.iv,
-                tag=encrypted_doc.tag,
-            )
+            # Decrypt embeddings
+            if (
+                key.algorithm == EncryptionAlgorithm.AES_256_GCM
+                and len(encrypted_doc.encrypted_embeddings) >= 28
+            ):
+                emb_iv = encrypted_doc.encrypted_embeddings[:12]
+                emb_tag = encrypted_doc.encrypted_embeddings[12:28]
+                emb_ciphertext = encrypted_doc.encrypted_embeddings[28:]
+                decrypted_embeddings = await self._decrypt_aes_gcm(
+                    emb_ciphertext, key, emb_iv, emb_tag
+                )
+            else:
+                decrypted_embeddings = await self._decrypt_data(
+                    encrypted_doc.encrypted_embeddings,
+                    key,
+                    iv=encrypted_doc.iv,
+                    tag=encrypted_doc.tag,
+                )
             embedding = json.loads(decrypted_embeddings.decode("utf-8"))
 
             # Create original document
