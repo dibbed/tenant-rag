@@ -148,41 +148,9 @@ class ConfigurationValidator:
         return results
     
     def test_telegram_bot(self) -> bool:
-        """
-        Test Telegram bot token validity.
-        
-        Returns:
-            bool: True if bot token is valid, False otherwise
-        """
-        if not self.settings.bot_token:
-            logger.error("❌ Telegram bot token not configured")
-            return False
-        
-        try:
-            # Import here to avoid circular imports
-            from aiogram import Bot
-            
-            bot = Bot(token=self.settings.bot_token)
-            
-            # Test bot token by getting bot info
-            import asyncio
-            
-            async def test_bot():
-                try:
-                    bot_info = await bot.get_me()
-                    logger.info(f"✅ Telegram bot connection successful: @{bot_info.username}")
-                    await bot.session.close()
-                    return True
-                except Exception as e:
-                    logger.error(f"❌ Telegram bot connection failed: {str(e)}")
-                    await bot.session.close()
-                    return False
-            
-            return asyncio.run(test_bot())
-            
-        except Exception as e:
-            logger.error(f"❌ Telegram bot test failed: {str(e)}")
-            return False
+        """Legacy Telegram test (deprecated in API-first architecture)."""
+        logger.info("ℹ️ Telegram transport is deprecated; skipping Telegram bot test")
+        return True
     
     def test_vector_store(self) -> bool:
         """

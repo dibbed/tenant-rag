@@ -155,22 +155,6 @@ def mock_redis():
         yield mock_instance
 
 
-@pytest.fixture
-def mock_telegram_bot():
-    """Mock Telegram bot for testing."""
-    with patch("aiogram.Bot") as mock_bot:
-        mock_instance = AsyncMock()
-        mock_bot.return_value = mock_instance
-
-        # Mock common bot operations
-        mock_instance.get_me.return_value = MagicMock(username="test_bot")
-        mock_instance.send_message.return_value = MagicMock(message_id=123)
-        mock_instance.download.return_value = AsyncMock()
-        mock_instance.get_file.return_value = MagicMock(file_path="test/path")
-        mock_instance.download_file.return_value = AsyncMock()
-
-        yield mock_instance
-
 
 @pytest.fixture
 def mock_faiss_index():

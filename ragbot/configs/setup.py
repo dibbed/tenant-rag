@@ -234,7 +234,7 @@ class ConfigurationSetup:
             Dict[str, bool]: Dependency check results
         """
         dependencies = {
-            "aiogram": "Telegram bot framework",
+            "fastapi": "HTTP API framework",
             "openai": "OpenAI API client",
             "faiss-cpu": "Vector similarity search",
             "pydantic": "Data validation",
