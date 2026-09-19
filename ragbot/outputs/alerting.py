@@ -340,8 +340,15 @@ class AlertManager:
 
     async def _send_telegram_notification(self, alert: Alert) -> None:
         """Send alert notification via Telegram."""
+        if not getattr(settings, "bot_token", None):
+            return
+
         try:
-            from telegram import Bot
+            try:
+                from telegram import Bot
+            except ImportError:
+                logger.debug("Telegram package not installed, skipping alert")
+                return
 
             bot = Bot(token=settings.bot_token)
 
@@ -445,8 +452,15 @@ class AlertManager:
 
     async def _send_resolution_notifications(self, alert: Alert) -> None:
         """Send alert resolution notifications."""
+        if not getattr(settings, "bot_token", None):
+            return
+
         try:
-            from telegram import Bot
+            try:
+                from telegram import Bot
+            except ImportError:
+                logger.debug("Telegram package not installed, skipping alert resolution")
+                return
 
             bot = Bot(token=settings.bot_token)
             admin_users = settings.allow_users_list[:1]

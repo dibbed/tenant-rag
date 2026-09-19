@@ -205,13 +205,18 @@ class TestDocumentIngestRoutes:
     def test_upload_document_success(self, client, mock_integration_service):
         """Valid file upload reaches RAG service and cleans up temp files."""
         captured_path: list[Path] = []
-        original_ingest = mock_integration_service.get_rag_service().ingest_document
 
         async def capture_temp_file(source, *args, **kwargs):
             p = Path(source)
             captured_path.append(p)
             assert p.exists()  # Temp file must exist during ingestion
-            return await original_ingest(source, *args, **kwargs)
+            return IngestResult(
+                success=True,
+                document_id="doc_test_123",
+                chunks_created=5,
+                processing_time=0.25,
+                metadata={"filename": "manual.pdf"},
+            )
 
         mock_rag = mock_integration_service.get_rag_service()
         mock_rag.ingest_document.side_effect = capture_temp_file
