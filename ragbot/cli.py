@@ -685,53 +685,74 @@ async def cmd_plugin(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser"""
-    parser = argparse.ArgumentParser(description="RAG Telegram Assistant CLI")
+    parser = argparse.ArgumentParser(
+        prog="ragbot-cli", description="RAG Telegram Assistant CLI"
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Status command
     parser_status = subparsers.add_parser("status", help="Show system status")
-    parser_status.set_defaults(func=cmd_status)
+    parser_status.set_defaults(func=cmd_status, cmd="status")
 
     # Performance command
     parser_perf = subparsers.add_parser("performance", help="Show performance metrics")
-    parser_perf.set_defaults(func=cmd_performance)
+    parser_perf.set_defaults(func=cmd_performance, cmd="performance")
 
     # Reset command
     parser_reset = subparsers.add_parser("reset", help="Reset vector store")
-    parser_reset.set_defaults(func=cmd_reset)
+    parser_reset.set_defaults(func=cmd_reset, cmd="reset")
 
     # Query command
     parser_query = subparsers.add_parser("query", help="Query documents")
     parser_query.add_argument("--question", required=True, help="Question to ask")
     parser_query.add_argument("--lang", default="fa", help="Response language")
     parser_query.add_argument(
-        "--top-k", type=int, default=3, help="Number of documents to retrieve"
+        "--top-k", type=int, default=None, help="Number of documents to retrieve"
     )
     parser_query.add_argument(
-        "--threshold", type=float, default=0.7, help="Similarity threshold"
+        "--threshold", type=float, default=None, help="Similarity threshold"
     )
-    parser_query.set_defaults(func=cmd_query)
+    parser_query.set_defaults(func=cmd_query, cmd="query")
 
     # Ingest command
     parser_ingest = subparsers.add_parser("ingest", help="Ingest documents")
     parser_ingest.add_argument("--file", help="File path to ingest")
     parser_ingest.add_argument("--url", help="URL to ingest")
     parser_ingest.add_argument("--text", help="Text content to ingest")
-    parser_ingest.set_defaults(func=cmd_ingest)
+    parser_ingest.add_argument("--type", help="Document type (pdf, docx, html, text, etc.)")
+    parser_ingest.set_defaults(func=cmd_ingest, cmd="ingest")
 
     # Batch ingest command
     parser_ingest_batch = subparsers.add_parser(
         "batch-ingest", help="Batch ingest documents"
     )
-    parser_ingest_batch.add_argument("--dir", required=True, help="Directory to scan")
+    parser_ingest_batch.add_argument("--dir", help="Directory to scan")
     parser_ingest_batch.add_argument(
-        "--pattern", default="*.*", help="File pattern to match"
+        "--pattern", action="append", help="File pattern to match"
     )
     parser_ingest_batch.add_argument(
-        "--recursive", action="store_true", help="Recurse subdirectories"
+        "--recursive", action="store_true", default=True, help="Recurse subdirectories"
     )
-    parser_ingest_batch.set_defaults(func=cmd_batch_ingest)
+    parser_ingest_batch.add_argument(
+        "--no-recursive", action="store_true", help="Do not recurse subdirectories"
+    )
+    parser_ingest_batch.add_argument(
+        "--include-txt", action="store_true", help="Include text files"
+    )
+    parser_ingest_batch.add_argument(
+        "--include-docx", action="store_true", help="Include Word documents"
+    )
+    parser_ingest_batch.add_argument(
+        "--type", help="File type filter"
+    )
+    parser_ingest_batch.add_argument(
+        "--max-concurrency", type=int, default=4, help="Maximum concurrent ingestions"
+    )
+    parser_ingest_batch.add_argument(
+        "sources", nargs="*", default=[], help="Individual file sources to ingest"
+    )
+    parser_ingest_batch.set_defaults(func=cmd_batch_ingest, cmd="batch-ingest")
 
     # Security command
     parser_security = subparsers.add_parser("security", help="Security operations")
@@ -739,11 +760,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "action", choices=["backup", "restore", "rotate-keys"], help="Security action"
     )
     parser_security.add_argument("--backup-path", help="Backup file path (for restore)")
-    parser_security.set_defaults(func=cmd_security)
+    parser_security.set_defaults(func=cmd_security, cmd="security")
 
     # Query Advanced command
     parser_query_advanced = subparsers.add_parser(
-        "query-advanced", help="Advanced查询功能"
+        "query-advanced", help="Advanced queries"
     )
     parser_query_advanced.add_argument(
         "--aggregate", action="store_true", help="Run aggregation query"
@@ -757,7 +778,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser_query_advanced.add_argument(
         "--score", action="store_true", help="Run custom scoring"
     )
-    parser_query_advanced.set_defaults(func=cmd_query_advanced)
+    parser_query_advanced.set_defaults(func=cmd_query_advanced, cmd="query-advanced")
 
     # Plugin command
     parser_plugin = subparsers.add_parser("plugin", help="Plugin management")
@@ -769,7 +790,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser_plugin.add_argument("--plugin-id", help="Plugin ID")
     parser_plugin.add_argument("--path", help="Plugin file path")
     parser_plugin.add_argument("--config", help="Plugin configuration (JSON string)")
-    parser_plugin.set_defaults(func=cmd_plugin)
+    parser_plugin.set_defaults(func=cmd_plugin, cmd="plugin")
 
     # Analytics commands
     parser_analytics = subparsers.add_parser("analytics", help="Analytics commands")

@@ -8,8 +8,8 @@ support, validation, and type safety using Pydantic Settings.
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings as PydanticBaseSettings
+from pydantic import AliasChoices, Field, field_validator
+from pydantic_settings import BaseSettings as PydanticBaseSettings, SettingsConfigDict
 
 
 class VectorStoreConfig(PydanticBaseSettings):
@@ -388,9 +388,10 @@ class VectorStoreConfig(PydanticBaseSettings):
             raise ValueError(f"retrieval_strategy must be one of {valid_strategies}")
         return v
 
-    class Config:
-        env_prefix = "VECTOR_STORE_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="VECTOR_STORE_",
+        extra="ignore",
+    )
 
 
 class DatabaseSettings(PydanticBaseSettings):
@@ -401,9 +402,10 @@ class DatabaseSettings(PydanticBaseSettings):
     pool_size: int = Field(default=5, description="Connection pool size")
     max_overflow: int = Field(default=10, description="Max connection overflow")
 
-    class Config:
-        env_prefix = "DATABASE_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="DATABASE_",
+        extra="ignore",
+    )
 
 
 class RedisSettings(PydanticBaseSettings):
@@ -413,9 +415,10 @@ class RedisSettings(PydanticBaseSettings):
     max_connections: int = Field(default=10, description="Max Redis connections")
     socket_timeout: float = Field(default=5.0, description="Socket timeout in seconds")
 
-    class Config:
-        env_prefix = "REDIS_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="REDIS_",
+        extra="ignore",
+    )
 
 
 class PluginSettings(PydanticBaseSettings):
@@ -473,9 +476,10 @@ class PluginSettings(PydanticBaseSettings):
         default=50, description="Maximum number of plugins allowed"
     )
 
-    class Config:
-        env_prefix = "PLUGIN_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="PLUGIN_",
+        extra="ignore",
+    )
 
 
 class SemanticCacheSettings(PydanticBaseSettings):
@@ -531,9 +535,10 @@ class SemanticCacheSettings(PydanticBaseSettings):
         description="Cache alert thresholds",
     )
 
-    class Config:
-        env_prefix = "CACHE_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="CACHE_",
+        extra="ignore",
+    )
 
 
 class AdvancedRetrievalSettings(PydanticBaseSettings):
@@ -629,9 +634,10 @@ class AdvancedRetrievalSettings(PydanticBaseSettings):
         default=100, description="Maximum size of query expansion cache"
     )
 
-    class Config:
-        env_prefix = "ADVANCED_RETRIEVAL_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="ADVANCED_RETRIEVAL_",
+        extra="ignore",
+    )
 
 
 class LLMSettings(PydanticBaseSettings):
@@ -673,9 +679,10 @@ class LLMSettings(PydanticBaseSettings):
             raise ValueError("Temperature must be between 0.0 and 2.0")
         return v
 
-    class Config:
-        env_prefix = "LLM_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="LLM_",
+        extra="ignore",
+    )
 
 
 class EmbeddingSettings(PydanticBaseSettings):
@@ -699,9 +706,10 @@ class EmbeddingSettings(PydanticBaseSettings):
         description="Local cache folder for sentence-transformers models",
     )
 
-    class Config:
-        env_prefix = "EMBED_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="EMBED_",
+        extra="ignore",
+    )
 
 
 class RetrieveSettings(PydanticBaseSettings):
@@ -715,9 +723,10 @@ class RetrieveSettings(PydanticBaseSettings):
         default=0.0, description="Minimum hybrid score threshold"
     )
 
-    class Config:
-        env_prefix = "RETRIEVE_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="RETRIEVE_",
+        extra="ignore",
+    )
 
 
 class StoreSettings(PydanticBaseSettings):
@@ -793,9 +802,10 @@ class StoreSettings(PydanticBaseSettings):
         default=1000, description="Batch size for Weaviate upserts"
     )
 
-    class Config:
-        env_prefix = "STORE_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="STORE_",
+        extra="ignore",
+    )
 
 
 class RAGSettings(PydanticBaseSettings):
@@ -844,9 +854,10 @@ class RAGSettings(PydanticBaseSettings):
             raise ValueError(f"ocr_engine must be one of {sorted(allowed)}")
         return v
 
-    class Config:
-        env_prefix = "RAG_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="RAG_",
+        extra="ignore",
+    )
 
 
 class SecuritySettings(PydanticBaseSettings):
@@ -890,9 +901,10 @@ class SecuritySettings(PydanticBaseSettings):
         default=True, description="Enable user allowlist"
     )
 
-    class Config:
-        env_prefix = "SECURITY_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="SECURITY_",
+        extra="ignore",
+    )
 
 
 class MultiFormatSettings(PydanticBaseSettings):
@@ -1046,9 +1058,10 @@ class MultiFormatSettings(PydanticBaseSettings):
         description="Detect language for Markdown content (3-segment voting)",
     )
 
-    class Config:
-        env_prefix = "MULTI_FORMAT_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="MULTI_FORMAT_",
+        extra="ignore",
+    )
 
     # PPTX settings
     pptx_inject_heading_markers: bool = Field(
@@ -1087,8 +1100,20 @@ class PerformanceSettings(PydanticBaseSettings):
 
     # Monitoring
     enable_monitoring: bool = Field(
-        default=True, description="Enable performance monitoring"
+        default=True,
+        description="Enable performance monitoring",
+        validation_alias=AliasChoices(
+            "enable_monitoring", "enable_performance_monitoring"
+        ),
     )
+
+    @property
+    def enable_performance_monitoring(self) -> bool:
+        return self.enable_monitoring
+
+    @enable_performance_monitoring.setter
+    def enable_performance_monitoring(self, value: bool) -> None:
+        self.enable_monitoring = value
     monitoring_interval: int = Field(
         default=10, description="Performance monitoring interval in seconds"
     )
@@ -1149,9 +1174,10 @@ class PerformanceSettings(PydanticBaseSettings):
         default=50, description="Maximum concurrent requests"
     )
 
-    class Config:
-        env_prefix = "PERFORMANCE_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="PERFORMANCE_",
+        extra="ignore",
+    )
 
     @field_validator("alert_thresholds", mode="after")
     @classmethod
@@ -1238,9 +1264,10 @@ class MonitoringSettings(PydanticBaseSettings):
         default="INFO", description="Logging level"
     )
 
-    class Config:
-        env_prefix = "MONITORING_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="MONITORING_",
+        extra="ignore",
+    )
 
 
 class UserAnalyticsSettings(PydanticBaseSettings):
@@ -1285,9 +1312,10 @@ class UserAnalyticsSettings(PydanticBaseSettings):
         default=300, description="Analytics update interval in seconds"
     )
 
-    class Config:
-        env_prefix = "ANALYTICS_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="ANALYTICS_",
+        extra="ignore",
+    )
 
 
 class AdvancedChunkingSettings(PydanticBaseSettings):
@@ -1367,9 +1395,10 @@ class AdvancedChunkingSettings(PydanticBaseSettings):
         description="Attach analysis and selected_strategy to chunk metadata",
     )
 
-    class Config:
-        env_prefix = "ADV_CHUNK_"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_prefix="ADV_CHUNK_",
+        extra="ignore",
+    )
 
 
 class Settings(PydanticBaseSettings):
@@ -1511,11 +1540,12 @@ class Settings(PydanticBaseSettings):
         default_factory=AdvancedChunkingSettings
     )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"  # Ignore extra fields from .env file
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",  # Ignore extra fields from .env file
+    )
 
     # Convenience properties for backward compatibility
     @property

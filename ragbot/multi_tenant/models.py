@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from dataclasses import dataclass
 
 
@@ -110,8 +110,7 @@ class TenantConfig(BaseModel):
         default_factory=dict, description="تنظیمات سفارشی"
     )
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class TenantUser(BaseModel):
@@ -150,8 +149,7 @@ class TenantUsage(BaseModel):
     # هزینه
     cost_usd: float = Field(default=0.0, description="هزینه به دلار")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class TenantBilling(BaseModel):
@@ -176,8 +174,7 @@ class TenantBilling(BaseModel):
     invoice_number: str = Field(..., description="شماره فاکتور")
     payment_method: Optional[str] = Field(None, description="روش پرداخت")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class TenantPolicy(BaseModel):
@@ -204,8 +201,7 @@ class TenantPolicy(BaseModel):
         default_factory=datetime.now, description="تاریخ به‌روزرسانی"
     )
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class TenantAuditLog(BaseModel):
@@ -228,8 +224,7 @@ class TenantAuditLog(BaseModel):
     # زمان
     timestamp: datetime = Field(default_factory=datetime.now, description="زمان")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 # Default configurations for different tiers

@@ -4,7 +4,7 @@ Tests for CLI functionality.
 
 import argparse
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -13,6 +13,7 @@ from ragbot.cli import (
     _get_rag_service,
     cmd_batch_ingest,
     cmd_ingest,
+    cmd_performance,
     cmd_query,
     cmd_reset,
     cmd_status,
@@ -577,3 +578,181 @@ class TestCLIMain:
                     main()
                 
                 assert exc_info.value.code == 0
+
+
+class TestCLIPerformance:
+    """Tests for CLI performance commands."""
+
+    @pytest.mark.asyncio
+    async def test_cmd_performance_success(self):
+        mock_integration = Mock()
+        mock_integration.get_performance_summary = AsyncMock(
+            return_value={
+                "average_response_time": 0.5,
+                "total_requests": 100,
+                "error_rate": 0.05,
+                "cpu_usage": 45.2,
+                "memory_usage": 67.8,
+                "active_connections": 12,
+            }
+        )
+        mock_integration.get_resource_summary = AsyncMock(
+            return_value={
+                "current": {
+                    "cpu_percent": 45.2,
+                    "memory_percent": 67.8,
+                    "disk_usage": 23.4,
+                    "process_count": 156,
+                },
+                "averages": {"cpu_percent": 42.1, "memory_percent": 65.3},
+                "alerts": [
+                    {
+                        "severity": "warning",
+                        "message": "CPU usage is approaching threshold: 78.5%",
+                        "timestamp": 1234567890,
+                    }
+                ],
+                "alert_thresholds": {"cpu": 80.0, "memory": 85.0, "disk": 90.0},
+            }
+        )
+
+        with patch("ragbot.cli.get_integration_service", return_value=mock_integration):
+            result = await cmd_performance(Mock())
+            assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_cmd_performance_no_data(self):
+        mock_integration = Mock()
+        mock_integration.get_performance_summary = AsyncMock(
+            return_value={"no_data": True}
+        )
+        mock_integration.get_resource_summary = AsyncMock(
+            return_value={"no_data": True}
+        )
+
+        with patch("ragbot.cli.get_integration_service", return_value=mock_integration):
+            result = await cmd_performance(Mock())
+            assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_cmd_performance_performance_error(self):
+        mock_integration = Mock()
+        mock_integration.get_performance_summary = AsyncMock(
+            return_value={"error": "Performance monitoring failed"}
+        )
+        mock_integration.get_resource_summary = AsyncMock(
+            return_value={
+                "current": {
+                    "cpu_percent": 45.2,
+                    "memory_percent": 67.8,
+                    "disk_usage": 23.4,
+                    "process_count": 156,
+                },
+                "averages": {"cpu_percent": 42.1, "memory_percent": 65.3},
+                "alerts": [],
+                "alert_thresholds": {"cpu": 80.0, "memory": 85.0, "disk": 90.0},
+            }
+        )
+
+        with patch("ragbot.cli.get_integration_service", return_value=mock_integration):
+            result = await cmd_performance(Mock())
+            assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_cmd_performance_resource_error(self):
+        mock_integration = Mock()
+        mock_integration.get_performance_summary = AsyncMock(
+            return_value={
+                "average_response_time": 0.5,
+                "total_requests": 100,
+                "error_rate": 0.05,
+                "cpu_usage": 45.2,
+                "memory_usage": 67.8,
+                "active_connections": 12,
+            }
+        )
+        mock_integration.get_resource_summary = AsyncMock(
+            return_value={"error": "Resource monitoring failed"}
+        )
+
+        with patch("ragbot.cli.get_integration_service", return_value=mock_integration):
+            result = await cmd_performance(Mock())
+            assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_cmd_performance_with_alerts(self):
+        mock_integration = Mock()
+        mock_integration.get_performance_summary = AsyncMock(
+            return_value={
+                "average_response_time": 0.5,
+                "total_requests": 100,
+                "error_rate": 0.05,
+                "cpu_usage": 45.2,
+                "memory_usage": 67.8,
+                "active_connections": 12,
+            }
+        )
+        mock_integration.get_resource_summary = AsyncMock(
+            return_value={
+                "current": {
+                    "cpu_percent": 85.2,
+                    "memory_percent": 90.8,
+                    "disk_usage": 95.4,
+                    "process_count": 256,
+                },
+                "averages": {"cpu_percent": 82.1, "memory_percent": 88.3},
+                "alerts": [
+                    {
+                        "severity": "critical",
+                        "message": "Memory usage is high: 90.8%",
+                        "timestamp": 1234567890,
+                    },
+                    {
+                        "severity": "warning",
+                        "message": "CPU usage is high: 85.2%",
+                        "timestamp": 1234567891,
+                    },
+                ],
+                "alert_thresholds": {"cpu": 80.0, "memory": 85.0, "disk": 90.0},
+            }
+        )
+
+        with patch("ragbot.cli.get_integration_service", return_value=mock_integration):
+            result = await cmd_performance(Mock())
+            assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_cmd_performance_exception_handling(self):
+        mock_integration = Mock()
+        mock_integration.get_performance_summary = AsyncMock(
+            side_effect=Exception("Service unavailable")
+        )
+
+        with patch("ragbot.cli.get_integration_service", return_value=mock_integration):
+            result = await cmd_performance(Mock())
+            assert result == 1
+
+
+class TestCLIPerformanceIntegration:
+    """Integration tests for CLI performance command."""
+
+    @pytest.mark.asyncio
+    async def test_cli_performance_command_exists(self):
+        parser = _build_parser()
+        args = parser.parse_args(["performance"])
+        assert args.cmd == "performance"
+        assert args.func == cmd_performance
+
+    @pytest.mark.asyncio
+    async def test_cli_performance_help(self):
+        parser = _build_parser()
+        help_text = parser.format_help()
+        assert "performance" in help_text
+
+    @pytest.mark.asyncio
+    async def test_cli_performance_with_real_integration(self):
+        parser = _build_parser()
+        args = parser.parse_args(["performance"])
+        assert args.func == cmd_performance
+        assert callable(args.func)
+
