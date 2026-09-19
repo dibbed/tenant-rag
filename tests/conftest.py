@@ -16,7 +16,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Set test environment
+# Set test environment and enforce GPU safety (CPU only to avoid driver crashes/TDR)
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["TORCH_DEVICE"] = "cpu"
 os.environ["TESTING"] = "true"
 os.environ["LOG_LEVEL"] = "WARNING"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"

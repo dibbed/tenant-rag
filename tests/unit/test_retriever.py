@@ -5,13 +5,14 @@ This module tests the retriever component that performs similarity search
 and context retrieval from vector stores.
 """
 
+from types import SimpleNamespace
 from typing import List
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ragbot.rag.exceptions import RAGError
-from ragbot.rag.retrieve.retriever import Retriever
+from ragbot.rag.exceptions import RAGError, RetrievalError
+from ragbot.rag.retrieve.retriever import DocumentRetriever, Retriever
 from ragbot.rag import SearchResult, VectorDocument
 
 
@@ -476,3 +477,160 @@ class TestRetriever:
 
         assert len(results) == 50
         assert all(len(r.content) > 1000 for r in results)
+
+
+@pytest.mark.asyncio
+async def test_retriever_uses_search_path_when_query_missing():
+    # Vector store exposes only search()
+    mock_store = MagicMock()
+    docs = [
+        VectorDocument(id="a", content="foo", embedding=[0.0], metadata={}, score=0.1),
+        VectorDocument(id="b", content="bar", embedding=[0.0], metadata={}, score=0.2),
+    ]
+    mock_store.search = AsyncMock(return_value=SearchResult(documents=docs))
+
+    mock_embedder = MagicMock()
+    mock_embedder.embed_single = AsyncMock(return_value=[0.2] * 8)
+
+    r = DocumentRetriever(mock_store, mock_embedder, top_k=1)
+    res = await r.retrieve("hello")
+    assert isinstance(res, list)
+    assert len(res) == 1
+    assert res[0].id in {"a", "b"}
+
+
+@pytest.mark.asyncio
+async def test_retrieve_by_embedding_with_threshold_filter():
+    mock_store = MagicMock()
+    docs = [
+        VectorDocument(id="hi", content="x", embedding=[0.0], metadata={}, score=0.9),
+        VectorDocument(id="lo", content="y", embedding=[0.0], metadata={}, score=0.1),
+    ]
+    mock_store.search = AsyncMock(return_value=SearchResult(documents=docs))
+
+    r = DocumentRetriever(mock_store, MagicMock(), top_k=2)
+    r.similarity_threshold = 0.5
+    out = await r.retrieve_by_embedding([0.3, 0.2, 0.1])
+    assert [d.id for d in out] == ["hi"]
+
+
+@pytest.mark.asyncio
+async def test_retriever_health_check_healthy_and_unhealthy():
+    # Healthy path
+    mock_store = MagicMock()
+    mock_store.search = AsyncMock(return_value=SearchResult(documents=[]))
+    mock_embedder = MagicMock()
+    mock_embedder.embed_single = AsyncMock(return_value=[0.0])
+    r = DocumentRetriever(mock_store, mock_embedder)
+    ok = await r.health_check()
+    assert ok["status"] == "healthy"
+
+    # Unhealthy path: embedding fails
+    bad_embedder = MagicMock()
+    bad_embedder.embed_single = AsyncMock(side_effect=RuntimeError("boom"))
+    r2 = DocumentRetriever(mock_store, bad_embedder)
+    bad = await r2.health_check()
+    assert bad["status"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+async def test_retriever_embedding_failure_raises():
+    mock_store = MagicMock()
+    mock_store.query = AsyncMock(return_value=[])
+    bad_embedder = MagicMock()
+    bad_embedder.embed_text = AsyncMock(side_effect=RuntimeError("nope"))
+    r = DocumentRetriever(mock_store, bad_embedder)
+    with pytest.raises(Exception):
+        await r.retrieve("q")
+
+
+@pytest.mark.asyncio
+async def test_retriever_limits_context_length():
+    mock_store = MagicMock()
+    mock_store.query = AsyncMock()
+
+    long_text = "A" * 10000
+    docs = [
+        VectorDocument(id="d1", content=long_text, embedding=[0.0], metadata={}),
+        VectorDocument(id="d2", content="short", embedding=[0.0], metadata={}),
+    ]
+    mock_store.query.return_value = docs
+
+    mock_embedder = MagicMock()
+    mock_embedder.embed_text = AsyncMock(return_value=[0.1] * 768)
+
+    retriever = DocumentRetriever(
+        vector_store=mock_store,
+        embedder=mock_embedder,
+        top_k=2,
+        max_context_length=100,  # force truncation
+    )
+
+    results = await retriever.retrieve("question?", top_k=2)
+    assert isinstance(results, list)
+    assert len(results) == 2
+    assert len(results[0].content) <= 103
+    assert results[0].metadata.get("truncated") is True
+
+
+@pytest.mark.asyncio
+async def test_embed_texts_fallback_and_list_search_result():
+    docs = [VectorDocument(id="x", content="c", embedding=[], metadata={}, score=0.3)]
+    store = MagicMock()
+    store.search = AsyncMock(return_value=docs)
+
+    embedder = MagicMock()
+    embedder.embed_texts = AsyncMock(return_value=[[0.1, 0.2]])
+
+    r = DocumentRetriever(store, embedder)
+    res = await r.retrieve("q")
+    assert [d.id for d in res] == ["x"]
+
+
+@pytest.mark.asyncio
+async def test_asyncmock_query_preferred_over_search():
+    store = MagicMock()
+    store.query = AsyncMock(
+        return_value=[
+            VectorDocument(id="a", content="c", embedding=[], metadata={}, score=0.1)
+        ]
+    )
+    store.search = AsyncMock(return_value=SearchResult(documents=[]))
+
+    embedder = MagicMock()
+    embedder.embed_single = AsyncMock(return_value=[0.5])
+
+    r = DocumentRetriever(store, embedder, top_k=1)
+    out = await r.retrieve("q")
+    assert len(out) == 1 and out[0].id == "a"
+
+
+@pytest.mark.asyncio
+async def test_vector_store_query_error_wrapped():
+    store = MagicMock()
+    store.query = AsyncMock(side_effect=TypeError("bad call"))
+
+    embedder = MagicMock()
+    embedder.embed_single = AsyncMock(return_value=[0.5])
+
+    r = DocumentRetriever(store, embedder)
+    with pytest.raises(RetrievalError):
+        await r.retrieve("q")
+
+
+@pytest.mark.asyncio
+async def test_retrieve_by_embedding_error_wraps():
+    store = MagicMock()
+    store.search = AsyncMock(side_effect=RuntimeError("boom"))
+    r = DocumentRetriever(store, MagicMock())
+    with pytest.raises(RetrievalError):
+        await r.retrieve_by_embedding([0.1, 0.2])
+
+
+def test_get_retriever_info():
+    st = SimpleNamespace()
+    emb = SimpleNamespace()
+    r = DocumentRetriever(st, emb)
+    info = r.get_retriever_info()
+    assert info["vector_store_type"] == type(st).__name__
+

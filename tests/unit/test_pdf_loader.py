@@ -6,7 +6,7 @@ edge cases, error handling, and file format validation.
 """
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -282,3 +282,186 @@ trailer<</Size 5/Root 1 0 R>>
 
             with pytest.raises(DocumentProcessingError, match="Failed to extract text"):
                 await loader.load(str(pdf_path))
+
+
+class _FakePage:
+    def get_text(self, *args, **kwargs):
+        return ""
+
+    def get_images(self):
+        return [(1,)]
+
+
+class _FakeDoc:
+    def __init__(self):
+        self.needs_pass = False
+        self.metadata = {}
+        self.page_count = 1
+
+    def __getitem__(self, idx: int):
+        return _FakePage()
+
+    def extract_image(self, xref: int):
+        return {"image": b"image-bytes"}
+
+    def close(self):
+        return None
+
+
+class _Fitz:
+    @staticmethod
+    def open(path: str):
+        return _FakeDoc()
+
+
+@pytest.mark.asyncio
+async def test_engine_custom_func(tmp_path: Path) -> None:
+    path = tmp_path / "doc.pdf"
+    path.write_bytes(b"%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF")
+    loader = PDFLoader(extract_images=True, ocr_engine="pytesseract", ocr_func=lambda b: "CUSTOM")
+    with patch("ragbot.rag.loaders.pdf.PYMUPDF_AVAILABLE", True), patch(
+        "ragbot.rag.loaders.pdf.fitz", _Fitz
+    ):
+        doc = await loader.load(str(path))
+        assert isinstance(doc, Document)
+        assert "CUSTOM" in doc.content
+
+
+def test_engine_pytesseract_perform_ocr() -> None:
+    loader = PDFLoader(extract_images=True, ocr_engine="pytesseract")
+    fake_pyt = MagicMock()
+    fake_pyt.image_to_string.return_value = "TESS TEXT"
+    with patch("ragbot.rag.loaders.pdf.PYOCR_AVAILABLE", True), patch(
+        "ragbot.rag.loaders.pdf.pytesseract", fake_pyt, create=True
+    ), patch("ragbot.rag.loaders.pdf.Image", MagicMock(), create=True) as mock_image:
+        mock_image.open.return_value.__enter__.return_value = MagicMock()
+        out = loader._perform_ocr(b"img")
+        assert out == "TESS TEXT"
+
+
+def test_engine_easyocr_perform_ocr() -> None:
+    loader = PDFLoader(extract_images=True, ocr_engine="easyocr")
+
+    class _Reader:
+        def __init__(self, langs, gpu=False):
+            pass
+
+        def readtext(self, inp):
+            return [([0, 0, 1, 1], "EASY", 0.9)]
+
+    fake_easyocr = MagicMock()
+    fake_easyocr.Reader = _Reader
+
+    with patch("importlib.import_module", return_value=fake_easyocr):
+        out = loader._perform_ocr(b"img")
+        assert out == "EASY"
+
+
+def test_engine_google_perform_ocr() -> None:
+    loader = PDFLoader(extract_images=True, ocr_engine="google", google_token_path="token.json")
+    with patch.object(PDFLoader, "_ocr_google", return_value="GDRIVE TEXT"):
+        out = loader._perform_ocr(b"img")
+        assert out == "GDRIVE TEXT"
+
+
+@pytest.mark.asyncio
+async def test_pdf_loader_ocr_injected_function(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "img.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF")
+
+    loader = PDFLoader(extract_images=True, ocr_func=lambda b: "OCR CAPTURED")
+
+    with patch("ragbot.rag.loaders.pdf.PYMUPDF_AVAILABLE", True), patch(
+        "ragbot.rag.loaders.pdf.fitz", _Fitz
+    ):
+        doc = await loader.load(str(pdf_path))
+        assert isinstance(doc, Document)
+        assert "OCR CAPTURED" in doc.content
+
+
+@pytest.mark.asyncio
+async def test_pdf_loader_ocr_missing_libs_no_raise(tmp_path: Path) -> None:
+    raw = b"%PDF-1.4\n1 0 obj<<>>endobj\nBT (Hello) ET\n%%EOF"
+    pdf_path = tmp_path / "heuristic.pdf"
+    pdf_path.write_bytes(raw)
+
+    loader = PDFLoader(extract_images=True)
+
+    with patch("ragbot.rag.loaders.pdf.fitz", _Fitz), patch(
+        "ragbot.rag.loaders.pdf.PYOCR_AVAILABLE", False
+    ):
+        doc = await loader.load(str(pdf_path))
+        assert isinstance(doc, Document)
+        assert "Hello" in doc.content
+
+
+@pytest.mark.asyncio
+async def test_pdf_headings_six_levels(monkeypatch) -> None:
+    import types
+
+    class _MockPage:
+        def __init__(self, layout_blocks, text="body"):
+            self._layout = {"blocks": layout_blocks}
+            self._text = text
+
+        def get_text(self, mode="text"):
+            if mode == "dict":
+                return self._layout
+            return self._text
+
+    class _MockDoc:
+        def __init__(self, pages):
+            self._pages = pages
+            self.page_count = len(pages)
+            self.needs_pass = False
+
+        def __getitem__(self, idx: int):
+            return self._pages[idx]
+
+        def close(self):
+            return None
+
+    def _mk_span(text: str, size: float):
+        return {"text": text, "size": size, "bbox": [0, 0, 10, 10]}
+
+    spans = [
+        _mk_span("Heading1", 32.0),
+        _mk_span("Heading2", 24.0),
+        _mk_span("Heading3", 18.0),
+        _mk_span("Heading4", 16.0),
+        _mk_span("Heading5", 14.0),
+        _mk_span("Heading6", 12.5),
+    ]
+    layout_blocks = [{"lines": [{"spans": spans}]}]
+    mock_doc = _MockDoc([_MockPage(layout_blocks, text="page body")])
+
+    import ragbot.rag.loaders.pdf as pdf_mod
+
+    monkeypatch.setattr(pdf_mod, "PYMUPDF_AVAILABLE", True)
+    monkeypatch.setattr(pdf_mod, "fitz", types.SimpleNamespace(open=lambda src: mock_doc))
+
+    loader = PDFLoader(
+        enable_structural_extraction=True,
+        inject_heading_markers=True,
+        detect_language=False,
+        max_pages=10,
+    )
+
+    from pathlib import Path
+
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    class _Stat:
+        st_size = 1
+
+    monkeypatch.setattr(Path, "stat", lambda self: _Stat())
+    monkeypatch.setattr(PDFLoader, "validate_source", lambda self, s: True)
+
+    document = await loader.load("/tmp/fake.pdf")
+
+    headings = document.metadata.get("headings") or []
+    assert len(headings) >= 6
+    levels = sorted({h.get("level") for h in headings})
+    assert 1 in levels and 6 in levels
+    assert "# Heading1" in document.text
+

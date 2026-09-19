@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from ragbot.outputs.metrics import metrics_manager
 from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
 
 
@@ -39,6 +40,9 @@ class TestBaseVectorStore:
                 self.documents = {}
                 self.document_count = 0
 
+            def get_store_type(self) -> str:
+                return "unknown"
+
             async def add_documents(
                 self, documents: List[VectorDocument], **kwargs
             ) -> List[str]:
@@ -55,7 +59,7 @@ class TestBaseVectorStore:
                 # Simple mock search - return all documents with dummy scores
                 docs = list(self.documents.values())[:top_k]
                 for i, doc in enumerate(docs):
-                    doc.score = 1.0 - (i * 0.1)  # Decreasing scores
+                    doc.score = 1.0 - (i * 0.2)  # Decreasing scores
 
                 return SearchResult(
                     documents=docs,
@@ -336,3 +340,130 @@ class TestBaseVectorStore:
         assert "embedding_dimension" in info
         assert "similarity_metric" in info
         assert "features" in info
+
+
+class DummyStore(BaseVectorStore):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._docs: dict[str, VectorDocument] = {}
+        self.store_type_label = kwargs.get("store_type_label", "DummyStore")
+        self._doc_count = kwargs.get("document_count", None)
+
+    def get_store_type(self) -> str:
+        return getattr(self, "store_type_label", "DummyStore")
+
+    async def add_documents(self, documents: List[VectorDocument], **kwargs: Any) -> List[str]:
+        for d in documents:
+            self._docs[d.id] = d
+        return [d.id for d in documents]
+
+    async def update_documents(self, documents: List[VectorDocument], **kwargs: Any) -> List[str]:
+        updated = []
+        for d in documents:
+            if d.id in self._docs:
+                self._docs[d.id] = d
+                updated.append(d.id)
+        return updated
+
+    async def delete_documents(self, document_ids: List[str], **kwargs: Any) -> List[str]:
+        deleted = []
+        for i in document_ids:
+            if i in self._docs:
+                del self._docs[i]
+                deleted.append(i)
+        return deleted
+
+    async def search(self, query_embedding: List[float], top_k: int = 10, **kwargs: Any) -> SearchResult:
+        docs = list(self._docs.values())[:top_k]
+        return SearchResult(documents=docs, query_embedding=query_embedding, total_results=len(docs))
+
+    async def get_document(self, document_id: str) -> Optional[VectorDocument]:
+        return self._docs.get(document_id)
+
+    async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+        return [self._docs[i] for i in document_ids if i in self._docs]
+
+    def get_document_count(self) -> int:
+        if self._doc_count is not None:
+            return self._doc_count
+        return len(self._docs)
+
+    async def clear(self) -> None:
+        self._docs.clear()
+
+    async def save(self, path: Optional[str] = None) -> None:
+        return None
+
+    async def load(self, path: Optional[str] = None) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_upsert_documents_and_filters_and_info(monkeypatch):
+    store = DummyStore(similarity_metric="cosine")
+    d1 = VectorDocument(id="1", content="hello", embedding=[1, 0], metadata={"tag": "a", "num": 5})
+    d2 = VectorDocument(id="2", content="world", embedding=[0, 1], metadata={"tag": "b", "num": 10})
+    await store.add_documents([d1])
+
+    # Upsert: one update, one add
+    updated = await store.upsert_documents([d1, d2])
+    assert set(updated) == {"1", "2"}
+
+    # Filter helpers
+    docs = [d1, d2]
+    eq = store.filter_documents(docs, {"tag": "a"})
+    assert [d.id for d in eq] == ["1"]
+
+    rng = store.filter_documents(docs, {"num": {"$gte": 6, "$lte": 10}})
+    assert [d.id for d in rng] == ["2"]
+
+    in_list = store.filter_documents(docs, {"tag": ["b", "c"]})
+    assert [d.id for d in in_list] == ["2"]
+
+    # compute_similarity variants
+    store.similarity_metric = "cosine"
+    assert store.compute_similarity([1, 0], [1, 0]) == pytest.approx(1.0)
+    store.similarity_metric = "euclidean"
+    assert store.compute_similarity([1, 0], [0, 1]) < 1.0
+    store.similarity_metric = "dot_product"
+    assert store.compute_similarity([1, 2], [3, 4]) == 11.0
+    store.similarity_metric = "unknown"
+    assert store.compute_similarity([1, 0], [1, 0]) == pytest.approx(1.0)
+    assert store.compute_similarity([1, 0], ["x"]) == 0.0
+
+    # Store info
+    info = store.get_store_info()
+    assert info["store_type"] == "DummyStore"
+    assert info["embedding_dimension"] == 768
+
+    class E:
+        async def embed_single(self, t: str):
+            return [0.0, 0.0]
+
+    res = await store.search_by_text("hi", E())
+    assert isinstance(res, SearchResult)
+    assert isinstance(res.documents, list)
+
+    health = await store.health_check()
+    assert health["status"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_base_analytics_aggregate():
+    store = DummyStore(embedding_dimension=4, store_type_label="dummy", document_count=42)
+
+    metrics_manager.record_vector_store_operation(
+        operation="search", store_type=store.store_type_label, document_count=3, success=True, duration=0.01
+    )
+    metrics_manager.record_vector_store_operation(
+        operation="add_documents", store_type=store.store_type_label, document_count=5, success=True, duration=0.02
+    )
+    metrics_manager.update_vector_store_size(42, store_type=store.store_type_label)
+
+    s = await store.get_search_analytics()
+    d = await store.get_document_analytics()
+
+    assert s["store_type"] == "dummy"
+    assert s["total_searches"] >= 1
+    assert d["total_documents"] == 42
+

@@ -57,7 +57,9 @@ cache/
 rag_test_outputs/
 data/backups/
 data/vector_store/
+data/test/
 data/keys/*.db
+data/keys/*.key
 data/keys/keystore/
 
 # Environment variables

@@ -8,6 +8,10 @@ different languages, token limits, and edge cases.
 import pytest
 
 from ragbot.rag import TokenChunker, Document
+from ragbot.rag.chunkers.adaptive_chunker import AdaptiveChunker
+from ragbot.rag.chunkers.base import TextChunk
+from ragbot.rag.chunkers.chunk_optimizer import ChunkOptimizer
+from ragbot.rag.chunkers.hierarchical_chunker import HierarchicalChunker
 
 
 class TestChunkSplit:
@@ -143,7 +147,9 @@ Fourth paragraph continues the pattern."""
         text = (
             "Date: 2024-01-15. Price: $123.45. Time: 14:30:00. Phone: +1-555-123-4567."
         )
-        chunks = split_text(text, max_tokens=32)
+        chunks = [
+            c.content for c in TokenChunker(chunk_size=32, chunk_overlap=0).chunk(text)
+        ]
 
         assert len(chunks) >= 1
         # Should preserve formatted numbers and dates
@@ -325,3 +331,48 @@ class TestTokenChunker:
         # Should complete in reasonable time (less than 5 seconds)
         assert end_time - start_time < 5.0
         assert len(chunks) > 0
+
+
+class TestAdvancedChunking:
+    """Test suite for advanced chunking strategies and optimization."""
+
+    @pytest.mark.asyncio
+    async def test_hierarchical_chunker_basic(self) -> None:
+        txt = (
+            "# Title\n\n## Section 1\n\nThis is a long paragraph. It should be captured as level 3.\n\n"
+            "## Section 2\n\nAnother long paragraph that exceeds minimal threshold to be considered."
+        )
+        ch = HierarchicalChunker(min_chunk_chars=10, max_chunk_chars=2000)
+        chunks = ch.chunk(txt)
+        assert isinstance(chunks, list) and len(chunks) > 0
+        assert all("chunk_type" in c.metadata for c in chunks)
+        assert any(c.metadata.get("level") == 1 for c in chunks) or any(
+            c.metadata.get("structure_type") == "title" for c in chunks
+        )
+
+    @pytest.mark.asyncio
+    async def test_adaptive_chunker_selects_strategy(self) -> None:
+        text = (
+            "This is a test document. It contains multiple sentences and some structure.\n\n"
+            "## A Section\n\nParagraph content goes here."
+        )
+        ac = AdaptiveChunker()
+        chunks = ac.chunk(text)
+        assert isinstance(chunks, list) and len(chunks) > 0
+        assert all(hasattr(c, "content") and hasattr(c, "metadata") for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_chunk_optimizer_flow(self) -> None:
+        chunks = [
+            TextChunk(content="short", metadata={}),
+            TextChunk(content="A" * 1200, metadata={}),
+            TextChunk(
+                content="normal sized chunk with enough words to be valid", metadata={}
+            ),
+        ]
+        opt = ChunkOptimizer(target_size=500, size_tolerance=0.2)
+        optimized = await opt.optimize(chunks)
+        assert isinstance(optimized, list) and len(optimized) > 0
+        qa = await opt.analyze_quality(optimized)
+        assert "quality_score" in qa and "total" in qa
+
