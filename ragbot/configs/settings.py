@@ -1404,8 +1404,10 @@ class AdvancedChunkingSettings(PydanticBaseSettings):
 class Settings(PydanticBaseSettings):
     """Main application settings."""
 
-    # Telegram Bot
-    bot_token: str = Field(..., description="Telegram bot token")
+    # Telegram Bot (legacy/optional)
+    bot_token: Optional[str] = Field(
+        default=None, description="Legacy Telegram bot token"
+    )
     allow_users: str = Field(default="", description="Comma-separated user IDs")
     admin_users: str = Field(
         default="",
@@ -1638,24 +1640,16 @@ class Settings(PydanticBaseSettings):
             }
             validation_result["valid"] = False
 
-        # Validate bot token
-        if not self.bot_token:
-            validation_result["errors"].append("Telegram bot token is required")
-            validation_result["components"]["bot_token"] = {
-                "status": "invalid",
-                "error": "Missing",
-            }
-            validation_result["valid"] = False
-        elif (
-            not self.bot_token.startswith(("bot", "BOT")) and ":" not in self.bot_token
-        ):
-            validation_result["warnings"].append("Bot token format may be invalid")
-            validation_result["components"]["bot_token"] = {
-                "status": "warning",
-                "message": "Format may be invalid",
-            }
-        else:
-            validation_result["components"]["bot_token"] = {"status": "valid"}
+        # Validate bot token (optional for API backend)
+        if self.bot_token:
+            if not self.bot_token.startswith(("bot", "BOT")) and ":" not in self.bot_token:
+                validation_result["warnings"].append("Bot token format may be invalid")
+                validation_result["components"]["bot_token"] = {
+                    "status": "warning",
+                    "message": "Format may be invalid",
+                }
+            else:
+                validation_result["components"]["bot_token"] = {"status": "valid"}
 
         # Validate paths
         try:

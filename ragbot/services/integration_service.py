@@ -108,9 +108,6 @@ class IntegrationService:
             if not getattr(self.settings, "anthropic_api_key", None):
                 validation_warnings.append("Anthropic API key not configured")
 
-        # Telegram bot token
-        if not getattr(self.settings, "bot_token", None):
-            validation_errors.append("Telegram bot token is required")
 
         # Log validation results
         if validation_errors:
