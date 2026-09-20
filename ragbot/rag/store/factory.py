@@ -112,21 +112,6 @@ class VectorStoreFactory:
             "description": "Vector database for production with high performance",
             "best_for": "Large datasets, production environments, scalability",
         },
-        "weaviate": {
-            "class_name": "WeaviateVectorStore",
-            "module_path": "ragbot.rag.store.weaviate_store",
-            "dependencies": ["weaviate-client"],
-            "capabilities": {
-                "metadata_filtering": True,
-                "hybrid_search": True,
-                "reranking": True,
-                "batch_operations": True,
-                "persistence": True,
-                "gpu_support": False,
-            },
-            "description": "GraphQL vector database with enterprise features",
-            "best_for": "Enterprise applications, complex queries, multi-modal support",
-        },
     }
 
     @classmethod
@@ -135,7 +120,7 @@ class VectorStoreFactory:
         Create a vector store instance based on type with automatic fallback.
 
         Args:
-            store_type: Type of vector store to create ("faiss", "chroma", "qdrant", "weaviate")
+            store_type: Type of vector store to create ("faiss", "chroma", "qdrant")
             **kwargs: Additional configuration parameters for the store
 
         Returns:
@@ -295,8 +280,6 @@ class VectorStoreFactory:
             elif use_case == "production":
                 if store_type == "qdrant":
                     score += 3
-                elif store_type == "weaviate":
-                    score += 2
                 elif store_type == "chroma":
                     score += 1
 
@@ -309,8 +292,8 @@ class VectorStoreFactory:
             elif dataset_size in ["large", "enterprise"]:
                 if store_type == "qdrant":
                     score += 3
-                elif store_type == "weaviate":
-                    score += 2
+                elif store_type == "chroma":
+                    score += 1
 
             # Feature requirements scoring
             capabilities = info["capabilities"]
@@ -348,7 +331,6 @@ class VectorStoreFactory:
             bool: True if all dependencies are available
         """
         package_to_module = {
-            "weaviate-client": "weaviate",
             "qdrant-client": "qdrant_client",
         }
         for dep in dependencies:

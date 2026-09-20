@@ -38,10 +38,6 @@ class TestVectorStoreRAGIntegration:
                 "host": "localhost",
                 "port": 6333,
             },
-            weaviate_config={
-                "class_name": "TestDocument",
-                "url": "http://localhost:8080",
-            },
         )
 
     @pytest.fixture
@@ -191,36 +187,6 @@ class TestVectorStoreEmbeddingIntegration(TestVectorStoreRAGIntegration):
             search_results = await store.semantic_search(
                 query="machine learning", top_k=2, rerank=True
             )
-            assert len(search_results) == 1
-
-    @pytest.mark.asyncio
-    async def test_weaviate_with_embeddings(self, sample_config, sample_documents):
-        """Test Weaviate store with embedding generation."""
-        with patch(
-            "ragbot.rag.store.weaviate_store.WeaviateVectorStore"
-        ) as mock_weaviate_class:
-            mock_store = Mock()
-            mock_store.add_documents = AsyncMock(return_value=["doc1", "doc2", "doc3"])
-            mock_store.search = AsyncMock(
-                return_value=[
-                    Mock(
-                        id="doc1", score=0.9, content="Machine learning is a subset..."
-                    )
-                ]
-            )
-            mock_weaviate_class.return_value = mock_store
-
-            # Create store via factory
-            store = await VectorStoreFactory.create_store(
-                store_type="weaviate", config=sample_config, class_name="TestDocument"
-            )
-
-            # Test adding documents
-            result = await store.add_documents(sample_documents)
-            assert result == ["doc1", "doc2", "doc3"]
-
-            # Test GraphQL search
-            search_results = await store.search(query="machine learning", top_k=1)
             assert len(search_results) == 1
 
 
@@ -382,20 +348,20 @@ class TestVectorStoreLoaderIntegration(TestVectorStoreRAGIntegration):
             mock_loader.load_documents.return_value = mock_documents
             mock_loader_class.return_value = mock_loader
 
-            # Test with Weaviate store
+            # Test with Chroma store
             with patch(
-                "ragbot.rag.store.weaviate_store.WeaviateVectorStore"
-            ) as mock_weaviate_class:
+                "ragbot.rag.store.chroma_store.ChromaVectorStore"
+            ) as mock_chroma_class:
                 mock_store = Mock()
                 mock_store.add_documents_from_loader = AsyncMock(
                     return_value=["url_doc1"]
                 )
-                mock_weaviate_class.return_value = mock_store
+                mock_chroma_class.return_value = mock_store
 
                 store = await VectorStoreFactory.create_store(
-                    store_type="weaviate",
+                    store_type="chroma",
                     config=sample_config,
-                    class_name="TestDocument",
+                    collection_name="test_collection",
                 )
 
                 # Test adding documents from URL loader

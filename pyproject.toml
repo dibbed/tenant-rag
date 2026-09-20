@@ -100,7 +100,6 @@ dev = [
 full = [
     "chromadb>=0.5.0",
     "qdrant-client>=1.9.0",
-    "weaviate-client>=4.0.0",
     "llama-index==0.10.43",
     "spacy==3.7.5",
     "anthropic==0.28.1",
@@ -136,7 +135,6 @@ hf = [
 vectorstores = [
     "chromadb>=0.5.0",
     "qdrant-client>=1.9.0",
-    "weaviate-client>=4.0.0",
 ]
 docs = [
     "mkdocs==1.6.0",

@@ -51,10 +51,6 @@ class TestVectorStoreE2E:
                 "host": "localhost",
                 "port": 6333,
             },
-            weaviate_config={
-                "class_name": "TestDocument",
-                "url": "http://localhost:8080",
-            },
         )
 
     @pytest.fixture
@@ -351,58 +347,6 @@ class TestCompleteWorkflowE2E(TestVectorStoreE2E):
                 query="machine learning algorithms", top_k=2, rerank=True
             )
             assert len(hybrid_results) == 1
-
-    @pytest.mark.asyncio
-    async def test_weaviate_complete_workflow(
-        self, sample_config, sample_documents, temp_dir
-    ):
-        """Test complete Weaviate workflow with GraphQL features."""
-        with patch(
-            "ragbot.rag.store.weaviate_store.WeaviateVectorStore"
-        ) as mock_weaviate_class:
-            mock_store = Mock()
-            mock_store.add_documents = AsyncMock(
-                return_value=[doc.id for doc in sample_documents]
-            )
-            mock_store.search = AsyncMock(
-                return_value=[
-                    Mock(id="ml_intro", score=0.95, content=sample_documents[0].content)
-                ]
-            )
-            mock_store.search_with_metadata_filter = AsyncMock(
-                return_value=[
-                    Mock(id="ml_intro", score=0.95, content=sample_documents[0].content)
-                ]
-            )
-            mock_store.health_check = AsyncMock(
-                return_value={
-                    "status": "healthy",
-                    "document_count": 5,
-                    "store_type": "weaviate",
-                }
-            )
-            mock_weaviate_class.return_value = mock_store
-
-            # Create Weaviate store
-            store = await VectorStoreFactory.create_store(
-                store_type="weaviate", config=sample_config, class_name="TestDocument"
-            )
-
-            # Add documents
-            added_ids = await store.add_documents(sample_documents)
-            assert len(added_ids) == 5
-
-            # Test GraphQL search
-            search_results = await store.search("machine learning", top_k=1)
-            assert len(search_results) == 1
-
-            # Test GraphQL filtering
-            filtered_results = await store.search_with_metadata_filter(
-                query="machine learning",
-                metadata_filter={"topic": "machine_learning"},
-                top_k=1,
-            )
-            assert len(filtered_results) == 1
 
 
 class TestRAGServiceIntegrationE2E(TestVectorStoreE2E):

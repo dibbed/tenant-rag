@@ -37,7 +37,8 @@ class TestVectorStoreFactory:
         assert "faiss" in stores
         assert "chroma" in stores
         assert "qdrant" in stores
-        assert "weaviate" in stores
+        assert "weaviate" not in stores
+        assert len(stores) == 3
 
     def test_get_store_info(self):
         """Test getting store information."""
@@ -56,7 +57,7 @@ class TestVectorStoreFactory:
         """Test getting information about all stores."""
         all_info = VectorStoreFactory.get_all_stores_info()
         assert isinstance(all_info, dict)
-        assert len(all_info) == 4  # faiss, chroma, qdrant, weaviate
+        assert len(all_info) == 3  # faiss, chroma, qdrant
 
         for store_type, info in all_info.items():
             assert isinstance(info, dict)
@@ -75,7 +76,7 @@ class TestVectorStoreFactory:
         recommended = VectorStoreFactory.recommend_store(
             use_case="production", dataset_size="large"
         )
-        assert recommended in ["qdrant", "weaviate"]
+        assert recommended == "qdrant"
 
         # Test with features
         recommended = VectorStoreFactory.recommend_store(
@@ -83,7 +84,7 @@ class TestVectorStoreFactory:
             dataset_size="medium",
             features_required=["metadata_filtering", "hybrid_search"],
         )
-        assert recommended in ["chroma", "qdrant", "weaviate"]
+        assert recommended in ["chroma", "qdrant"]
 
     def test_validate_store_config(self):
         """Test store configuration validation."""
