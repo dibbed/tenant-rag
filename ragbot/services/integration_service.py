@@ -54,7 +54,15 @@ class IntegrationService:
 
     def __init__(self, config: Optional[Settings] = None):
         """Initialize integration service with all components"""
-        self.settings = config or Settings()
+        if config is not None:
+            self.settings = config
+        else:
+            try:
+                self.settings = Settings()
+            except Exception:
+                from ragbot.configs.settings import settings as global_settings
+
+                self.settings = global_settings
 
         # Validate critical settings before initialization
         self._validate_settings()
@@ -63,10 +71,9 @@ class IntegrationService:
         self.health_checker = HealthChecker()
         # Use global metrics manager to prevent duplicate initialization
         self.metrics = get_global_metrics_manager()
-        from ragbot.configs.settings import settings
 
-        self.performance_dashboard = PerformanceDashboard(settings)
-        self.analytics_dashboard = AnalyticsDashboard(settings)
+        self.performance_dashboard = PerformanceDashboard(self.settings)
+        self.analytics_dashboard = AnalyticsDashboard(self.settings)
         self._initialized = False
         self.optimization_engine: Optional[OptimizationEngine] = None
 
@@ -257,7 +264,28 @@ class IntegrationService:
     async def _initialize_vector_store(self) -> None:
         """Initialize vector store"""
         try:
-            vector_store_config = self.settings.store.__dict__
+            vector_store_config = dict(self.settings.store.__dict__)
+            # Ensure vector store path is aligned with configured store_path
+            if self.settings.store_path:
+                vector_store_config["store_path"] = str(self.settings.store_path)
+                vector_store_config["index_path"] = str(self.settings.store_path)
+
+            # Align vector store embedding dimension with configured embedder
+            provider = getattr(self.settings.embedding, "provider", "sentence_transformers")
+            if provider in ("sentence_transformers", "huggingface"):
+                vector_store_config.setdefault("embedding_dimension", 384)
+                vector_store_config.setdefault("dimension", 384)
+            elif provider == "openai":
+                vector_store_config.setdefault("embedding_dimension", 1536)
+                vector_store_config.setdefault("dimension", 1536)
+            elif hasattr(self.settings.vector_store, "embedding_dimension"):
+                vector_store_config.setdefault(
+                    "embedding_dimension", self.settings.vector_store.embedding_dimension
+                )
+                vector_store_config.setdefault(
+                    "dimension", self.settings.vector_store.embedding_dimension
+                )
+
             self.components["vector_store"] = VectorStoreFactory.create_store(
                 self.settings.vector_db, **vector_store_config
             )

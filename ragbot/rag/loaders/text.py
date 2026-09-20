@@ -153,9 +153,14 @@ class TextLoader(BaseLoader):
             source_type = kwargs.get("source_type")
             encoding = kwargs.get("encoding", self.encoding)
 
-            if source_type == "file" or (
-                source_type is None and self._is_file_path(source)
-            ):
+            is_existing_file = False
+            if self._is_file_path(source):
+                try:
+                    is_existing_file = Path(source).is_file()
+                except (OSError, ValueError):
+                    is_existing_file = False
+
+            if source_type == "file" or (source_type is None and is_existing_file):
                 # Load from file
                 text_content, file_metadata = await self._load_from_file(
                     source, encoding
@@ -175,7 +180,7 @@ class TextLoader(BaseLoader):
             if (
                 not text_content.strip()
                 and source_type != "file"
-                and not self._is_file_path(source)
+                and not is_existing_file
             ):
                 raise ValidationError(
                     "Text content is empty or contains only whitespace",
