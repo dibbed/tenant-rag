@@ -68,26 +68,6 @@ class VectorStoreConfig(PydanticBaseSettings):
         default=True, description="Enable anomaly detection"
     )
 
-    # Multi-tenant Support features
-    enable_multi_tenant: bool = Field(
-        default=True, description="Enable multi-tenant support"
-    )
-    default_tenant_tier: str = Field(
-        default="free", description="Default tenant tier for new tenants"
-    )
-    tenant_isolation_enabled: bool = Field(
-        default=True, description="Enable tenant data isolation"
-    )
-    tenant_audit_logging: bool = Field(
-        default=True, description="Enable tenant audit logging"
-    )
-    max_tenants_per_instance: int = Field(
-        default=1000, description="Maximum number of tenants per instance"
-    )
-    tenant_cleanup_interval_hours: int = Field(
-        default=24, description="Interval for cleaning up expired tenants (hours)"
-    )
-
     # Security features
     enable_encryption: bool = Field(default=True, description="Enable data encryption")
     enable_secure_backup: bool = Field(default=True, description="Enable secure backup")
@@ -359,7 +339,7 @@ class VectorStoreConfig(PydanticBaseSettings):
     @field_validator("default_store")
     def validate_default_store(cls, v):
         """Validate default store type."""
-        valid_stores = ["faiss", "chroma", "qdrant", "weaviate"]
+        valid_stores = ["faiss", "chroma", "qdrant"]
         if v not in valid_stores:
             raise ValueError(f"default_store must be one of {valid_stores}")
         return v
@@ -2337,12 +2317,6 @@ def _create_settings() -> Settings:
             "VECTOR_STORE_QDRANT_COLLECTION_NAME": "STORE_QDRANT_COLLECTION_NAME",
             "VECTOR_STORE_QDRANT_VECTOR_SIZE": "STORE_QDRANT_VECTOR_SIZE",
             "VECTOR_STORE_QDRANT_TIMEOUT": "STORE_QDRANT_TIMEOUT",
-            # Weaviate
-            "VECTOR_STORE_WEAVIATE_URL": "STORE_WEAVIATE_URL",
-            "VECTOR_STORE_WEAVIATE_API_KEY": "STORE_WEAVIATE_API_KEY",
-            "VECTOR_STORE_WEAVIATE_CLASS_NAME": "STORE_WEAVIATE_CLASS_NAME",
-            "VECTOR_STORE_WEAVIATE_VECTOR_SIZE": "STORE_WEAVIATE_VECTOR_SIZE",
-            "VECTOR_STORE_WEAVIATE_TIMEOUT": "STORE_WEAVIATE_TIMEOUT",
         }
         for src, dst in mappings.items():
             if os.getenv(src) and not os.getenv(dst):

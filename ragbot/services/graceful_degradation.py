@@ -85,7 +85,6 @@ class GracefulDegradationService:
                 "openai": float(getattr(to, "openai_timeout_sec", 30.0)),
                 "redis": float(getattr(to, "redis_timeout_sec", 5.0)),
                 "vector_store": float(getattr(to, "vector_search_timeout_sec", 10.0)),
-                "telegram": float(getattr(to, "telegram_timeout_sec", 15.0)),
             }
         except Exception:
             self.timeouts_registry = {}
@@ -208,18 +207,6 @@ class GracefulDegradationService:
                 max_retries=2,
                 fallback_message="Search service degraded. Results may be limited.",
                 cache_fallback=True,
-            ),
-        )
-
-        # Telegram service
-        self.register_service(
-            "telegram",
-            FallbackConfig(
-                enabled=True,
-                timeout=15.0,
-                max_retries=3,
-                fallback_message="Message delivery may be delayed.",
-                cache_fallback=False,
             ),
         )
 
@@ -468,16 +455,6 @@ class GracefulDegradationService:
             )
             return res
 
-        elif service_name == "telegram":
-            # For Telegram, queue message for later delivery
-            logger.warning(
-                _msg(
-                    "Telegram service failed, message may be delayed",
-                    "سرویس تلگرام خطا داد؛ پیام ممکن است با تاخیر ارسال شود",
-                )
-            )
-            return await self._telegram_fallback(original_error, *args, **kwargs)
-
         else:
             # Generic fallback
             logger.warning(
@@ -532,16 +509,6 @@ class GracefulDegradationService:
             "fallback_reason": str(error),
         }
 
-    async def _telegram_fallback(self, error: Exception, *args, **kwargs) -> Any:
-        """Fallback for Telegram service failures."""
-        # Queue message for later delivery (simplified implementation)
-        logger.warning("Telegram service failed, message delivery may be delayed")
-        return {
-            "success": False,
-            "queued": True,
-            "error": str(error),
-            "retry_after": 30,
-        }
 
     async def _degraded_response(
         self, service_name: str, original_error: Exception, fallback_error: Exception

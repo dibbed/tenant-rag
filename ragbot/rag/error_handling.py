@@ -494,7 +494,3 @@ redis_circuit_breaker = CircuitBreaker(
     CircuitBreakerConfig(failure_threshold=5, recovery_timeout=10.0, timeout=5.0),
 )
 
-telegram_circuit_breaker = CircuitBreaker(
-    "telegram",
-    CircuitBreakerConfig(failure_threshold=3, recovery_timeout=15.0, timeout=10.0),
-)
