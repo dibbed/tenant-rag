@@ -411,6 +411,8 @@ class SemanticCache:
         self.miss_count = 0
         self.eviction_count = 0
 
+    clear = clear_cache
+
     async def export_cache(self) -> Dict[str, Any]:
         """صادرات کش.
 

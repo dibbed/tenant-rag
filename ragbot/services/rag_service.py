@@ -184,7 +184,12 @@ class RAGService:
             self.advanced_retriever = None
 
         try:
-            self.semantic_cache = semantic_cache or self._initialize_semantic_cache()
+            if semantic_cache is not None:
+                self.semantic_cache = semantic_cache
+            elif cache is not None and getattr(cache, "semantic_cache", None) is not None:
+                self.semantic_cache = cache.semantic_cache
+            else:
+                self.semantic_cache = self._initialize_semantic_cache()
         except Exception as e:
             logger.warning(f"Failed to initialize semantic cache: {e}")
             self.semantic_cache = None
@@ -1905,33 +1910,60 @@ class RAGService:
 
     async def reset_store(self) -> bool:
         """
-        Reset the vector store by clearing all documents.
+        Reset the vector store and clear all associated caches.
 
         Returns:
             bool: True if reset was successful, False otherwise
         """
         try:
-            logger.info("Resetting vector store")
+            logger.info("Resetting vector store and associated caches")
 
-            # Use the vector store's reset method if available
-            if hasattr(self.vector_store, "reset"):
-                await self.vector_store.reset()
+            # 1. Reset vector store
+            if hasattr(self.vector_store, "clear"):
+                maybe = self.vector_store.clear()
+                if hasattr(maybe, "__await__"):
+                    await maybe
+            elif hasattr(self.vector_store, "reset"):
+                maybe = self.vector_store.reset()
+                if hasattr(maybe, "__await__"):
+                    await maybe
             else:
-                # Fallback: remove the store directory and recreate it
                 store_path = settings.data_dir / "vector_store"
                 if store_path.exists():
                     shutil.rmtree(store_path, ignore_errors=True)
                 store_path.mkdir(parents=True, exist_ok=True)
-
-                # Reinitialize vector store
                 self.vector_store = self._initialize_default_vector_store()
+
+            # 2. Clear semantic cache if present
+            if self.semantic_cache is not None:
+                try:
+                    if hasattr(self.semantic_cache, "clear_cache"):
+                        await self.semantic_cache.clear_cache()
+                    elif hasattr(self.semantic_cache, "clear"):
+                        maybe_sc = self.semantic_cache.clear()
+                        if hasattr(maybe_sc, "__await__"):
+                            await maybe_sc
+                    elif hasattr(self.semantic_cache, "cache") and hasattr(self.semantic_cache.cache, "clear"):
+                        self.semantic_cache.cache.clear()
+                except Exception as cache_err:
+                    logger.warning(f"Failed to clear semantic cache during reset: {cache_err}")
+
+            # 3. Clear general cache manager if present
+            if self.cache is not None:
+                try:
+                    if hasattr(self.cache, "clear"):
+                        maybe_c = self.cache.clear()
+                        if hasattr(maybe_c, "__await__"):
+                            await maybe_c
+                except Exception as cache_err:
+                    logger.warning(f"Failed to clear general cache during reset: {cache_err}")
 
             # Reset error counts
             self.component_error_counts = {
                 key: 0 for key in self.component_error_counts
             }
 
-            logger.info("Vector store reset successfully")
+            logger.info("Vector store and associated caches reset successfully")
             return True
 
         except Exception as e:
