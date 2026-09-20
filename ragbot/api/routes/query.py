@@ -69,13 +69,13 @@ async def query_documents(
         logger.error(f"External model provider failure during query: {exc}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Model provider service unavailable: {str(exc)}",
+            detail="Model provider service unavailable",
         ) from exc
     except VectorStoreError as exc:
         logger.error(f"Vector store search failure during query: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Vector store query failure: {str(exc)}",
+            detail="Vector store query failure",
         ) from exc
     except HTTPException:
         raise

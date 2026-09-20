@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,9 +28,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     logger.info("Initializing RAGBot API application lifecycle...")
     try:
-        integration_service = await get_integration_service()
-        app.state.integration_service = integration_service
-        app.state.rag_service = integration_service.get_rag_service()
+        if getattr(app.state, "integration_service", None) is not None:
+            integration_service = app.state.integration_service
+            if not getattr(integration_service, "_initialized", False):
+                await integration_service.initialize()
+            app.state.rag_service = integration_service.get_rag_service()
+        else:
+            integration_service = await get_integration_service()
+            app.state.integration_service = integration_service
+            app.state.rag_service = integration_service.get_rag_service()
         logger.info("RAGBot application services initialized successfully")
     except Exception as exc:
         logger.error(f"Failed to initialize shared services during startup: {exc}")
@@ -40,19 +47,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info("Shutting down RAGBot API application services...")
     try:
+        svc = getattr(app.state, "integration_service", None)
+        if svc is not None and hasattr(svc, "shutdown"):
+            shutdown_res = svc.shutdown()
+            if inspect.isawaitable(shutdown_res):
+                await shutdown_res
         await shutdown_integration_service()
         logger.info("RAGBot API application shutdown complete")
     except Exception as exc:
         logger.error(f"Error during application shutdown: {exc}")
 
 
-def create_app() -> FastAPI:
+def create_app(lifespan_context: Any = lifespan) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="RAGBot API",
         description="API-First Backend for Retrieval-Augmented Generation (RAG)",
         version="1.0.0",
-        lifespan=lifespan,
+        lifespan=lifespan_context,
     )
 
     # CORS configuration for web frontend clients

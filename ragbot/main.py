@@ -7,7 +7,13 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 import uvicorn
+
+# Ensure project root is in sys.path when invoked directly
+project_root = Path(__file__).resolve().parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
 from ragbot.outputs.logger import logger
 

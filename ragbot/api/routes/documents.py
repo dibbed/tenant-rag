@@ -35,7 +35,7 @@ async def upload_document(
     Validates file size and format, saves to a temporary location for ingestion,
     and guarantees reliable temporary file cleanup on both success and failure.
     """
-    filename = file.filename or "upload.bin"
+    filename = Path(file.filename or "upload.bin").name
     suffix = Path(filename).suffix.lower()
     ext = suffix.lstrip(".")
 
@@ -52,11 +52,17 @@ async def upload_document(
             detail=f"Unsupported file format '{ext}'. Allowed: {', '.join(allowed_types)}",
         )
 
-    # Read content with size check
+    # Read content with size and empty checks
     max_mb = getattr(settings.security, "max_file_size_mb", 50)
     max_bytes = max_mb * 1024 * 1024
 
     content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -73,14 +79,19 @@ async def upload_document(
         result: IngestResult = await rag_service.ingest_document(
             source=str(temp_path),
             source_type=None,  # Auto-detect from file suffix
-            metadata={"original_filename": filename, "file_size": len(content)},
+            metadata={
+                "source": filename,
+                "file_name": filename,
+                "original_filename": filename,
+                "file_size": len(content),
+            },
         )
 
         if not result.success:
             logger.warning(f"Document ingestion failed for {filename}: {result.error_message}")
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=result.error_message or "Document processing failed",
+                detail="Document processing failed: content unprocessable or invalid",
             )
 
         # Record metrics best-effort
@@ -98,26 +109,31 @@ async def upload_document(
         except Exception:
             pass
 
+        # Sanitize metadata to never leak server filesystem temp paths
+        resp_metadata = dict(result.metadata or {})
+        resp_metadata["source"] = filename
+        resp_metadata.pop("temp_path", None)
+
         return IngestResponse(
             success=result.success,
             document_id=result.document_id,
             chunks_created=result.chunks_created,
             processing_time=result.processing_time,
             error_message=result.error_message,
-            metadata=result.metadata,
+            metadata=resp_metadata,
         )
 
     except (DocumentProcessingError, ValueError) as exc:
         logger.error(f"Document processing error for {filename}: {exc}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Document processing failed: {str(exc)}",
+            detail="Document processing failed: content unprocessable or invalid",
         ) from exc
     except VectorStoreError as exc:
         logger.error(f"Vector store error during ingestion of {filename}: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Vector storage error: {str(exc)}",
+            detail="Vector storage error",
         ) from exc
     except HTTPException:
         raise
@@ -150,13 +166,22 @@ async def ingest_text(
             detail="Text content cannot be empty",
         )
 
+    title = payload.title or "direct_text"
     meta = dict(payload.metadata or {})
-    if payload.title:
-        meta["title"] = payload.title
+    meta["title"] = title
+    meta["source"] = title
+    meta["file_name"] = f"{title}.txt" if not title.endswith(".txt") else title
 
+    temp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write(text)
+            temp_path = Path(tmp.name)
+
         result: IngestResult = await rag_service.ingest_document(
-            source=text,
+            source=str(temp_path),
             source_type="text",
             metadata=meta,
         )
@@ -164,7 +189,7 @@ async def ingest_text(
         if not result.success:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=result.error_message or "Text ingestion failed",
+                detail="Text processing failed: invalid or unprocessable content",
             )
 
         try:
@@ -180,19 +205,23 @@ async def ingest_text(
         except Exception:
             pass
 
+        resp_metadata = dict(result.metadata or {})
+        resp_metadata["source"] = title
+        resp_metadata.pop("temp_path", None)
+
         return IngestResponse(
             success=result.success,
             document_id=result.document_id,
             chunks_created=result.chunks_created,
             processing_time=result.processing_time,
             error_message=result.error_message,
-            metadata=result.metadata,
+            metadata=resp_metadata,
         )
 
     except DocumentProcessingError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Text processing failed: {str(exc)}",
+            detail="Text processing failed: invalid or unprocessable content",
         ) from exc
     except HTTPException:
         raise
@@ -202,6 +231,12 @@ async def ingest_text(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error while ingesting text",
         ) from exc
+    finally:
+        if temp_path and temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception as cleanup_err:
+                logger.warning(f"Failed to delete temp text file {temp_path}: {cleanup_err}")
 
 
 @router.post("/url", response_model=IngestResponse)
@@ -253,7 +288,7 @@ async def ingest_url(
     except DocumentProcessingError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"URL processing failed: {str(exc)}",
+            detail="URL document processing failed",
         ) from exc
     except HTTPException:
         raise
@@ -309,5 +344,5 @@ async def reset_store(
         logger.error(f"Unexpected error resetting store: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Reset operation failed: {str(exc)}",
+            detail="Reset operation failed due to an internal error",
         ) from exc
