@@ -32,6 +32,13 @@ try:
 except ImportError:
     OLLAMA_AVAILABLE = False
 
+try:
+    import anthropic
+
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager, quality_evaluator
@@ -204,6 +211,16 @@ class QAChain:
             # Lazy-load transformers in generation method
             self.hf_model = settings.llm.hf_model or self.model_name
             self.hf_device = settings.llm.hf_device or "auto"
+        elif self.llm_provider == "anthropic":
+            if not ANTHROPIC_AVAILABLE:
+                raise ImportError(
+                    "anthropic is required for Anthropic provider. Install with: pip install anthropic"
+                )
+            api_key = self.api_key or settings.anthropic_api_key
+            if not api_key:
+                raise LLMError("Anthropic API key is required", provider="anthropic")
+            self.async_client = anthropic.AsyncAnthropic(api_key=api_key)
+            self.sync_client = anthropic.Anthropic(api_key=api_key)
         else:
             raise LLMError(
                 f"Unsupported LLM provider: {self.llm_provider}",
@@ -451,6 +468,8 @@ class QAChain:
                 return await self._generate_ollama_answer(prompt, **kwargs)
             elif self.llm_provider == "hf_local":
                 return await self._generate_hf_local_answer(prompt, **kwargs)
+            elif self.llm_provider == "anthropic":
+                return await self._generate_anthropic_answer(prompt, **kwargs)
             else:
                 raise LLMError(
                     f"Unsupported LLM provider: {self.llm_provider}",
@@ -657,6 +676,40 @@ class QAChain:
             raise LLMError(
                 f"HF local generation error: {str(e)}",
                 provider="hf_local",
+                model=self.model_name,
+                details=str(e),
+            ) from e
+
+    async def _generate_anthropic_answer(self, prompt: str, **kwargs: Any) -> str:
+        """Generate answer using Anthropic Messages API."""
+        try:
+            model = kwargs.get("model", self.model_name or "claude-3-haiku-20240307")
+            max_tokens = kwargs.get("max_tokens", self.max_tokens) or 1024
+            temperature = kwargs.get("temperature", self.temperature)
+
+            logger.info(
+                "Sending request to Anthropic API",
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                prompt_length=len(prompt),
+            )
+
+            response = await self.async_client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            if response.content and len(response.content) > 0:
+                first_block = response.content[0]
+                return getattr(first_block, "text", "")
+            return ""
+        except Exception as e:
+            logger.error(f"Anthropic API call failed: {e}")
+            raise LLMError(
+                f"Anthropic generation failed: {str(e)}",
+                provider="anthropic",
                 model=self.model_name,
                 details=str(e),
             ) from e
