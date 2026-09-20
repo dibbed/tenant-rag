@@ -2,7 +2,7 @@
 
 ## 📋 **Overview**
 
-پشتیبانی کامل از فرمت‌های مختلف اسناد شامل PowerPoint، Excel، HTML، Markdown و OCR برای تصاویر در سیستم RAG Telegram Assistant.
+پشتیبانی کامل از فرمت‌های مختلف اسناد شامل PowerPoint، Excel، HTML، Markdown و OCR برای تصاویر در سیستم RAGBot.
 
 ## 🎯 **Supported Formats**
 

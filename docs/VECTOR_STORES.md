@@ -2,7 +2,7 @@
 
 ## 📋 Overview
 
-The RAG Telegram Assistant supports multiple vector databases for different use cases, offering flexibility, scalability, and feature-rich vector storage options while maintaining backward compatibility and ease of use.
+RAGBot supports multiple vector databases for different use cases, offering flexibility, scalability, and feature-rich vector storage options while maintaining backward compatibility and ease of use.
 
 ## 🎯 Supported Vector Stores
 

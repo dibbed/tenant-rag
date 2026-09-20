@@ -1,150 +1,83 @@
-# 🔧 راهنمای عیب‌یابی
+# 🔧 راهنمای عیب‌یابی RAGBot
 
-## مشکلات رایج و راه‌حل‌ها
+این راهنما مشکلات متداول در راه‌اندازی سرور API، تست‌ها و خطاهای شبکه را پوشش می‌دهد.
 
-### ربات شروع نمی‌شود
+---
 
-**مشکل**: ربات با خطای احراز هویت شروع نمی‌شود
-```
-ERROR: Unauthorized: bot token is invalid
-```
+## ۱. مشکلات راه‌اندازی سرور API
 
+### خطای اشغال بودن پورت (`[Errno 98] Address already in use` یا `[WinError 10048]`)
+**علت**: پورت 8000 توسط فرآیند دیگری اشغال شده است.
 **راه‌حل**:
-1. توکن ربات خود را در فایل `.env` بررسی کنید
-2. اطمینان حاصل کنید که توکن از [@BotFather](https://t.me/botfather) است
-3. فضاهای اضافی یا علامت نقل قول در توکن را بررسی کنید
-4. توکن را با درخواست curl ساده تست کنید:
-   ```bash
-   curl "https://api.telegram.org/bot<YOUR_TOKEN>/getMe"
-   ```
+- تغییر پورت در زمان اجرا:
+  ```bash
+  python main.py --port 8080
+  # یا در Uvicorn:
+  uvicorn ragbot.api.app:app --port 8080
+  ```
+- یا بررسی و بستن پروسس قبلی در سیستم عامل.
 
-### خطاهای OpenAI API
+---
 
-**مشکل**: خطاهای کلید API یا محدودیت نرخ OpenAI
-```
-ERROR: Incorrect API key provided
-ERROR: Rate limit exceeded
-```
+## ۲. خطاهای رایج API
 
-**راه‌حل‌ها**:
+### خطای `HTTP 429 Too Many Requests`
+**علت**: تعداد درخواست‌های ارسال‌شده از یک IP بیش از سقف تعیین‌شده در بازه زمانی لغزان (پیش‌فرض: ۶۰ درخواست در دقیقه) است.
+**راه‌حل**:
+- بررسی مقدار هدر `Retry-After` در پاسخ سرور و متوقف کردن ارسال درخواست تا پایان این زمان.
+- در محیط‌های توسعه، افزایش سقف در فایل `.env`:
+  ```env
+  SECURITY_RATE_LIMIT_REQUESTS=200
+  SECURITY_RATE_LIMIT_WINDOW=60
+  ```
 
-#### کلید API نامعتبر
-- کلید OpenAI API خود را در `.env` بررسی کنید
-- اطمینان حاصل کنید که کلید با `sk-` شروع می‌شود
-- بررسی کنید که حساب OpenAI شما اعتبار کافی دارد
+### خطای `HTTP 413 Request Entity Too Large`
+**علت**: حجم فایل آپلود شده یا طول متن ورودی از سقف مجاز (پیش‌فرض: ۵۰ مگابایت) بیشتر است.
+**راه‌حل**:
+- سند را به بخش‌های کوچکتری تقسیم کنید.
+- یا متغیر `SECURITY_MAX_FILE_SIZE_MB` را در `.env` افزایش دهید.
 
-#### محدودیت نرخ
-- طرح OpenAI خود را برای محدودیت‌های بالاتر ارتقا دهید
-- محدودیت درخواست در استفاده خود اعمال کنید
-- استفاده از مدل‌های مختلف را در نظر بگیرید (مثل `gpt-3.5-turbo` به جای `gpt-4`)
+### خطای `HTTP 415 Unsupported Media Type`
+**علت**: فرمت پسوند فایل در لیست مجاز `allowed_file_types` قرار ندارد.
+**راه‌حل**:
+- اطمینان حاصل کنید پسوند فایل جزو موارد مجاز است: `pdf`, `docx`, `txt`, `html`, `md`, `pptx`, `xlsx`, `png`, `jpg`.
 
-### مشکلات حافظه
+---
 
-**مشکل**: استفاده بالای حافظه یا خطاهای کمبود حافظه
-```
-ERROR: Process killed (OOM)
-```
+## ۳. خطاهای مدل‌های هوش مصنوعی
 
-**راه‌حل‌ها**:
+### خطای `Model provider service unavailable (503)` یا `Incorrect API key`
+**علت**: عدم تنظیم کلید معتبر در `.env` یا قطعی شبکه با ارائه‌دهنده (OpenRouter / OpenAI / Anthropic).
+**راه‌حل**:
+- مقدار `OPENROUTER_API_KEY` یا `OPENAI_API_KEY` یا `ANTHROPIC_API_KEY` را در `.env` بررسی کنید.
+- وضعیت اینترنت و فیلترینگ را برای دامنه ارائه‌دهنده بررسی نمایید.
+- در صورت تمایل به کارکرد کاملاً محلی و آفلاین، مدل را روی `ollama` تنظیم کنید:
+  ```env
+  LLM_PROVIDER=ollama
+  LLM_MODEL=llama3
+  ```
 
-#### کاهش اندازه chunk
-```env
-CHUNK_SIZE=256  # کاهش از پیش‌فرض 512
-```
+---
 
-#### محدود کردن اندازه سند
-```env
-MAX_FILE_SIZE=10485760  # محدودیت 10MB
-```
+## ۴. خطاهای تست و فریز شدن سیستم
 
-#### استفاده از محدودیت‌های حافظه Docker
-```yaml
-deploy:
-  resources:
-    limits:
-      memory: 512M
-```
+### فریز یا کرش کردن در زمان اجرای `pytest` (CUDA Memory Freeze)
+**علت**: تلاش PyTorch یا FAISS برای دسترسی به کارت گرافیک حین تست‌های همزمان.
+**راه‌حل**:
+- **الزامی**: حتماً متغیرهای ایزولاسیون CPU را قبل از اجرای تست ست کنید:
+  ```powershell
+  # در ویندوز (PowerShell):
+  $env:CUDA_VISIBLE_DEVICES = ""
+  $env:TORCH_DEVICE = "cpu"
+  .\venv\Scripts\pytest.exe -o addopts='' -q
+  ```
 
-### مشکلات Vector Store
+---
 
-**مشکل**: خرابی یا خطاهای بارگذاری ایندکس FAISS
-```
-ERROR: Could not load FAISS index
-```
+## ۵. بازنشانی پایگاه برداری و کش
 
-**راه‌حل‌ها**:
-
-#### ریست vector store
+اگر داده‌های تستی قدیمی یا نامعتبر ذخیره شده‌اند، می‌توانید از اندپوینت ریست استفاده کنید:
 ```bash
-rm -rf data/vector_store/*
-# یا استفاده از دستور /reset در تلگرام
+curl -X POST "http://localhost:8000/api/v1/documents/reset"
 ```
-
-#### بررسی مجوزهای فایل
-```bash
-chmod -R 755 data/
-chown -R $USER:$USER data/
-```
-
-### مشکلات Docker
-
-**مشکل**: کانتینر شروع نمی‌شود یا crash می‌کند
-```
-ERROR: Container exited with code 1
-```
-
-**راه‌حل‌ها**:
-
-#### بررسی لاگ‌ها
-```bash
-docker-compose logs ragbot
-```
-
-#### بررسی فایل محیط
-```bash
-docker-compose config  # اعتبارسنجی فایل compose
-```
-
-#### بازسازی image
-```bash
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-## نکات عیب‌یابی
-
-### فعال‌سازی لاگ‌گیری debug
-```env
-LOG_LEVEL=DEBUG
-```
-
-### نظارت بر استفاده منابع
-```bash
-docker stats ragbot
-```
-
-### بررسی وضعیت ربات
-```bash
-curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
-```
-
-## دریافت کمک
-
-اگر با مشکلاتی مواجه شدید که اینجا پوشش داده نشده:
-
-### 1. ابتدا لاگ‌ها را بررسی کنید
-```bash
-tail -f logs/ragbot.log
-# یا برای Docker:
-docker-compose logs -f ragbot
-```
-
-### 2. مسائل موجود را در GitHub جستجو کنید
-
-### 3. مسئله جدید ایجاد کنید
-شامل:
-- پیام‌های خطا و لاگ‌ها
-- جزئیات محیط شما
-- مراحل بازتولید
-- پیکربندی (بدون داده‌های حساس)
+این فراخوانی تمامی فایل‌های ایندکس برداری و کش‌های معنایی مرتبط را پاکسازی می‌کند.

@@ -1,118 +1,99 @@
-# 🚀 راهنمای نصب و راه‌اندازی
+# 🚀 راهنمای نصب و راه‌اندازی RAGBot
 
-## پیش‌نیازها
-- Python 3.10+ (3.11+ توصیه می‌شود)
-- Telegram Bot Token از [@BotFather](https://t.me/botfather)
-- کلید API OpenAI از [OpenAI Platform](https://platform.openai.com/api-keys)
-- Git (برای کلون کردن مخزن)
-- Docker و Docker Compose (برای استقرار کانتینری)
+این راهنما مراحل نصب وابستگی‌ها، تنظیم متغیرهای محیطی و اجرای سرور API را شرح می‌دهد.
 
-## تنظیم محیط توسعه محلی
+---
 
-### 1. کلون و ورود به مخزن
+## ۱. پیش‌نیازها
+- پایتون نسخه 3.10، 3.11 یا 3.12
+- ابزار Git
+- کلید دسترسی یکی از ارائه‌دهندگان مدل زبانی (OpenRouter، OpenAI یا Anthropic) یا نصب محلی Ollama
+- داکر و Docker Compose (اختیاری، برای استقرار کانتینری)
+
+---
+
+## ۲. راه‌اندازی محیط محلی
+
+### گام اول: کلون کردن مخزن
 ```bash
 git clone https://github.com/dibbed/rag-telegram-assistant.git
 cd rag-telegram-assistant
 ```
 
-### 2. ایجاد و فعال‌سازی محیط مجازی
+### گام دوم: ساخت و فعال‌سازی محیط مجازی
 ```bash
-# استفاده از venv
+# ایجاد محیط مجازی
 python -m venv venv
-source venv/bin/activate  # در ویندوز: venv\Scripts\activate
 
-# یا استفاده از conda
-conda create -n ragbot python=3.11
-conda activate ragbot
+# فعال‌سازی در ویندوز (PowerShell):
+.\venv\Scripts\Activate.ps1
+
+# فعال‌سازی در لینوکس یا مک:
+source venv/bin/activate
 ```
 
-### 3. نصب وابستگی‌ها
+### گام سوم: نصب پکیج‌ها
 ```bash
-# نصب وابستگی‌های اصلی
+# به‌روزرسانی pip
+pip install -U pip
+
+# نصب پیش‌نیازهای اصلی
 pip install -r requirements.txt
 
-# برای توسعه (شامل ابزارهای تست و linting)
+# نصب وابستگی‌های توسعه و تست (اختیاری)
 pip install -e ".[dev]"
-
-# برای ویژگی‌های کامل (شامل ChromaDB، Redis و...)
-pip install -e ".[full]"
 ```
 
-### 4. پیکربندی محیط
+---
+
+## ۳. تنظیم متغیرهای محیطی (`.env`)
+
+فایل نمونه را کپی کنید:
 ```bash
-cp .env.example .env
+cp env.example .env
 ```
 
-ویرایش `.env` با اعتبارنامه‌های خود:
+نمونه تنظیمات کاربردی برای تست سریع و رایگان در `.env`:
 ```env
-BOT_TOKEN=توکن_ربات_تلگرام_شما
-OPENAI_API_KEY=کلید_api_openai_شما
-DEFAULT_LANG=fa
-ALLOW_USERS=123456789,987654321  # اختیاری: ID‌های کاربری جدا شده با کاما
+HOST=0.0.0.0
+PORT=8000
+
+# ارائه‌دهنده مدل زبانی
+LLM_PROVIDER=openrouter
+LLM_MODEL=x-ai/grok-4-fast:free
+OPENROUTER_API_KEY=کلید_openrouter_شما
+
+# مدل امبدینگ
+EMBED_PROVIDER=sentence_transformers
+EMBED_MODEL=intfloat/e5-small-v2
+
+# پایگاه داده برداری
+VECTOR_STORE_DEFAULT_STORE=faiss
 ```
 
-### 5. مقداردهی اولیه پوشه‌های داده
-```bash
-mkdir -p data/vector_store logs
-```
+---
 
-### 6. اجرای ربات
+## ۴. اجرای سرور API
+
 ```bash
+# از طریق فایل اصلی:
 python main.py
+
+# یا از طریق Uvicorn با قابلیت reload:
+uvicorn ragbot.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## استقرار Docker
+پس از اجرا، مستندات تعاملی Swagger در آدرس زیر در دسترس خواهد بود:
+👉 **[http://localhost:8000/docs](http://localhost:8000/docs)**
 
-### شروع سریع با Docker Compose
+---
+
+## ۵. استقرار با Docker
 
 ```bash
-# کلون مخزن
-git clone https://github.com/dibbed/rag-telegram-assistant.git
-cd rag-telegram-assistant
-
-# پیکربندی محیط
-cp .env.example .env
-# ویرایش .env با اعتبارنامه‌های خود
-
-# ساخت و اجرا
-docker-compose up --build -d
+# ساخت ایمیج و اجرای کانتینر
+docker compose up --build -d
 
 # مشاهده لاگ‌ها
-docker-compose logs -f ragbot
-
-# توقف ربات
-docker-compose down
-```
-
-### استقرار تولید
-
-برای محیط‌های تولید، از پیکربندی تولید استفاده کنید:
-
-```bash
-# استفاده از فایل محیط تولید
-cp .env.production .env
-# ویرایش با اعتبارنامه‌های تولید
-
-# استقرار با محدودیت‌های منابع
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# نظارت بر سلامت
-docker-compose ps
-docker-compose logs -f --tail=100 ragbot
-```
-
-### ساخت دستی Docker
-
-```bash
-# ساخت image
-docker build -t ragbot:latest .
-
-# اجرا با فایل محیط
-docker run -d \
-  --name ragbot \
-  --env-file .env \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/logs:/app/logs \
-  --restart unless-stopped \
-  ragbot:latest
+docker compose logs -f
 ```

@@ -2,7 +2,7 @@
 
 ## 📋 **Overview**
 
-سیستم بهینه‌سازی عملکرد و نظارت بلادرنگ برای بهبود throughput و کاهش latency در RAG Telegram Assistant.
+سیستم بهینه‌سازی عملکرد و نظارت بلادرنگ برای بهبود throughput و کاهش latency در سیستم RAGBot.
 
 ## 🎯 **Features**
 

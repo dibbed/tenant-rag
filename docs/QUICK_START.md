@@ -2,7 +2,7 @@
 
 ## 📋 Overview
 
-Get started with multiple vector stores in the RAG Telegram Assistant in just a few minutes!
+Get started with multiple vector stores in RAGBot API in just a few minutes!
 
 ## ⚡ 30-Second Setup
 
@@ -16,7 +16,7 @@ pip install -e ".[vectorstores]"
 ### 2. Choose Your Vector Store
 
 ```bash
-# Option 1: FAISS (Default - No setup required)
+# Option 1: FAISS (Default - No external server required)
 export VECTOR_STORE_DEFAULT_STORE=faiss
 
 # Option 2: Chroma (Easy setup)
@@ -31,10 +31,11 @@ docker run -p 8080:8080 semitechnologies/weaviate:latest
 export VECTOR_STORE_DEFAULT_STORE=weaviate
 ```
 
-### 3. Run the Bot
+### 3. Run the API Server
 
 ```bash
 python main.py
+# Or: uvicorn ragbot.api.app:app --reload
 ```
 
 That's it! 🎉
