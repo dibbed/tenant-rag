@@ -213,7 +213,7 @@ class HealthChecker:
         statuses = [comp.status for comp in self.component_health.values()]
 
         # If any critical component is unhealthy, system is unhealthy
-        critical_components = ["llm_service", "vector_store", "telegram_api"]
+        critical_components = ["llm_service", "vector_store"]
         for comp_name in critical_components:
             if comp_name in self.component_health:
                 if self.component_health[comp_name].status == HealthStatus.UNHEALTHY:
@@ -237,6 +237,15 @@ class HealthChecker:
         """Check Telegram Bot API health using requests."""
         start_time = time.time()
         component_name = "telegram_api"
+
+        if not getattr(settings, "bot_token", None):
+            return ComponentHealth(
+                name=component_name,
+                status=HealthStatus.HEALTHY,
+                last_check=datetime.now(),
+                response_time=0.0,
+                metadata={"status": "not_configured"},
+            )
 
         try:
             import asyncio
