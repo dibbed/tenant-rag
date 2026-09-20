@@ -5,6 +5,7 @@ This module provides a FAISS-based vector store for efficient similarity search
 and document storage with proper persistence and atomic operations.
 """
 
+import asyncio
 import json
 import os
 import pickle
@@ -147,8 +148,9 @@ class FAISSVectorStore(BaseVectorStore):
         self.faissid_to_docid: Dict[int, str] = {}
         self._next_faiss_id: int = 1
 
-        # Concurrency lock for critical sections
+        # Concurrency locks for critical sections
         self._lock = threading.RLock()
+        self._async_lock_instance: Optional[asyncio.Lock] = None
 
         # Load existing data if available, otherwise initialize new index
         if self.faiss_index_path.exists():
@@ -163,6 +165,13 @@ class FAISSVectorStore(BaseVectorStore):
             index_type=self.index_type,
             document_count=len(self.documents),
         )
+
+    @property
+    def async_lock(self) -> asyncio.Lock:
+        """Lazily initialize an asyncio.Lock bound to the running event loop."""
+        if not hasattr(self, "_async_lock_instance") or self._async_lock_instance is None:
+            self._async_lock_instance = asyncio.Lock()
+        return self._async_lock_instance
 
     def get_store_type(self) -> str:
         """Get the store type identifier."""
@@ -235,101 +244,101 @@ class FAISSVectorStore(BaseVectorStore):
             return []
 
         try:
-            with self._lock:
+            async with self.async_lock:
                 start_time = time.time()
-            added_ids = []
+                added_ids = []
 
-            # Prepare embeddings and ids
-            embeddings = []
-            faiss_ids: List[int] = []
-            for doc in documents:
-                if doc.id in self.documents:
-                    logger.warning(f"Document {doc.id} already exists, skipping")
-                    continue
+                # Prepare embeddings and ids
+                embeddings = []
+                faiss_ids: List[int] = []
+                for doc in documents:
+                    if doc.id in self.documents:
+                        logger.warning(f"Document {doc.id} already exists, skipping")
+                        continue
 
-                embedding = np.array(doc.embedding, dtype=np.float32)
+                    embedding = np.array(doc.embedding, dtype=np.float32)
 
-                # Normalize if required
-                if self.normalize_embeddings:
-                    norm = np.linalg.norm(embedding)
-                    if norm > 0:
-                        embedding = embedding / norm
+                    # Normalize if required
+                    if self.normalize_embeddings:
+                        norm = np.linalg.norm(embedding)
+                        if norm > 0:
+                            embedding = embedding / norm
 
-                embeddings.append(embedding)
-                added_ids.append(doc.id)
-                # Allocate stable FAISS ID
-                faiss_id = self.docid_to_faissid.get(doc.id)
-                if faiss_id is None:
-                    faiss_id = int(self._next_faiss_id)
-                    self._next_faiss_id += 1
-                self.docid_to_faissid[doc.id] = faiss_id
-                self.faissid_to_docid[faiss_id] = doc.id
-                faiss_ids.append(faiss_id)
+                    embeddings.append(embedding)
+                    added_ids.append(doc.id)
+                    # Allocate stable FAISS ID
+                    faiss_id = self.docid_to_faissid.get(doc.id)
+                    if faiss_id is None:
+                        faiss_id = int(self._next_faiss_id)
+                        self._next_faiss_id += 1
+                    self.docid_to_faissid[doc.id] = faiss_id
+                    self.faissid_to_docid[faiss_id] = doc.id
+                    faiss_ids.append(faiss_id)
 
-            if not embeddings:
-                return []
+                if not embeddings:
+                    return []
 
-            # Convert to numpy array
-            embeddings_array = np.array(embeddings, dtype=np.float32)
+                # Convert to numpy array
+                embeddings_array = np.array(embeddings, dtype=np.float32)
 
-            # Normalize in batch using FAISS for consistency
-            if self.normalize_embeddings and embeddings_array.size > 0:
+                # Normalize in batch using FAISS for consistency
+                if self.normalize_embeddings and embeddings_array.size > 0:
+                    try:
+                        faiss.normalize_L2(embeddings_array)
+                    except Exception:
+                        # Fallback already handled above per-vector
+                        pass
+
+                # Ensure index dimension matches embeddings
                 try:
-                    faiss.normalize_L2(embeddings_array)
+                    emb_dim = embeddings_array.shape[1]
                 except Exception:
-                    # Fallback already handled above per-vector
-                    pass
+                    emb_dim = self.embedding_dimension
+                if emb_dim != self.embedding_dimension:
+                    # Accept a first-use re-dimension only for common dims (384/768/1536), else raise
+                    common_dims = {384, 768, 1536}
+                    if (
+                        getattr(self.index, "ntotal", 0) == 0
+                        and len(self.documents) == 0
+                        and emb_dim in common_dims
+                    ):
+                        self.embedding_dimension = emb_dim
+                        self._initialize_index()
+                    else:
+                        raise ValueError(
+                            f"Embedding dimension mismatch: store={self.embedding_dimension}, given={emb_dim}"
+                        )
 
-            # Ensure index dimension matches embeddings
-            try:
-                emb_dim = embeddings_array.shape[1]
-            except Exception:
-                emb_dim = self.embedding_dimension
-            if emb_dim != self.embedding_dimension:
-                # Accept a first-use re-dimension only for common dims (384/768/1536), else raise
-                common_dims = {384, 768, 1536}
-                if (
-                    getattr(self.index, "ntotal", 0) == 0
-                    and len(self.documents) == 0
-                    and emb_dim in common_dims
-                ):
-                    self.embedding_dimension = emb_dim
-                    self._initialize_index()
-                else:
-                    raise ValueError(
-                        f"Embedding dimension mismatch: store={self.embedding_dimension}, given={emb_dim}"
-                    )
+                # Train IVF index if required before add (train underlying index)
+                try:
+                    inner = getattr(self.index, "index", self.index)
+                    if hasattr(inner, "is_trained") and not inner.is_trained:
+                        inner.train(embeddings_array)
+                except Exception:
+                    logger.warning("Failed to train FAISS IVF index")
 
-            # Train IVF index if required before add (train underlying index)
-            try:
-                inner = getattr(self.index, "index", self.index)
-                if hasattr(inner, "is_trained") and not inner.is_trained:
-                    inner.train(embeddings_array)
-            except Exception:
-                logger.warning("Failed to train FAISS IVF index")
+                # Add to FAISS index with stable IDs
+                try:
+                    ids_np = np.array(faiss_ids, dtype=np.int64)
+                    self.index.add_with_ids(embeddings_array, ids_np)
+                except Exception as e:
+                    # Fallback to add without ids (should not happen with IDMap2)
+                    logger.warning(f"add_with_ids failed, falling back to add: {e}")
+                    self.index.add(embeddings_array)
 
-            # Add to FAISS index with stable IDs
-            try:
-                ids_np = np.array(faiss_ids, dtype=np.int64)
-                self.index.add_with_ids(embeddings_array, ids_np)
-            except Exception as e:
-                # Fallback to add without ids (should not happen with IDMap2)
-                logger.warning(f"add_with_ids failed, falling back to add: {e}")
-                self.index.add(embeddings_array)
+                # Update mappings and store documents
+                # Build a parallel list of docs to avoid O(n^2) lookup
+                added_docs = []
+                for d in documents:
+                    if d.id in added_ids:
+                        added_docs.append(d)
 
-            # Update mappings and store documents
-            # Build a parallel list of docs to avoid O(n^2) lookup
-            added_docs = []
-            for d in documents:
-                if d.id in added_ids:
-                    added_docs.append(d)
+                for i, doc_id in enumerate(added_ids):
+                    doc = added_docs[i]
+                    self.documents[doc_id] = doc
 
-            for i, doc_id in enumerate(added_ids):
-                doc = added_docs[i]
-                self.documents[doc_id] = doc
-
-            # Save to disk
-            await self.save()
+                # Save to disk
+                await self._save_internal()
 
             # Record metrics
             duration = time.time() - start_time
@@ -362,7 +371,7 @@ class FAISSVectorStore(BaseVectorStore):
         """Update existing documents in the vector store."""
         updated_ids: List[str] = []
         try:
-            with self._lock:
+            async with self.async_lock:
                 for doc in documents:
                     if doc.id not in self.documents:
                         logger.warning(f"Document {doc.id} not found for update")
@@ -412,12 +421,13 @@ class FAISSVectorStore(BaseVectorStore):
                     # Update memory doc
                     self.documents[doc.id] = doc
                     updated_ids.append(doc.id)
-            if updated_ids:
-                await self.save()
-                logger.info(
-                    f"Updated {len(updated_ids)} documents in FAISS store (no rebuild)"
-                )
-            return updated_ids
+
+                if updated_ids:
+                    await self._save_internal()
+                    logger.info(
+                        f"Updated {len(updated_ids)} documents in FAISS store (no rebuild)"
+                    )
+                return updated_ids
         except Exception as e:
             metrics_manager.record_error("vector_store_update", "faiss")
             logger.error(f"Error updating documents in FAISS store: {e}")
@@ -434,7 +444,7 @@ class FAISSVectorStore(BaseVectorStore):
         """Delete documents from the vector store."""
         deleted_ids: List[str] = []
         try:
-            with self._lock:
+            async with self.async_lock:
                 # Collect FAISS IDs to remove
                 faiss_ids = []
                 for doc_id in document_ids:
@@ -465,12 +475,13 @@ class FAISSVectorStore(BaseVectorStore):
                         del self.documents[doc_id]
                     except Exception:
                         pass
-            if deleted_ids:
-                await self.save()
-                logger.info(
-                    f"Deleted {len(deleted_ids)} documents from FAISS store (no rebuild)"
-                )
-            return deleted_ids
+
+                if deleted_ids:
+                    await self._save_internal()
+                    logger.info(
+                        f"Deleted {len(deleted_ids)} documents from FAISS store (no rebuild)"
+                    )
+                return deleted_ids
         except Exception as e:
             metrics_manager.record_error("vector_store_delete", "faiss")
             logger.error(f"Error deleting documents from FAISS store: {e}")
@@ -642,7 +653,7 @@ class FAISSVectorStore(BaseVectorStore):
     async def clear(self) -> None:
         """Clear all documents from the vector store."""
         try:
-            with self._lock:
+            async with self.async_lock:
                 # Clear in-memory data
                 self.documents.clear()
                 self.docid_to_faissid.clear()
@@ -653,7 +664,7 @@ class FAISSVectorStore(BaseVectorStore):
                 self._initialize_index()
 
                 # Save empty state
-                await self.save()
+                await self._save_internal()
 
             logger.info("Cleared all documents from FAISS store")
 
@@ -667,7 +678,12 @@ class FAISSVectorStore(BaseVectorStore):
             ) from e
 
     async def save(self, path: Optional[str] = None) -> None:
-        """Save the vector store to disk."""
+        """Save the vector store to disk with concurrent write protection."""
+        async with self.async_lock:
+            await self._save_internal(path)
+
+    async def _save_internal(self, path: Optional[str] = None) -> None:
+        """Save the vector store to disk (executed under async_lock)."""
         try:
             save_path = Path(path) if path else self.index_path
             save_path.mkdir(parents=True, exist_ok=True)

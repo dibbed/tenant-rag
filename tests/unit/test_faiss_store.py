@@ -298,6 +298,20 @@ class TestFAISSStore:
             assert store.get_document_count() == 10
 
     @pytest.mark.asyncio
+    async def test_concurrent_writes_to_same_store(self, store: FAISSStore) -> None:
+        """Test concurrent writes to the SAME store instance without race conditions."""
+        import asyncio
+
+        async def worker(worker_id: int):
+            texts = [f"Worker {worker_id} Doc {i}" for i in range(5)]
+            embeddings = [[float(worker_id * 10 + i) * 0.01] * 1536 for i in range(5)]
+            metadata = [{"worker": worker_id, "doc": i} for i in range(5)]
+            await store.add_texts(texts, embeddings, metadata)
+
+        await asyncio.gather(*(worker(w) for w in range(5)))
+        assert store.get_document_count() == 25
+
+    @pytest.mark.asyncio
     async def test_memory_efficiency(self, store: FAISSStore) -> None:
         """Test memory efficiency with large embeddings."""
         # Create moderately large dataset
