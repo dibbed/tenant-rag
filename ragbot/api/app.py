@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from ragbot.api.middleware.rate_limit import RateLimitMiddleware
 from ragbot.api.routes import router as api_router
 from ragbot.outputs.logger import logger
 from ragbot.services.integration_service import (
@@ -75,6 +76,9 @@ def create_app(lifespan_context: Any = lifespan) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # In-memory sliding-window rate limiting for abuse prevention
+    app.add_middleware(RateLimitMiddleware)
 
     # Global unhandled exception handler to prevent leaking internal tracebacks
     @app.exception_handler(Exception)

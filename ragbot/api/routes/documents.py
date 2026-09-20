@@ -166,6 +166,15 @@ async def ingest_text(
             detail="Text content cannot be empty",
         )
 
+    # Validate maximum text payload size to prevent memory exhaustion DoS
+    max_mb = getattr(settings.security, "max_file_size_mb", 50)
+    max_chars = max_mb * 1024 * 1024
+    if len(text) > max_chars:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Text content exceeds maximum allowed size of {max_mb}MB",
+        )
+
     title = payload.title or "direct_text"
     meta = dict(payload.metadata or {})
     meta["title"] = title
@@ -303,6 +312,7 @@ async def ingest_url(
 @router.post("/reset", response_model=ResetResponse)
 async def reset_store(
     rag_service: RAGService = Depends(get_rag_service_dep),
+    integration_service: IntegrationService = Depends(get_integration_service_dep),
 ) -> ResetResponse:
     """
     Clear all documents from the vector store and invalidate all cache layers.
@@ -318,6 +328,15 @@ async def reset_store(
 
         cache_cleared = True
         try:
+            # Clear active IntegrationService cache component if present
+            int_cache = getattr(integration_service, "components", {}).get("cache")
+            if int_cache is not None:
+                if hasattr(int_cache, "clear"):
+                    await int_cache.clear()
+                if hasattr(int_cache, "clear_semantic_cache"):
+                    await int_cache.clear_semantic_cache()
+
+            # Clear global cache_manager singleton
             await cache_manager.initialize()
             l12_ok = await cache_manager.clear()
             sem_ok = await cache_manager.clear_semantic_cache()
