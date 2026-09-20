@@ -68,7 +68,7 @@ def mock_integration_service():
 @pytest.fixture
 def client(mock_integration_service):
     """FastAPI TestClient with overridden service dependencies."""
-    test_app = create_app()
+    test_app = create_app(lifespan_context=None)
 
     test_app.dependency_overrides[get_integration_service_dep] = (
         lambda: mock_integration_service
@@ -297,6 +297,49 @@ class TestDocumentIngestRoutes:
         response = client.post("/api/v1/documents/url", json=payload)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_upload_document_empty_rejected(self, client):
+        """0-byte file upload is rejected with 400 Bad Request."""
+        response = client.post(
+            "/api/v1/documents/upload",
+            files={"file": ("empty.pdf", io.BytesIO(b""), "application/pdf")},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_upload_document_filename_traversal_sanitized(self, client, mock_integration_service):
+        """Path traversal patterns in filename are sanitized."""
+        mock_rag = mock_integration_service.get_rag_service()
+        captured_meta = []
+
+        async def capture_ingest(source, *args, **kwargs):
+            meta = kwargs.get("metadata", {})
+            captured_meta.append(meta)
+            return IngestResult(
+                success=True,
+                document_id="doc_test_safe",
+                chunks_created=2,
+                processing_time=0.1,
+                metadata=meta,
+            )
+
+        mock_rag.ingest_document.side_effect = capture_ingest
+        response = client.post(
+            "/api/v1/documents/upload",
+            files={"file": ("../../etc/passwd.pdf", io.BytesIO(b"%PDF-1.4 test"), "application/pdf")},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["metadata"]["source"] == "passwd.pdf"
+        assert ".." not in data["metadata"]["source"]
+
+    def test_text_ingest_with_slashes(self, client, mock_integration_service):
+        """Text containing slashes (e.g. AI/ML) ingests without heuristic file error."""
+        payload = {"text": "AI/ML and RAG systems are powerful.", "title": "Tech/AI"}
+        response = client.post("/api/v1/documents/text", json=payload)
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["success"] is True
+        assert data["metadata"]["source"] == "Tech/AI"
+
     def test_reset_store_success(self, client, mock_integration_service):
         """Store reset clears vector store and returns ResetResponse."""
         with patch("ragbot.api.routes.documents.cache_manager") as mock_cache:
@@ -309,6 +352,67 @@ class TestDocumentIngestRoutes:
             data = response.json()
             assert data["success"] is True
             assert data["cache_cleared"] is True
+
+
+class TestApiRealIntegration:
+    """Verify live API routes with real IntegrationService (no mock overrides)."""
+
+    def test_real_health_endpoint(self):
+        """Real application lifecycle initializes and serves /health."""
+        real_app = create_app()
+        with TestClient(real_app) as client:
+            resp = client.get("/health")
+            assert resp.status_code == status.HTTP_200_OK
+            data = resp.json()
+            assert data["status"] in ["healthy", "degraded"]
+            assert "components" in data
+
+    def test_real_text_ingest_and_query_flow(self, tmp_path):
+        """Real text ingestion and query flow through RAG pipeline."""
+        from ragbot.configs.settings import Settings
+        from ragbot.services.integration_service import IntegrationService
+
+        test_settings = Settings()
+        test_settings.store_path = tmp_path
+        test_settings.store.store_path = str(tmp_path)
+        test_settings.data_dir = tmp_path
+        test_settings.embedding.provider = "sentence_transformers"
+
+        with patch(
+            "ragbot.rag.qa.chain.QAChain.answer",
+            new_callable=AsyncMock,
+            return_value={
+                "answer": "Antigravity is an AI agent.",
+                "sources": ["Agent Info"],
+                "confidence_score": 0.95,
+            },
+        ):
+            real_app = create_app()
+            real_app.state.integration_service = IntegrationService(config=test_settings)
+            with TestClient(real_app) as client:
+                # 1. Ingest text
+                ingest_resp = client.post(
+                    "/api/v1/documents/text",
+                    json={
+                        "text": "Antigravity is an AI agent for code remediation and software engineering.",
+                        "title": "Agent Info",
+                    },
+                )
+                assert ingest_resp.status_code == status.HTTP_200_OK
+                ingest_data = ingest_resp.json()
+                assert ingest_data["success"] is True
+                assert ingest_data["chunks_created"] >= 1
+                assert ingest_data["metadata"]["source"] == "Agent Info"
+
+                # 2. Query knowledge base
+                query_resp = client.post(
+                    "/api/v1/query",
+                    json={"question": "What is Antigravity?", "language": "en"},
+                )
+                assert query_resp.status_code == status.HTTP_200_OK
+                query_data = query_resp.json()
+                assert query_data["answer"] == "Antigravity is an AI agent."
+                assert "Agent Info" in query_data["sources"]
 
 
 class TestNoTelegramRuntimeCoupling:
