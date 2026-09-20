@@ -1,440 +1,252 @@
-# API Documentation
+# RAGBot REST API Specification
 
-## Overview
+## 1. Overview
 
-The RAG Telegram Assistant provides a comprehensive API for document ingestion, query processing, and system management. This document covers all available interfaces, including Telegram bot commands, internal APIs, and extension points.
+RAGBot exposes a high-performance RESTful HTTP API built on **FastAPI**. It allows web applications, microservices, and external clients to ingest diverse document types, trigger RAG question-answering workflows, check system health, and manage knowledge base state.
 
-## Telegram Bot API
+- **Default Base URL**: `http://localhost:8000`
+- **Interactive Documentation**:
+  - Swagger UI: `http://localhost:8000/docs`
+  - ReDoc: `http://localhost:8000/redoc`
+  - OpenAPI Schema: `http://localhost:8000/openapi.json`
 
-### Commands
+---
 
-#### `/start`
+## 2. Global Request Handling & Middleware
 
-**Description**: Initialize bot interaction and display welcome message
+### Rate Limiting
+All requests (except health check and documentation endpoints) pass through an in-memory sliding-window rate limiter per client IP address.
+- **Default Limit**: 60 requests per 60 seconds (configurable via `SECURITY_RATE_LIMIT_REQUESTS` and `SECURITY_RATE_LIMIT_WINDOW`).
+- **Response Headers**:
+  - `X-RateLimit-Limit`: Maximum requests permitted per window.
+  - `X-RateLimit-Remaining`: Requests remaining in current window.
+  - `X-RateLimit-Reset`: UTC epoch timestamp when current window resets.
+- **Rate Limit Exceeded**: Returns `HTTP 429 Too Many Requests` with a `Retry-After: <seconds>` header.
 
-**Usage**: `/start`
+### CORS
+CORS is preconfigured with permissive defaults (`*`) for cross-origin web client integration. Allowed origins can be customized in `ragbot/api/app.py`.
 
-**Response**: Welcome message with bot capabilities and available commands
+---
 
-**Example**:
+## 3. Endpoints
 
-```
-User: /start
-Bot: 🤖 سلام! من دستیار RAG هستم...
-```
+### 3.1 Health & Subsystem Status
 
-#### `/add`
+#### `GET /health` or `GET /api/v1/health`
+Evaluates the real-time operational status of all attached subsystems without leaking internal API keys or credentials.
 
-**Description**: Add documents to the knowledge base
+- **Status Codes**:
+  - `200 OK`: System healthy or operating in degraded mode.
+  - `503 Service Unavailable`: Critical subsystem failure (e.g. vector store uninitialized).
 
-**Usage**:
-
-- `/add <text>` - Add plain text
-- `/add` + file attachment (PDF/DOCX/TXT/HTML/MD/PPTX/XLSX/Images[OCR])
-- `/add <URL>` - Add content from URL
-
-**Parameters**:
-
-- `content` (string): Text content, URL, or file attachment
-- File types supported (dynamic): PDF, DOCX, TXT, HTML/HTM, MD, PPTX, XLSX, PNG/JPG/JPEG/TIFF/BMP (OCR)
-- Max file size: 50MB
-- URL timeout: 30 seconds
-
-**Response**: Confirmation with processing statistics
-
-**Examples**:
-
-```
-# Add text
-User: /add This is important information about machine learning.
-Bot: ✅ متن با موفقیت اضافه شد. (1 chunk ایجاد شد)
-
-# Add URL
-User: /add https://example.com/article.pdf
-Bot: ✅ سند از URL دریافت و اضافه شد. (5 chunks ایجاد شد)
-
-# Add file (attach PDF)
-User: /add [PDF/DOCX attachment]
-Bot: ✅ فایل (PDF/DOCX) پردازش و اضافه شد. (12 chunks ایجاد شد)
+**Response Schema (`HealthResponse`):**
+```json
+{
+  "status": "healthy",
+  "timestamp": 1726815892.41,
+  "components": {
+    "vector_store": {"status": "healthy", "store_type": "faiss", "documents_count": 42},
+    "embedder": {"status": "healthy", "provider": "sentence_transformers"},
+    "cache": {"status": "healthy", "type": "multi_tier"},
+    "qa_chain": {"status": "healthy", "provider": "openrouter"}
+  },
+  "issues": []
+}
 ```
 
-**Error Responses**:
+---
 
-- Invalid URL: `❌ URL نامعتبر است`
-- File too large: `❌ حجم فایل بیش از حد مجاز است`
-- Processing error: `❌ خطا در پردازش سند`
+### 3.2 Question Answering / RAG Query
 
-###
+#### `POST /api/v1/query`
+Executes semantic vector retrieval against the knowledge base and synthesizes a grounded answer using the configured Large Language Model.
 
-# `/ask`
-
-**Description**: Query the knowledge base
-
-**Usage**: `/ask <question>`
-
-**Parameters**:
-
-- `question` (string, required): The question to ask
-- Language: Auto-detected (Persian/English)
-- Max question length: 500 characters
-
-**Response**: Answer with source references
-
-**Example**:
-
-```
-User: /ask What are the benefits of machine learning?
-Bot: 🤖 بر اساس اسناد موجود:
-
-یادگیری ماشین مزایای زیر را دارد:
-1. خودکارسازی فرآیندها
-2. تشخیص الگوهای پیچیده
-3. بهبود دقت پیش‌بینی‌ها
-
-📚 منابع: document_1.pdf (صفحه 3), article_2.txt
+**Request Schema (`QueryRequest`):**
+```json
+{
+  "question": "What are the chunking strategies supported by RAGBot?",
+  "language": "en",
+  "top_k": 4,
+  "similarity_threshold": 0.6
+}
 ```
 
-**Error Responses**:
+| Parameter | Type | Required | Default | Description |
+|:---|:---|:---|:---|:---|
+| `question` | `string` | **Yes** | — | Question prompt (min 1 character). |
+| `language` | `string` | No | `"fa"` | Target language code (`"en"` or `"fa"`). |
+| `top_k` | `integer` | No | `5` | Number of relevant chunks to retrieve (1 to 50). |
+| `similarity_threshold` | `float` | No | `0.6` | Minimum cosine similarity threshold (0.0 to 1.0). |
 
-- Empty question: `❌ لطفاً سوال خود را بنویسید`
-- No relevant documents: `❌ اطلاعات مرتبطی یافت نشد`
-- Processing error: `❌ خطا در پردازش سوال`
-
-#### `/reset`
-
-**Description**: Clear all stored documents from knowledge base
-
-**Usage**: `/reset`
-
-**Response**: Confirmation of reset operation
-
-**Example**:
-
-```
-User: /reset
-Bot: ✅ تمام اسناد ذخیره شده پاک شدند.
-```
-
-#### `/help`
-
-**Description**: Display help information and available commands
-
-**Usage**: `/help`
-
-**Response**: List of all commands with descriptions
-
-#### `/status`
-
-**Description**: Display system status and statistics
-
-**Usage**: `/status`
-
-**Response**: System health information
-
-**Example**:
-
-````
-User: /status
-Bot: 📊 وضعیت سیستم:
-✅ ربات: فعال
-✅ OpenAI API: متصل
-✅ Vector Store: آماده
-📄 اسناد ذخیره شده: 15
-🧩 Chunks: 127
-⏱️ آخرین بروزرسانی: 2 دقیقه پیش
-```## Intern
-al APIs
-
-### RAG Service API
-
-#### `RAGService.ingest_document()`
-```python
-async def ingest_document(
-    self,
-    source: str,
-    source_type: Literal["text", "url", "file"]
-) -> IngestResult
-````
-
-**Parameters**:
-
-- `source`: Content source (text, URL, or file path)
-- `source_type`: Type of source content
-
-**Returns**: `IngestResult` with processing statistics
-
-**Example**:
-
-```python
-service = RAGService()
-result = await service.ingest_document(
-    source="https://example.com/doc.pdf",
-    source_type="url"
-)
-print(f"Created {result.chunks_created} chunks")
+**Response Schema (`QueryResponse`):**
+```json
+{
+  "answer": "RAGBot supports token, semantic, hierarchical, and adaptive chunking strategies...",
+  "sources": [
+    "chunking_guide.pdf (Page 4)",
+    "loaders_spec.md"
+  ],
+  "confidence_score": 0.88,
+  "processing_time": 1.12,
+  "language": "en",
+  "retrieved_chunks": 4,
+  "metadata": {}
+}
 ```
 
-#### `RAGService.query_documents()`
+**Error Codes:**
+- `422 Unprocessable Entity`: Question empty or threshold out of range.
+- `503 Service Unavailable`: Upstream LLM provider or embedding provider unavailable.
+- `500 Internal Server Error`: Vector search failure or internal exception.
 
-```python
-async def query_documents(
-    self,
-    question: str,
-    lang: str = "auto"
-) -> QueryResult
+---
+
+### 3.3 Document Ingestion
+
+#### `POST /api/v1/documents/upload`
+Uploads and processes a local document file using `multipart/form-data`.
+- **Allowed Formats**: `pdf`, `docx`, `txt`, `html`, `md`, `pptx`, `xlsx`, `png`, `jpg`, `jpeg`, `tiff`, `bmp`.
+- **Max File Size**: 50 MB (configurable via `SECURITY_MAX_FILE_SIZE_MB`).
+
+**Example `curl` Request:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/upload" \
+  -F "file=@/path/to/report.pdf"
 ```
 
-**Parameters**:
-
-- `question`: User question
-- `lang`: Response language ("fa", "en", or "auto")
-
-**Returns**: `QueryResult` with answer and sources
-
-**Example**:
-
-```python
-result = await service.query_documents(
-    question="What is machine learning?",
-    lang="en"
-)
-print(result.answer)
+**Response Schema (`IngestResponse`):**
+```json
+{
+  "success": true,
+  "document_id": "doc_e3b0c44298fc1c14",
+  "title": "report.pdf",
+  "source": "report.pdf",
+  "chunks_created": 18,
+  "processing_time": 2.45,
+  "metadata": {
+    "file_size": 2048576,
+    "pages": 12,
+    "source_type": "pdf"
+  }
+}
 ```
 
-### Document Service API
+**Error Codes:**
+- `400 Bad Request`: Empty (0-byte) file uploaded.
+- `413 Request Entity Too Large`: File exceeds size limit.
+- `415 Unsupported Media Type`: File extension not allowed.
 
-#### `DocumentService.process_pdf()`
+---
 
-```python
-async def process_pdf(self, file_path: str) -> Document
+#### `POST /api/v1/documents/text`
+Directly ingests a raw string payload into the knowledge base without filesystem uploads.
+
+**Request Schema (`TextIngestRequest`):**
+```json
+{
+  "text": "Antigravity is an advanced agentic coding system designed by Google DeepMind.",
+  "title": "antigravity_overview",
+  "metadata": {
+    "category": "ai",
+    "version": "2.0"
+  }
+}
 ```
 
-**Parameters**:
-
-- `file_path`: Path to PDF file
-
-**Returns**: `Document` object with extracted content
-
-#### `DocumentService.process_url()`
-
-```python
-async def process_url(self, url: str) -> Document
+**Response Schema (`IngestResponse`):**
+```json
+{
+  "success": true,
+  "document_id": "doc_a1b2c3d4e5f60718",
+  "title": "antigravity_overview",
+  "source": "text_input",
+  "chunks_created": 1,
+  "processing_time": 0.32,
+  "metadata": {
+    "category": "ai",
+    "version": "2.0"
+  }
+}
 ```
 
-**Parameters**:
+**Error Codes:**
+- `400 Bad Request`: Text content empty or whitespace only.
+- `413 Request Entity Too Large`: Text exceeds max payload character threshold.
 
-- `url`: URL to process
+---
 
-**Returns**: `Document` object with extracted content### Vecto
-r Store API
+#### `POST /api/v1/documents/url`
+Fetches a remote web page, cleans and extracts structural content, splits it into chunks, and stores embeddings.
 
-#### `VectorStore.add_documents()`
-
-```python
-async def add_documents(self, documents: List[Document]) -> List[str]
+**Request Schema (`URLIngestRequest`):**
+```json
+{
+  "url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+  "title": "RAG Wikipedia",
+  "metadata": {
+    "domain": "wikipedia.org"
+  }
+}
 ```
 
-**Parameters**:
-
-- `documents`: List of documents to add
-
-**Returns**: List of document IDs
-
-#### `VectorStore.similarity_search()`
-
-```python
-async def similarity_search(
-    self,
-    query: str,
-    k: int = 4
-) -> List[Document]
+**Response Schema (`IngestResponse`):**
+```json
+{
+  "success": true,
+  "document_id": "doc_c8d7e6f5a4b3c2d1",
+  "title": "RAG Wikipedia",
+  "source": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+  "chunks_created": 24,
+  "processing_time": 3.81,
+  "metadata": {
+    "domain": "wikipedia.org",
+    "status_code": 200
+  }
+}
 ```
 
-**Parameters**:
+**Error Codes:**
+- `400 Bad Request`: Invalid URL scheme (only `http` and `https` permitted).
+- `500 Internal Server Error`: HTTP network fetch failure or parsing exception.
 
-- `query`: Search query
-- `k`: Number of results to return
+---
 
-**Returns**: List of similar documents
+#### `POST /api/v1/documents/reset`
+Wipes all documents from the active vector store index and purges all associated semantic and L1/L2 caches.
 
-## Data Models
-
-### IngestResult
-
-```python
-@dataclass
-class IngestResult:
-    success: bool
-    document_id: str
-    chunks_created: int
-    processing_time: float
-    error_message: Optional[str] = None
+**Example Request:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/reset"
 ```
 
-### QueryResult
-
-```python
-@dataclass
-class QueryResult:
-    answer: str
-    sources: List[str]
-    confidence_score: float
-    processing_time: float
-    language: str
+**Response Schema (`ResetResponse`):**
+```json
+{
+  "success": true,
+  "message": "Vector store and associated caches reset successfully",
+  "timestamp": 1726816000.12
+}
 ```
 
-### Document
+---
 
-```python
-@dataclass
-class Document:
-    content: str
-    metadata: Dict[str, Any]
-    source: str
-    document_type: str
+## 4. Standard Error Response Format
+
+When an API error occurs, FastAPI returns standard JSON adhering to RFC 7807 problem details:
+
+```json
+{
+  "detail": "Descriptive error message"
+}
 ```
 
-### HealthStatus
-
-````python
-@dataclass
-class HealthStatus:
-    overall_status: str
-    components: Dict[str, ComponentHealth]
-    timestamp: datetime
-    uptime: float
-```#
-# Configuration API
-
-### Settings
-All configuration is managed through environment variables and the `Settings` class:
-
-```python
-from ragbot.configs.settings import settings
-
-# Access configuration
-print(settings.bot_token)
-print(settings.openai_api_key)
-print(settings.default_lang)
-````
-
-### Environment Variables
-
-| Variable         | Type | Default                    | Description                |
-| ---------------- | ---- | -------------------------- | -------------------------- |
-| `BOT_TOKEN`      | str  | Required                   | Telegram bot token         |
-| `OPENAI_API_KEY` | str  | Required                   | OpenAI API key             |
-| `DEFAULT_LANG`   | str  | `"fa"`                     | Default response language  |
-| `VECTOR_DB`      | str  | `"faiss"`                  | Vector database type       |
-| `EMBED_MODEL`    | str  | `"text-embedding-ada-002"` | Embedding model            |
-| `CHUNK_SIZE`     | int  | `512`                      | Text chunk size            |
-| `CHUNK_OVERLAP`  | int  | `50`                       | Chunk overlap size         |
-| `TOP_K`          | int  | `4`                        | Number of retrieved chunks |
-| `CACHE_TTL`      | int  | `3600`                     | Cache TTL in seconds       |
-| `MAX_FILE_SIZE`  | int  | `52428800`                 | Max file size (50MB)       |
-| `ALLOW_USERS`    | str  | `""`                       | Comma-separated user IDs   |
-| `LOG_LEVEL`      | str  | `"INFO"`                   | Logging level              |
-
-## Extension Points
-
-### Custom Loaders
-
-Implement the `BaseLoader` interface to add support for new document types:
-
-```python
-from ragbot.rag import BaseLoader
-
-class CustomLoader(BaseLoader):
-    async def load(self, source: str) -> Document:
-        # Your implementation here
-        pass
-```
-
-### Custom Embedders
-
-Implement the `BaseEmbedder` interface for custom embedding providers:
-
-```python
-from ragbot.rag import BaseEmbedder
-
-class CustomEmbedder(BaseEmbedder):
-    async def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        # Your implementation here
-        pass
-```
-
-### Custom Vector Stores
-
-Implement the `BaseVectorStore` interface for custom vector databases:
-
-````python
-from ragbot.rag import BaseVectorStore
-
-class CustomVectorStore(BaseVectorStore):
-    async def add_documents(self, documents: List[Document]) -> List[str]:
-        # Your implementation here
-        pass
-```##
-Error Handling
-
-### Exception Hierarchy
-```python
-RAGBotException
-├── DocumentProcessingError
-├── EmbeddingError
-├── VectorStoreError
-├── ConfigurationError
-└── AuthenticationError
-````
-
-### Error Responses
-
-All API methods return structured error information:
-
-```python
-try:
-    result = await service.ingest_document(source, source_type)
-except DocumentProcessingError as e:
-    print(f"Processing failed: {e.message}")
-    print(f"Error code: {e.error_code}")
-```
-
-## Authentication & Authorization
-
-### User Allowlist
-
-Configure allowed users via environment variable:
-
-```env
-ALLOW_USERS=123456789,987654321
-```
-
-### Middleware Implementation
-
-```python
-from ragbot.app.middleware.auth import AuthMiddleware
-
-# Authentication is automatically applied to all handlers
-# Users not in allowlist receive "Access denied" message
-```
-
-## Monitoring & Metrics
-
-### Health Checks
-
-```python
-from ragbot.outputs.health import HealthChecker
-
-checker = HealthChecker()
-status = await checker.get_overall_health()
-```
-
-### Metrics Collection
-
-```python
-from ragbot.outputs.metrics import MetricsCollector
-
-metrics = MetricsCollector()
-metrics.record_request_duration("query", 1.5)
-metrics.increment_request_counter("ingest", "success")
-```
+### Common HTTP Status Codes
+| Code | Reason | Cause |
+|:---|:---|:---|
+| `400` | Bad Request | Empty file, empty text, or malformed URL scheme. |
+| `413` | Request Entity Too Large | Uploaded file or text content exceeds size limits. |
+| `415` | Unsupported Media Type | File extension is not in `allowed_file_types`. |
+| `422` | Unprocessable Entity | Pydantic schema validation failure. |
+| `429` | Too Many Requests | Rate limit threshold exceeded. Check `Retry-After`. |
+| `500` | Internal Server Error | Unhandled server error or vector store search failure. |
+| `503` | Service Unavailable | External LLM/embedding provider API unreachable or timing out. |

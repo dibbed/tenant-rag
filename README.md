@@ -1,306 +1,238 @@
-# RAG Telegram Assistant
+# RAGBot - API-First Retrieval-Augmented Generation Backend
 
 [![CI](https://github.com/dibbed/rag-telegram-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/rag-telegram-assistant/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)
-![Coverage](https://img.shields.io/badge/coverage-82%25-brightgreen)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)
 
-Advanced Telegram bot for Retrieval-Augmented Generation (RAG) over PDFs, DOCX, URLs, and text. Full support for Persian and English. Works offline (local models) and online (OpenRouter/OpenAI/Anthropic/Ollama). Now with **multiple vector databases** (FAISS, Chroma, Qdrant, Weaviate), advanced query features, encryption, plugins, analytics, and multi-tenant support.
+High-performance, production-ready Python backend providing an **API-first Retrieval-Augmented Generation (RAG)** platform over documents (PDF, DOCX, TXT, HTML, Markdown, PPTX, XLSX, images/OCR) and web URLs. Features native multilingual support (English and Persian), multi-tier semantic caching, thread-safe and async-safe vector storage (FAISS, Chroma, Qdrant, Weaviate), sliding-window rate limiting, and broad LLM support (OpenAI, Anthropic Claude, Ollama, HuggingFace, OpenRouter).
 
-Persian README: see [README.fa.md](README.fa.md) · Roadmap: [Project1-RAG_Telegram_Assistant_Roadmap.md](Project1-RAG_Telegram_Assistant_Roadmap.md)
-
-## Quick Start
-
-1. Create and activate venv, then install deps:
-
-   python -m venv .venv
-
-   # Windows: .\.venv\Scripts\Activate.ps1
-
-   # Linux/macOS:
-
-   # source .venv/bin/activate
-
-   pip install -U pip
-   pip install -r requirements.txt
-
-2. Copy `env.example` to `.env` (or `.env_deepseek`) and fill values. For free mode:
-
-   LLM_PROVIDER=openrouter
-   LLM_MODEL=x-ai/grok-4-fast:free
-   OPENROUTER_API_KEY=your_key_here
-   EMBED_PROVIDER=sentence_transformers
-   EMBED_MODEL=intfloat/e5-small-v2
-
-3. Run the bot:
-
-   python main.py
-
-Telegram commands:
-
-- `/start` - Welcome and introduction
-- `/add` - Add document (PDF, DOCX, URL, or text)
-- `/ask <question>` - Ask question about documents
-- `/aggregate <query>` - Advanced aggregation queries
-- `/filter <query>` - Advanced filtering operations
-- `/optimize <query>` - Query optimization suggestions
-- `/score <query>` - Custom scoring algorithms
-- `/reset` - Clear all documents
-- `/status` - Show system status
-- `/help` - Show help guide
-- `/config` - Show current configuration
-
-## Docker
-
-    docker compose up --build -d
-
-Mounts `./data`, `./logs`, and `~/.cache/huggingface` for offline models. Local embedding model cache is stored in `./cache/sentence_transformers`.
-
-## Configuration Modes
-
-### LLM Providers
-
-- **OpenRouter** (Free): `LLM_PROVIDER=openrouter` with `LLM_MODEL=x-ai/grok-4-fast:free`
-- **OpenAI**: `LLM_PROVIDER=openai` with `LLM_MODEL=gpt-3.5-turbo`
-- **Anthropic**: `LLM_PROVIDER=anthropic` with `LLM_MODEL=claude-3-haiku`
-- **Ollama** (Local): `LLM_PROVIDER=ollama` with `LLM_MODEL=llama2`
-- **HuggingFace** (Local): `LLM_PROVIDER=hf_local` with `LLM_HF_MODEL=aidal/Persian-Mistral-7B`
-
-### Embedding Providers
-
-- **Sentence Transformers** (Offline): `EMBED_PROVIDER=sentence_transformers`
-- **OpenAI** (Online): `EMBED_PROVIDER=openai`
-- **HuggingFace** (Offline): `EMBED_PROVIDER=huggingface`
-
-Embedding cache is enabled via CacheManager (Memory + optional Redis). Embedders check cache before computing. Semantic cache for answers is also available (configurable confidence-based writes).
-
-### Vector Stores 🗄️
-
-Choose from multiple vector databases based on your needs:
-
-- **FAISS** (Default): `VECTOR_STORE_DEFAULT_STORE=faiss` - Fast, offline, great for development
-- **Chroma**: `VECTOR_STORE_DEFAULT_STORE=chroma` - Rich metadata, perfect for RAG applications
-- **Qdrant**: `VECTOR_STORE_DEFAULT_STORE=qdrant` - High performance, production-ready
-- **Weaviate**: `VECTOR_STORE_DEFAULT_STORE=weaviate` - Enterprise features, GraphQL support
-
-**Quick Setup:**
-
-```bash
-# Install all vector store dependencies
-pip install -e ".[vectorstores]"
-
-# For Qdrant/Weaviate, start the servers:
-docker run -p 6333:6333 qdrant/qdrant
-docker run -p 8080:8080 semitechnologies/weaviate:latest
-
-# Switch stores anytime
-export VECTOR_STORE_DEFAULT_STORE=chroma
-```
-
-**Advanced Features:**
-
-- ✅ Migration between stores: `python -m ragbot.cli migrate-store --source faiss --target chroma`
-- ✅ Performance benchmarking: `python -m ragbot.cli benchmark-stores`
-- ✅ Advanced query features: aggregation, filtering, custom scoring, optimization
-- ✅ Encryption & security: data protection, key management, secure backups
-- ✅ Plugin system: dynamic loading, hot-swapping, marketplace
-- ✅ Analytics & ML: user behavior analysis, predictive insights
-- ✅ Multi-tenant support: tenant isolation, resource quotas
-
-See [Vector Store Guide](docs/VECTOR_STORES.md) for detailed configuration.
-
-### Offline Installation
-
-For complete offline operation:
-
-    pip install -e ".[offline]"
-    # Install suitable torch build (CPU/GPU)
-    # Example CPU: pip install torch --index-url https://download.pytorch.org/whl/cpu
-
-Then configure:
-
-    LLM_PROVIDER=hf_local
-    LLM_HF_MODEL=aidal/Persian-Mistral-7B
-    LLM_HF_DEVICE=auto  # or cuda
-    EMBED_PROVIDER=sentence_transformers
-    EMBED_MODEL=intfloat/e5-small-v2
+*Persian Documentation: [README.fa.md](README.fa.md) · Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · REST API: [docs/API.md](docs/API.md)*
 
 ---
 
-## Features
+## 🏛️ System Architecture
 
-### 📄 Document Processing
+```text
+Frontend / Web Client / External Systems
+                  ↓
+       FastAPI HTTP API Server
+    ├── RateLimitMiddleware (Sliding Window)
+    ├── CORS Middleware
+    └── Exception & Validation Handlers
+                  ↓
+       Service Orchestration Layer
+    ├── IntegrationService (Lifespan Component Management)
+    └── RAGService (Document Ingestion, Query Pipelines, Store Resets)
+                  ↓
+       Multi-Tier Caching System
+    ├── SemanticCache (Cosine Similarity Answer Reuse)
+    └── L1/L2 General Cache (Memory / Redis)
+                  ↓
+       RAG Core Pipeline
+    ├── Loaders (PDF, DOCX, TXT, HTML, MD, PPTX, XLSX, OCR)
+    ├── Chunkers (Token, Semantic, Hierarchical, Adaptive)
+    ├── Embeddings (SentenceTransformers, OpenAI, HuggingFace)
+    ├── Vector Stores (FAISS with async_lock, Chroma, Qdrant, Weaviate)
+    └── QAChain (OpenAI, Anthropic Claude, Ollama, HuggingFace)
+```
 
-- **Supported Formats**: PDF, DOCX, TXT, URL
-- **OCR Support**: `pytesseract`, `easyocr`, `google` for image-based PDFs
-- **Content Sanitization**: Clean text extraction from complex documents
-- **Security Limits**: Maximum 25MB file size
-- **HTML Loader (async)**: Non-blocking HTTP/file IO with retries and timeouts; structural extraction of headings (h1–h6) with optional Markdown marker injection; rich metadata (title, description, canonical, OpenGraph/Twitter, language, mime); links/images with absolute URLs and configurable limits; text cleaning and normalization. Configure via env: `MULTI_FORMAT_HTML_*` keys.
+---
 
-### 🔍 RAG System
+## 🚀 Quick Start
 
-- **Text Chunking**: Token, Semantic, Hierarchical, Adaptive + ChunkOptimizer
-- **Embeddings**: OpenAI, Sentence Transformers, HuggingFace with caching
-- **Vector Storage**: FAISS, Chroma, Qdrant, Weaviate with persistence
-- **Retrieval**: Hybrid search, reranking, query expansion
-- **Advanced Queries**: Aggregation, filtering, custom scoring, optimization
-- **Generation**: Support for 5 different LLM providers
+### 1. Environment Setup
 
-### 🌐 Multilingual & UI
-
-- **Languages**: Persian and English with auto-detection
-- **User Interface**: Friendly messages and comprehensive guides
-- **Commands**: 8 main commands + administrative commands
-
-### 🔧 Management & Monitoring
-
-- **Caching**: Two-tier (Memory + Redis)
-- **Monitoring**: Prometheus, Grafana, Health checks
-- **Logging**: Structured logging with Loguru
-- **Rate Limiting**: Configurable to prevent abuse
-- **Security**: Encryption, key management, secure backups
-- **Analytics**: User behavior analysis, ML insights
-- **Plugins**: Dynamic loading, hot-swapping, marketplace
-
-## CLI
-
-### Main Commands
+Clone repository and create virtual environment:
 
 ```bash
-# System status
-python -m ragbot.cli status
+git clone https://github.com/dibbed/rag-telegram-assistant.git
+cd rag-telegram-assistant
 
-# Clear all documents
-python -m ragbot.cli reset
+# Create virtual environment
+python -m venv venv
 
-# Ask questions
-python -m ragbot.cli query --question "What is RAG?" --lang en
-python -m ragbot.cli query --question "RAG چیست؟" --lang fa --top-k 5
+# Activate virtual environment
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies
+pip install -U pip
+pip install -r requirements.txt
 ```
 
-### Document Ingestion
+### 2. Configuration
+
+Copy `env.example` to `.env` and set desired settings:
 
 ```bash
-# Single document ingestion
-python -m ragbot.cli ingest --file ./docs/file.pdf
-python -m ragbot.cli ingest --url https://example.com
-python -m ragbot.cli ingest --text "Sample text"
-
-# Batch ingestion (default: PDF only)
-python -m ragbot.cli batch-ingest --dir ./knowledge
-
-# Include TXT and DOCX
-python -m ragbot.cli batch-ingest --dir ./knowledge --include-txt --include-docx
-
-# Custom patterns
-python -m ragbot.cli batch-ingest --dir ./knowledge --pattern "*.pdf" --pattern "*.docx"
+cp env.example .env
 ```
 
-## Architecture
+Minimal `.env` for free local testing:
+```env
+# Server
+HOST=0.0.0.0
+PORT=8000
 
-```
-ragbot/
-├── app/                     # aiogram bot, routes, middlewares
-├── configs/                 # pydantic settings, validators
-├── outputs/                 # logging, metrics adapters
-├── rag/
-│   ├── loaders/             # pdf/url/text
-│   ├── chunkers/            # token/semantic/hierarchical/adaptive + optimizer
-│   ├── embeddings/          # openai + sentence-transformers + huggingface
-│   ├── store/               # FAISS, Chroma, Qdrant, Weaviate stores
-│   ├── query/               # advanced queries, aggregation, filtering, scoring
-│   ├── retrieve/            # hybrid search + reranker + expansion
-│   └── qa/                  # prompt + LLM
-├── services/                # orchestrators (RAG)
-├── security/                # encryption, key management, secure backups
-├── plugins/                 # plugin system, marketplace
-├── analytics/               # user behavior, ML insights, predictive analytics
-├── multi_tenant/            # tenant management, isolation, quotas
-└── tests/                   # unit/integration/e2e
+# LLM Provider (options: openrouter, openai, anthropic, ollama, hf_local)
+LLM_PROVIDER=openrouter
+LLM_MODEL=x-ai/grok-4-fast:free
+OPENROUTER_API_KEY=your_key_here
+
+# Embeddings (Sentence Transformers runs offline on CPU)
+EMBED_PROVIDER=sentence_transformers
+EMBED_MODEL=intfloat/e5-small-v2
+
+# Vector Store (faiss, chroma, qdrant, weaviate)
+VECTOR_STORE_DEFAULT_STORE=faiss
 ```
 
-## Requirements
-
-- **Python**: 3.10+ (tested on 3.11/3.12)
-- **Telegram Bot Token**: Get from [@BotFather](https://t.me/botfather)
-- **API Keys**: OpenRouter/OpenAI/Anthropic (for online mode)
-- **GPU**: Optional, recommended for 7B+ local models
-
-## Key Configuration
-
-### LLM Settings
+### 3. Start the API Server
 
 ```bash
-LLM_PROVIDER=openrouter          # openai|anthropic|ollama|hf_local|openrouter
-LLM_MODEL=x-ai/grok-4-fast:free  # model name
-LLM_TEMPERATURE=0.3              # response creativity (0.0-2.0)
-LLM_MAX_TOKENS=2000              # max response tokens
+# Using Python entry point:
+python main.py
+
+# Or via Uvicorn directly:
+uvicorn ragbot.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Embedding Settings
+Interactive OpenAPI documentation is immediately available:
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+- **OpenAPI JSON**: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+
+---
+
+## 📡 Core API Endpoints
+
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/health` or `/api/v1/health` | Subsystem health check (vector store, embeddings, cache, LLM) |
+| `POST` | `/api/v1/query` | Ask questions with grounded source citations and confidence metrics |
+| `POST` | `/api/v1/documents/upload` | Upload and ingest document files (PDF, DOCX, TXT, HTML, MD, etc.) |
+| `POST` | `/api/v1/documents/text` | Ingest direct text content into the knowledge base |
+| `POST` | `/api/v1/documents/url` | Ingest content from a web URL |
+| `POST` | `/api/v1/documents/reset` | Clear all vector store documents and invalidate semantic caches |
+
+### Example: Querying the Knowledge Base
 
 ```bash
-EMBED_PROVIDER=sentence_transformers  # openai|sentence_transformers|huggingface
-EMBED_MODEL=intfloat/e5-small-v2     # embedding model
-EMBED_BATCH_SIZE=100                  # batch size
+curl -X POST "http://localhost:8000/api/v1/query" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is the primary architecture of this system?",
+    "language": "en",
+    "top_k": 3,
+    "similarity_threshold": 0.5
+  }'
 ```
 
-### RAG Settings
+**Response:**
+```json
+{
+  "answer": "The system follows an API-first RAG architecture orchestrated via FastAPI...",
+  "sources": ["architecture_overview.pdf (Page 2)"],
+  "confidence_score": 0.92,
+  "processing_time": 0.84,
+  "language": "en",
+  "retrieved_chunks": 3,
+  "metadata": {}
+}
+```
+
+### Example: Ingesting Plain Text
 
 ```bash
-RAG_CHUNK_SIZE=400                    # chunk size (tokens)
-RAG_CHUNK_OVERLAP=50                 # chunk overlap
-RAG_TOP_K=5                          # retrieved chunks count
-RAG_SIMILARITY_THRESHOLD=0.6         # similarity threshold (0.0-1.0)
-RAG_MAX_CONTEXT_TOKENS=4000          # optional token budget for context sent to LLM
+curl -X POST "http://localhost:8000/api/v1/documents/text" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Retrieval-Augmented Generation enhances LLM responses by fetching context.",
+    "title": "rag_intro",
+    "metadata": {"category": "ai"}
+  }'
 ```
 
-### Security Settings
+---
+
+## ⚙️ Configuration & Providers
+
+### Supported LLM Providers
+
+| Provider | `LLM_PROVIDER` | Default Model | Required Credentials |
+|:---|:---|:---|:---|
+| **OpenAI** | `openai` | `gpt-3.5-turbo` / `gpt-4o` | `OPENAI_API_KEY` |
+| **Anthropic** | `anthropic` | `claude-3-haiku-20240307` | `ANTHROPIC_API_KEY` |
+| **OpenRouter** | `openrouter` | `x-ai/grok-4-fast:free` | `OPENROUTER_API_KEY` |
+| **Ollama (Local)** | `ollama` | `llama2` / `llama3` | Local server (`http://localhost:11434`) |
+| **HuggingFace (Local)** | `hf_local` | Local checkpoint | PyTorch environment |
+
+### Supported Vector Databases
+
+- **FAISS** (Default): In-memory index with persistent disk storage. Hardened with class-level `async_lock` to ensure concurrent write safety and prevent file lock collisions.
+- **Chroma**: Embedded metadata-rich vector store.
+- **Qdrant**: High-performance vector store with HNSW indexing and clustering support.
+- **Weaviate**: Enterprise vector store with GraphQL capabilities.
+
+See [docs/VECTOR_STORES.md](docs/VECTOR_STORES.md) for database-specific configuration.
+
+---
+
+## 🛡️ Security & Rate Limiting
+
+- **Sliding-Window Rate Limiting**: In-memory rate limiting middleware per client IP address. Configured via `SECURITY_RATE_LIMIT_REQUESTS=60` and `SECURITY_RATE_LIMIT_WINDOW=60`. Exceeding limits returns `HTTP 429 Too Many Requests` with standard `Retry-After` headers.
+- **Path Sanitization**: Uploaded files and metadata keys are sanitized against directory traversal attacks.
+- **Payload Constraints**: Maximum document text payloads and file uploads enforced via `SECURITY_MAX_FILE_SIZE_MB=50` (returns `HTTP 413` when exceeded).
+
+---
+
+## 🧪 Testing
+
+Testing strictly enforces CPU execution to prevent GPU allocation collisions:
+
+```powershell
+# Windows (PowerShell):
+$env:CUDA_VISIBLE_DEVICES = ""
+$env:TORCH_DEVICE = "cpu"
+.\venv\Scripts\pytest.exe -o addopts='' -q
+
+# Linux/macOS:
+export CUDA_VISIBLE_DEVICES=""
+export TORCH_DEVICE="cpu"
+pytest -o addopts='' -q
+```
+
+Detailed testing guide: [docs/testing.md](docs/testing.md).
+
+---
+
+## 🐳 Docker Deployment
 
 ```bash
-SECURITY_MAX_FILE_SIZE_MB=25         # max file size
-SECURITY_RATE_LIMIT_REQUESTS=20      # rate limit
-SECURITY_RATE_LIMIT_WINDOW=60        # time window (seconds)
+docker compose up --build -d
 ```
 
-## Development
+Mounts `./data`, `./logs`, and model caches for offline operations. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployments.
 
-```bash
-pytest -q          # run tests
-ruff check .       # lint
-mypy ragbot        # type-check
-```
+---
 
-## Troubleshooting
+## 📚 Documentation Index
 
-### Performance Issues
+- [Architecture Guide](docs/ARCHITECTURE.md)
+- [REST API Specification](docs/API.md)
+- [Configuration Reference](docs/configuration.md)
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [Testing Guide](docs/testing.md)
+- [Vector Stores Guide](docs/VECTOR_STORES.md)
+- [Multi-Format Document Support](docs/MULTI_FORMAT_SUPPORT.md)
+- [Usage Examples](docs/EXAMPLES.md)
+- [Historical Archive](docs/archive/)
 
-- **Slow offline generation**: Use GPU (`LLM_HF_DEVICE=cuda`) or smaller models
-- **High memory usage**: Reduce `RAG_CHUNK_SIZE` or limit `RAG_MAX_CHUNKS_PER_DOCUMENT`
+---
 
-### Technical Issues
+## 📄 License
 
-- **FAISS dimension mismatch**: Store auto-adapts when empty
-- **Model caching**: Ensure `./cache/sentence_transformers` is writable for local models
-- **OpenRouter errors**: Verify `OPENROUTER_API_KEY` and `LLM_BASE_URL`
-- **OCR errors**: Change OCR engine (`/setocr pytesseract|easyocr|google|none`)
-
-### Complete Offline Mode
-
-```bash
-# After downloading models
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
-```
-
-### Logs & Debugging
-
-- Logs stored in `./logs/ragbot.log`
-- Change log level: `MONITORING_LOG_LEVEL=DEBUG`
-- System status: `/status` or `python -m ragbot.cli status`
-
-## License
-
-MIT © 2025 — [dibbed](https://github.com/dibbed)
-
-For Persian documentation, see [README.fa.md](README.fa.md).
+MIT License © 2025–2026 [dibbed](https://github.com/dibbed).
