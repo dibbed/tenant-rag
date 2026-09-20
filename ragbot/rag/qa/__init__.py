@@ -1,7 +1,7 @@
 """Question answering components"""
 
 from .chain import QAChain
-from .prompting import PromptBuilder
+from .prompting import PromptBuilder, PromptTemplate
 
 
 class QAGenerator(QAChain):
@@ -9,5 +9,5 @@ class QAGenerator(QAChain):
     pass
 
 
-__all__ = ["QAChain", "PromptBuilder", "QAGenerator"]
+__all__ = ["QAChain", "PromptBuilder", "PromptTemplate", "QAGenerator"]
 

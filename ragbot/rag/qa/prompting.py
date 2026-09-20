@@ -5,10 +5,73 @@ This module provides comprehensive prompt building functionality with
 multi-language support, context formatting, and customizable templates.
 """
 
-from typing import Any, List, Optional, Union
+import string
+from typing import Any, List, Optional, Set, Union
 
 from ragbot.outputs.logger import logger
 from ragbot.rag.store.base import VectorDocument
+
+
+class PromptTemplate:
+    """
+    Prompt template for formatting prompt strings with dynamic variables.
+
+    Provides a clean, parameterized template representation with variable validation
+    and interpolation compatible with RAG and LLM chains.
+    """
+
+    def __init__(
+        self,
+        template: str,
+        input_variables: Optional[List[str]] = None,
+    ) -> None:
+        """
+        Initialize a PromptTemplate.
+
+        Args:
+            template: The template string containing {variable} placeholders.
+            input_variables: Optional list of variable names. If omitted,
+                extracted automatically from the template.
+        """
+        if not isinstance(template, str) or not template.strip():
+            raise ValueError("Template must be a non-empty string")
+
+        self.template = template
+        extracted = self._extract_variables(template)
+        self.input_variables = input_variables if input_variables is not None else extracted
+
+    @staticmethod
+    def _extract_variables(template_str: str) -> List[str]:
+        """Extract variable names enclosed in braces from the template string."""
+        formatter = string.Formatter()
+        variables: List[str] = []
+        for _, field_name, _, _ in formatter.parse(template_str):
+            if field_name is not None and field_name and field_name not in variables:
+                variables.append(field_name)
+        return variables
+
+    def format(self, **kwargs: Any) -> str:
+        """
+        Format the template with the provided keyword arguments.
+
+        Args:
+            **kwargs: Values for the template placeholders.
+
+        Returns:
+            str: Interpolated prompt string.
+
+        Raises:
+            KeyError: If any expected input variable is missing.
+        """
+        missing = [var for var in self.input_variables if var not in kwargs]
+        if missing:
+            raise KeyError(
+                f"Missing required prompt template variables: {', '.join(missing)}"
+            )
+        return self.template.format(**kwargs)
+
+    def __repr__(self) -> str:
+        return f"PromptTemplate(input_variables={self.input_variables!r})"
 
 
 class PromptBuilder:

@@ -10,7 +10,7 @@ from .chunkers import (
 )
 from .embeddings import BaseEmbedder, OpenAIEmbedder, HuggingFaceEmbedder, STEmbedder
 from .loaders import BaseLoader, Document, TextLoader, PDFLoader, URLLoader, DOCXLoader
-from .qa import QAChain, PromptBuilder
+from .qa import QAChain, PromptBuilder, PromptTemplate
 from .retrieve import DocumentRetriever, AdvancedRetriever, HybridRetriever
 from .store import BaseVectorStore, VectorDocument, SearchResult, VectorStoreFactory
 from .query import (
@@ -70,6 +70,7 @@ __all__ = [
     # QA
     "QAChain",
     "PromptBuilder",
+    "PromptTemplate",
     # Retrieval
     "DocumentRetriever",
     "AdvancedRetriever",

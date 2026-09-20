@@ -9,15 +9,7 @@ from typing import List
 
 import pytest
 
-from ragbot.rag import PromptBuilder
-
-# Try to import PromptTemplate if it exists
-try:
-    from ragbot.rag.qa.prompting import PromptTemplate
-
-    PROMPT_TEMPLATE_AVAILABLE = True
-except ImportError:
-    PROMPT_TEMPLATE_AVAILABLE = False
+from ragbot.rag import PromptBuilder, PromptTemplate
 
 
 class TestPrompting:
@@ -195,23 +187,29 @@ class TestPrompting:
         assert len(prompt) > len(question)
 
     def test_prompt_template_functionality(self) -> None:
-        """Test PromptTemplate class if available."""
-        # Test if PromptTemplate class exists and works
-        if PROMPT_TEMPLATE_AVAILABLE:
-            template = PromptTemplate(
-                template="Answer the question based on context: {context}\nQuestion: {question}"
-            )
+        """Test PromptTemplate class functionality and validation."""
+        template = PromptTemplate(
+            template="Answer the question based on context: {context}\nQuestion: {question}"
+        )
 
-            result = template.format(
-                context="Sample context", question="Sample question"
-            )
+        assert "context" in template.input_variables
+        assert "question" in template.input_variables
 
-            assert isinstance(result, str)
-            assert "Sample context" in result
-            assert "Sample question" in result
-        else:
-            # Skip test if PromptTemplate is not implemented
-            pytest.skip("PromptTemplate class not available")
+        result = template.format(
+            context="Sample context", question="Sample question"
+        )
+
+        assert isinstance(result, str)
+        assert "Sample context" in result
+        assert "Sample question" in result
+
+        # Test missing variable raises KeyError
+        with pytest.raises(KeyError):
+            template.format(context="Only context provided")
+
+        # Test empty template raises ValueError
+        with pytest.raises(ValueError):
+            PromptTemplate(template="")
 
     def test_build_prompt_with_metadata(self, sample_context: List[str]) -> None:
         """Test prompt building with additional metadata."""
