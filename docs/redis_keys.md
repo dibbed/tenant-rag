@@ -1,6 +1,6 @@
 # 🔑 Redis Keys Documentation
 
-This document outlines all Redis keys used by the RAG Telegram bot system for caching, sessions, and performance optimization.
+This document outlines Redis keys used by the RAGBot system for multi-tier caching, embedding caches, and optional distributed rate limiting.
 
 ## Key Naming Convention
 

@@ -1,3 +1,11 @@
+# Archived Documentation
+
+> [!NOTE]
+> This document describes the previous Telegram-based architecture, experiments, or historical roadmap.
+> The active production system uses the API-first architecture described in [README.md](../../README.md) and [docs/API.md](../API.md).
+
+---
+
 # 🚀 **Multi-Vector Store Enhancement - Complete Roadmap**
 
 ## **🎯 پروژه: تکمیل قابلیت‌های پیشرفته سیستم Vector Store**

@@ -1,3 +1,11 @@
+# Archived Documentation
+
+> [!NOTE]
+> This document describes the previous Telegram-based architecture, experiments, or historical roadmap.
+> The active production system uses the API-first architecture described in [README.md](../../README.md) and [docs/API.md](../API.md).
+
+---
+
 ### RAG Telegram Assistant — End-to-End Message Flow (Telegram ➜ Answer)
 
 این سند مسیر کامل دریافت پیام از تلگرام تا تولید پاسخ نهایی را توصیف می‌کند، همراه با اجزای درگیر، ورودی/خروجی هر گام، نقاط پیکربندی مهم، و حالت‌های گوناگون تقسیم‌بندی متن (Chunking). هدف این است که هر توسعه‌دهنده یا اپراتوری با خواندن این فایل، به‌روشنی بداند «چه گزینه‌هایی وجود دارد»، «هر گزینه دقیقاً چه می‌کند»، و «در هر شاخه از مسیر چه اتفاقی می‌افتد».
