@@ -143,21 +143,77 @@ POST /api/v1/query
   ↓
 1. RateLimitMiddleware checks client IP sliding-window quota
   ↓
-2. Generate query embedding via configured Embedder
+2. Extract tenant context from X-Tenant-ID header (if multi-tenant enabled)
   ↓
-3. Check SemanticCache for high-similarity match
+3. Trigger PRE_QUERY plugin hooks (failure-isolated)
+  ↓
+4. Generate query embedding via configured Embedder
+  ↓
+5. Check SemanticCache for high-similarity match within tenant boundary
      ├── Match found (score >= threshold) ──> Return cached answer
      └── Cache miss ──> Continue
   ↓
-4. Execute vector similarity search on VectorStore (top_k chunks)
+6. Execute vector similarity search on tenant-isolated VectorStore (top_k chunks)
   ↓
-5. Assemble context chunks into language-specific prompt template
+7. Trigger POST_QUERY plugin hooks (failure-isolated)
   ↓
-6. Call LLM provider (OpenAI / Anthropic / OpenRouter / Ollama)
+8. Assemble context chunks into language-specific prompt template
   ↓
-7. Calculate confidence score and source citations
+9. Call LLM provider (OpenAI / Anthropic / OpenRouter / Ollama)
   ↓
-8. Write confident response to SemanticCache
+10. Trigger PRE_RESPONSE plugin hooks
+  ↓
+11. Calculate confidence score and source citations
+  ↓
+12. Write confident response to SemanticCache tagged with tenant_id
+  ↓
+13. Trigger POST_RESPONSE plugin hooks
+  ↓
+14. Track tenant quota and request metrics
   ↓
 Return QueryResponse
 ```
+
+---
+
+## 🏢 Multi-Tenant Subsystem (`ragbot/multi_tenant/`)
+
+RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
+
+### Durable SQLite Persistence
+- **Storage**: Standard library `sqlite3` at `data/tenants/tenants.db` (zero external ORM dependencies).
+- **Concurrency**: Guarded by `asyncio.Lock()` with WAL mode and atomic transaction commits.
+- **Boot Preloading**: Tenant configs, user credentials, and quotas preloaded into memory caches on application boot.
+
+### Multi-Tenant Isolation Invariants
+1. **Vector Store Isolation**:
+   - **FAISS**: Partitioned via tenant-specific directory paths (`base_store_path / "tenants" / tenant_id`).
+   - **Chroma & Qdrant**: Partitioned via isolated collections (`tenant_{tenant_id}`).
+2. **Semantic Cache Isolation**:
+   - Cache keys prefixed with `tenant_id` (`{tenant_id}:{query_hash}`).
+   - Cosine similarity matching filters entries strictly by `tenant_id`.
+   - Tenant-scoped invalidation (`clear_cache(tenant_id=...)`) purges only the target tenant's entries.
+3. **Tenant-Scoped Reset**:
+   - Resetting Tenant A (`/api/v1/documents/reset` with `X-Tenant-ID: tenant_a`) clears only Tenant A's vector index and semantic cache entries, leaving Tenant B completely unaffected.
+4. **Transport**:
+   - `X-Tenant-ID` HTTP header parsed by `get_tenant_context` dependency in FastAPI routes.
+   - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`), evaluates to `None` with zero overhead.
+
+---
+
+## 🔌 Plugin Subsystem (`ragbot/plugins/`)
+
+RAGBot features an in-process, trusted plugin architecture for extending RAG lifecycle behavior without modifying core code:
+
+### Plugin Lifecycle & Lifespan
+- **Discovery**: Automatically scans and loads valid plugins from `settings.plugin_directory`.
+- **Lifecycle Integration**: Asynchronously initialized on FastAPI startup (`lifespan`) and cleanly unloaded on shutdown.
+- **Dynamic Management**: Plugins can be dynamically loaded, unloaded, and reloaded via `PluginManager` and `ragbot-cli plugin` commands.
+
+### Observable Failure Isolation
+- Plugins register callbacks against standard hooks (`HookType`):
+  - `PRE_DOCUMENT_INGEST` & `POST_DOCUMENT_INGEST`
+  - `PRE_QUERY` & `POST_QUERY`
+  - `PRE_RESPONSE` & `POST_RESPONSE`
+- **Failure Boundary**: Plugin hook exceptions are captured, wrapped in `PluginResult(success=False)`, and logged as warnings. A buggy or crashing plugin hook will **never** interrupt or abort host query execution or document ingestion.
+

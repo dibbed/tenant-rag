@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)
 
-High-performance, production-ready Python backend providing an **API-first Retrieval-Augmented Generation (RAG)** platform over documents (PDF, DOCX, TXT, HTML, Markdown, PPTX, XLSX, images/OCR) and web URLs. Features native multilingual support (English and Persian), multi-tier semantic caching, thread-safe and async-safe vector storage (FAISS, Chroma, Qdrant, Weaviate), sliding-window rate limiting, and broad LLM support (OpenAI, Anthropic Claude, Ollama, HuggingFace, OpenRouter).
+High-performance, production-ready Python backend providing an **API-first Retrieval-Augmented Generation (RAG)** platform over documents (PDF, DOCX, TXT, HTML, Markdown, PPTX, XLSX, images/OCR) and web URLs. Features native multilingual support (English and Persian), enterprise multi-tenant isolation, extensible failure-isolated plugins, multi-tier semantic caching, thread-safe and async-safe vector storage (FAISS, Chroma, Qdrant, Weaviate), sliding-window rate limiting, and broad LLM support (OpenAI, Anthropic Claude, Ollama, HuggingFace, OpenRouter).
 
 *Persian Documentation: [README.fa.md](README.fa.md) · Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · REST API: [docs/API.md](docs/API.md)*
 
@@ -14,7 +14,7 @@ High-performance, production-ready Python backend providing an **API-first Retri
 ## 🏛️ System Architecture
 
 ```text
-Frontend / Web Client / External Systems
+Frontend / Web Client / External Systems (X-Tenant-ID Header)
                   ↓
        FastAPI HTTP API Server
     ├── RateLimitMiddleware (Sliding Window)
@@ -23,17 +23,19 @@ Frontend / Web Client / External Systems
                   ↓
        Service Orchestration Layer
     ├── IntegrationService (Lifespan Component Management)
-    └── RAGService (Document Ingestion, Query Pipelines, Store Resets)
+    ├── RAGService (Document Ingestion, Query Pipelines, Store Resets)
+    ├── TenantManager & TenantAuth (SQLite Persistence, Quotas, User RBAC)
+    └── PluginManager (Failure-Isolated Lifecycle & Hook Engine)
                   ↓
        Multi-Tier Caching System
-    ├── SemanticCache (Cosine Similarity Answer Reuse)
+    ├── SemanticCache (Tenant-Partitioned Cosine Similarity Answer Reuse)
     └── L1/L2 General Cache (Memory / Redis)
                   ↓
        RAG Core Pipeline
     ├── Loaders (PDF, DOCX, TXT, HTML, MD, PPTX, XLSX, OCR)
     ├── Chunkers (Token, Semantic, Hierarchical, Adaptive)
     ├── Embeddings (SentenceTransformers, OpenAI, HuggingFace)
-    ├── Vector Stores (FAISS with async_lock, Chroma, Qdrant, Weaviate)
+    ├── Vector Stores (FAISS with async_lock & Tenant Directories, Chroma, Qdrant, Weaviate)
     └── QAChain (OpenAI, Anthropic Claude, Ollama, HuggingFace)
 ```
 

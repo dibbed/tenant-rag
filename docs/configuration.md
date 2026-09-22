@@ -110,3 +110,29 @@ Fine-tunes the asynchronous HTML and web document ingestion engine.
 | `MULTI_FORMAT_HTML_TIMEOUT` | `float` | `20.0` | Web page HTTP fetch timeout in seconds. |
 | `MULTI_FORMAT_HTML_RETRIES` | `integer` | `2` | Number of retry attempts on network fetch failures. |
 | `MULTI_FORMAT_HTML_USER_AGENT` | `string` | `"ragbot-html-loader/1.0"` | HTTP User-Agent string sent during web fetches. |
+
+---
+
+## 9. Multi-Tenant Subsystem Settings
+
+Configures tenant isolation, SQLite storage, and quota management.
+
+| Environment Variable | Type | Default | Description |
+|:---|:---|:---|:---|
+| `MULTI_TENANT_ENABLED` | `boolean` | `false` | Enable multi-tenant data and cache partitioning. |
+| `MULTI_TENANT_DEFAULT_TIER` | `string` | `"free"` | Default subscription tier (`free`, `basic`, `premium`, `enterprise`). |
+| `MULTI_TENANT_DATA_DIR` | `string` | `"./data/tenants"` | Storage location for `tenants.db` and SQLite metadata. |
+| `MULTI_TENANT_AUTO_PROVISION` | `boolean` | `false` | Automatically provision tenants on first detected request. |
+
+---
+
+## 10. Plugin Subsystem Settings
+
+Configures the trusted in-process plugin loader and hook executor.
+
+| Environment Variable | Type | Default | Description |
+|:---|:---|:---|:---|
+| `PLUGINS_PLUGIN_DIRECTORY` | `string` | `"plugins"` | Filesystem directory containing plugin modules. |
+| `PLUGINS_AUTO_LOAD` | `boolean` | `false` | Automatically load all plugins from the directory at startup. |
+| `PLUGINS_ALLOW_DYNAMIC_LOADING` | `boolean` | `true` | Allow runtime plugin loading and reloading via CLI or API. |
+

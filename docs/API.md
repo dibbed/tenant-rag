@@ -26,6 +26,12 @@ All requests (except health check and documentation endpoints) pass through an i
 ### CORS
 CORS is preconfigured with permissive defaults (`*`) for cross-origin web client integration. Allowed origins can be customized in `ragbot/api/app.py`.
 
+### Multi-Tenant Context (`X-Tenant-ID`)
+When multi-tenancy is enabled (`MULTI_TENANT_ENABLED=true`), clients can specify the tenant context using the HTTP header:
+- **Header**: `X-Tenant-ID: <tenant_id>`
+- **Scope**: Supported on `/api/v1/query`, `/api/v1/documents/upload`, `/api/v1/documents/text`, `/api/v1/documents/url`, and `/api/v1/documents/reset`.
+- **Behavior**: Partitions vector retrieval, document ingestion storage, semantic cache entries, and reset operations to the specified tenant. When multi-tenancy is disabled, the header is ignored.
+
 ---
 
 ## 3. Endpoints
