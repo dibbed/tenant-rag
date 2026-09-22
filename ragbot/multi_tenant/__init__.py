@@ -13,6 +13,8 @@ from .models import (
     TenantLimits,
     TenantFeatures,
     DEFAULT_TIER_CONFIGS,
+    TenantApiKey,
+    AuthenticatedPrincipal,
 )
 
 from .tenant_manager import TenantManager
@@ -33,6 +35,8 @@ __all__ = [
     "TenantLimits",
     "TenantFeatures",
     "DEFAULT_TIER_CONFIGS",
+    "TenantApiKey",
+    "AuthenticatedPrincipal",
     # Core Classes
     "TenantManager",
     "TenantAuth",

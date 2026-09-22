@@ -8,7 +8,14 @@ from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
 
 from ..outputs.logger import logger
-from .models import TenantConfig, TenantUser, TenantAuditLog, TenantStatus
+from .models import (
+    TenantConfig,
+    TenantUser,
+    TenantAuditLog,
+    TenantStatus,
+    TenantApiKey,
+    AuthenticatedPrincipal,
+)
 
 
 class UserRole(str, Enum):
@@ -201,41 +208,133 @@ class TenantAuth:
         api_key: str,
         tenant_id: Optional[str] = None,
     ) -> Tuple[bool, Optional[TenantUser], Optional[str]]:
-        """احراز هویت API key"""
+        """احراز هویت API key با پشتیبانی از پایگاه‌داده پایدار و حافظه"""
         try:
-            # بررسی API key
-            if api_key not in self.api_keys:
+            if not api_key or not isinstance(api_key, str):
                 return False, None, "Invalid API key"
 
-            key_info = self.api_keys[api_key]
+            api_key = api_key.strip()
+            key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+            key_obj: Optional[TenantApiKey] = None
+            key_info: Optional[Dict[str, Any]] = None
 
-            # بررسی انقضا
-            if key_info.get("expires_at") and datetime.now() > key_info["expires_at"]:
-                del self.api_keys[api_key]
-                return False, None, "API key expired"
+            # 1. Look up in SQLite persistent storage by hash
+            if self.tenant_manager and hasattr(self.tenant_manager, "get_api_key_by_hash"):
+                key_obj = self.tenant_manager.get_api_key_by_hash(key_hash)
+                if not key_obj:
+                    key_obj = self.tenant_manager.get_api_key_by_hash(api_key)
 
-            # بررسی tenant
-            if tenant_id and key_info.get("tenant_id") != tenant_id:
-                return False, None, "API key not valid for this tenant"
+            # 2. Look up in in-memory dict as fallback
+            if not key_obj and api_key in self.api_keys:
+                key_info = self.api_keys[api_key]
+            elif not key_obj and key_hash in self.api_keys:
+                key_info = self.api_keys[key_hash]
 
-            # دریافت کاربر
-            tenant_id = key_info["tenant_id"]
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
-            user = None
-            for u in tenant_users:
-                if u.user_id == key_info["user_id"] and u.is_active:
-                    user = u
-                    break
+            if not key_obj and not key_info:
+                return False, None, "Invalid API key"
 
-            if not user:
-                return False, None, "User not found"
+            # Check expiration and active state for key_obj
+            if key_obj:
+                if not key_obj.is_active:
+                    return False, None, "API key has been revoked"
 
-            # بررسی مجوز API
-            if not await self.has_permission(user, Permission.API_ACCESS):
-                return False, None, "API access not permitted"
+                if key_obj.expires_at and datetime.now() > key_obj.expires_at:
+                    return False, None, "API key expired"
 
-            logger.info(f"API key authenticated: {user.username} in tenant {tenant_id}")
-            return True, user, None
+                actual_tenant_id = key_obj.tenant_id
+                if tenant_id and actual_tenant_id != tenant_id:
+                    return False, None, "API key not valid for this tenant"
+
+                # Verify tenant existence
+                if self.tenant_manager and hasattr(self.tenant_manager, "get_tenant"):
+                    t_cfg = await self.tenant_manager.get_tenant(actual_tenant_id)
+                    if not t_cfg:
+                        return False, None, "Tenant does not exist"
+
+                # Retrieve associated user
+                user_id = key_obj.user_id
+                tenant_users = (
+                    self.tenant_manager.tenant_users.get(actual_tenant_id, [])
+                    if self.tenant_manager
+                    else []
+                )
+                user = next(
+                    (u for u in tenant_users if u.user_id == user_id and u.is_active),
+                    None,
+                )
+
+                if not user:
+                    user = TenantUser(
+                        user_id=user_id,
+                        tenant_id=actual_tenant_id,
+                        username=f"api_{key_obj.name}",
+                        email=f"{key_obj.name}@{actual_tenant_id}.local",
+                        role="api_user",
+                        permissions=key_obj.permissions,
+                        is_active=True,
+                    )
+
+                # Verify API access permission
+                if not await self.has_permission(user, Permission.API_ACCESS):
+                    if Permission.API_ACCESS.value not in (key_obj.permissions or []):
+                        return False, None, "API access not permitted"
+
+                # Update last used timestamp
+                if self.tenant_manager and hasattr(
+                    self.tenant_manager, "update_api_key_last_used"
+                ):
+                    self.tenant_manager.update_api_key_last_used(key_obj.key_id)
+
+                logger.info(f"API key authenticated for tenant {actual_tenant_id}")
+                return True, user, None
+
+            # Backward-compatible check for in-memory key_info
+            if key_info:
+                if (
+                    key_info.get("expires_at")
+                    and datetime.now() > key_info["expires_at"]
+                ):
+                    del self.api_keys[api_key]
+                    return False, None, "API key expired"
+
+                actual_tenant_id = key_info["tenant_id"]
+                if tenant_id and actual_tenant_id != tenant_id:
+                    return False, None, "API key not valid for this tenant"
+
+                tenant_users = (
+                    self.tenant_manager.tenant_users.get(actual_tenant_id, [])
+                    if self.tenant_manager
+                    else []
+                )
+                user = next(
+                    (
+                        u
+                        for u in tenant_users
+                        if u.user_id == key_info["user_id"] and u.is_active
+                    ),
+                    None,
+                )
+
+                if not user:
+                    user = TenantUser(
+                        user_id=key_info["user_id"],
+                        tenant_id=actual_tenant_id,
+                        username=key_info.get("name", "api_user"),
+                        email=f"{key_info.get('name', 'api')}@{actual_tenant_id}.local",
+                        role="api_user",
+                        permissions=key_info.get("permissions", []),
+                        is_active=True,
+                    )
+
+                if not await self.has_permission(user, Permission.API_ACCESS):
+                    if Permission.API_ACCESS.value not in key_info.get(
+                        "permissions", []
+                    ):
+                        return False, None, "API access not permitted"
+
+                return True, user, None
+
+            return False, None, "Invalid API key"
 
         except Exception as e:
             logger.error(f"Error authenticating API key: {e}")
@@ -437,55 +536,115 @@ class TenantAuth:
     async def create_api_key(
         self,
         tenant_id: str,
-        user_id: str,
-        name: str,
+        user_id: Optional[str] = None,
+        name: str = "default",
         expires_days: int = 365,
         permissions: Optional[List[str]] = None,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """ایجاد API key"""
+        """ایجاد API key و ذخیره هش در پایگاه داده پایدار"""
         try:
-            # بررسی کاربر
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            # 1. بررسی وجود tenant
+            if self.tenant_manager and hasattr(self.tenant_manager, "get_tenant"):
+                tenant = await self.tenant_manager.get_tenant(tenant_id)
+                if not tenant:
+                    return False, None, "Tenant not found"
+
+            # 2. بررسی کاربر
+            tenant_users = (
+                self.tenant_manager.tenant_users.get(tenant_id, [])
+                if self.tenant_manager
+                else []
+            )
             user = None
-            for u in tenant_users:
-                if u.user_id == user_id and u.is_active:
-                    user = u
-                    break
+            if user_id:
+                for u in tenant_users:
+                    if u.user_id == user_id and u.is_active:
+                        user = u
+                        break
+                if not user:
+                    return False, None, "User not found"
+            else:
+                user = next((u for u in tenant_users if u.is_active), None)
+                if not user:
+                    user_id = f"usr_{uuid.uuid4().hex[:8]}"
+                    user = TenantUser(
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                        username=f"api_{name}",
+                        email=f"{name}@{tenant_id}.local",
+                        role=UserRole.ADMIN if not tenant_users else UserRole.USER,
+                        permissions=permissions or [
+                            Permission.API_ACCESS.value,
+                            Permission.VIEW_DOCUMENTS.value,
+                            Permission.UPLOAD_DOCUMENTS.value,
+                            Permission.ASK_QUESTIONS.value,
+                        ],
+                        is_active=True,
+                    )
+                    if self.tenant_manager and hasattr(self.tenant_manager, "save_user"):
+                        self.tenant_manager.save_user(user)
+                else:
+                    user_id = user.user_id
 
-            if not user:
-                return False, None, "User not found"
-
-            # بررسی مجوز API
+            # 3. بررسی مجوز API
             if not await self.has_permission(user, Permission.API_ACCESS):
-                return False, None, "API access not permitted"
+                if Permission.API_ACCESS.value not in (permissions or user.permissions or []):
+                    return False, None, "API access not permitted"
 
-            # ایجاد API key
-            api_key = secrets.token_urlsafe(32)
+            # 4. ایجاد کلید امن
+            raw_key = f"rgb_{secrets.token_urlsafe(32)}"
+            key_hash = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+            key_prefix = raw_key[:12]
+            key_id = str(uuid.uuid4())
             expires_at = datetime.now() + timedelta(days=expires_days)
 
-            self.api_keys[api_key] = {
+            key_permissions = permissions or user.permissions
+            if Permission.API_ACCESS.value not in key_permissions:
+                key_permissions = list(key_permissions) + [Permission.API_ACCESS.value]
+
+            key_obj = TenantApiKey(
+                key_id=key_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                name=name,
+                key_hash=key_hash,
+                key_prefix=key_prefix,
+                permissions=key_permissions,
+                created_at=datetime.now(),
+                expires_at=expires_at,
+                is_active=True,
+            )
+
+            # ذخیره در SQLite
+            if self.tenant_manager and hasattr(self.tenant_manager, "save_api_key"):
+                self.tenant_manager.save_api_key(key_obj)
+
+            # نگهداری در حافظه به عنوان کش سریع
+            self.api_keys[raw_key] = {
+                "key_id": key_id,
                 "tenant_id": tenant_id,
                 "user_id": user_id,
                 "name": name,
-                "created_at": datetime.now(),
+                "created_at": key_obj.created_at,
                 "expires_at": expires_at,
-                "permissions": permissions or user.permissions,
+                "permissions": key_permissions,
                 "last_used": None,
             }
 
             # ثبت audit log
-            await self.tenant_manager._log_audit(
-                tenant_id=tenant_id,
-                action="api_key_created",
-                resource="api_key",
-                details={"name": name, "expires_at": expires_at.isoformat()},
-                user_id=user_id,
-            )
+            if self.tenant_manager and hasattr(self.tenant_manager, "_log_audit"):
+                await self.tenant_manager._log_audit(
+                    tenant_id=tenant_id,
+                    action="api_key_created",
+                    resource="api_key",
+                    details={"name": name, "key_id": key_id, "expires_at": expires_at.isoformat()},
+                    user_id=user_id,
+                )
 
             logger.info(
                 f"API key created for user {user.username} in tenant {tenant_id}"
             )
-            return True, api_key, None
+            return True, raw_key, None
 
         except Exception as e:
             logger.error(f"Error creating API key: {e}")
@@ -494,28 +653,48 @@ class TenantAuth:
     async def revoke_api_key(
         self,
         tenant_id: str,
-        api_key: str,
-        revoked_by: str,
+        api_key_or_id: str,
+        revoked_by: Optional[str] = None,
     ) -> bool:
-        """لغو API key"""
+        """لغو فوری API key در پایگاه داده پایدار و حافظه"""
         try:
-            if api_key not in self.api_keys:
-                return False
+            key_name = "Unknown"
+            revoked_in_db = False
+            effective_revoked_by = revoked_by or "system"
 
-            key_info = self.api_keys[api_key]
-            if key_info["tenant_id"] != tenant_id:
-                return False
+            # 1. تلاش برای لغو در دیتابیس پایدار
+            if self.tenant_manager and hasattr(self.tenant_manager, "revoke_api_key"):
+                key_hash = hashlib.sha256(api_key_or_id.encode("utf-8")).hexdigest()
+                key_obj = self.tenant_manager.get_api_key_by_hash(key_hash)
+                if not key_obj and hasattr(self.tenant_manager, "get_api_key_by_id"):
+                    key_obj = self.tenant_manager.get_api_key_by_id(api_key_or_id)
 
-            del self.api_keys[api_key]
+                target_key_id = key_obj.key_id if key_obj else api_key_or_id
+                key_name = key_obj.name if key_obj else key_name
+                revoked_in_db = self.tenant_manager.revoke_api_key(
+                    target_key_id, tenant_id=tenant_id
+                )
+
+            # 2. حذف از کش حافظه
+            revoked_in_mem = False
+            for k, info in list(self.api_keys.items()):
+                if (k == api_key_or_id or info.get("key_id") == api_key_or_id) and info.get("tenant_id") == tenant_id:
+                    key_name = info.get("name", key_name)
+                    del self.api_keys[k]
+                    revoked_in_mem = True
+
+            if not revoked_in_db and not revoked_in_mem:
+                return False
 
             # ثبت audit log
-            await self.tenant_manager._log_audit(
-                tenant_id=tenant_id,
-                action="api_key_revoked",
-                resource="api_key",
-                details={"api_key_name": key_info.get("name", "Unknown")},
-                user_id=revoked_by,
-            )
+            if self.tenant_manager and hasattr(self.tenant_manager, "_log_audit"):
+                await self.tenant_manager._log_audit(
+                    tenant_id=tenant_id,
+                    action="api_key_revoked",
+                    resource="api_key",
+                    details={"api_key_name": key_name, "identifier": api_key_or_id[:12]},
+                    user_id=effective_revoked_by,
+                )
 
             logger.info(f"API key revoked in tenant {tenant_id}")
             return True
@@ -523,6 +702,118 @@ class TenantAuth:
         except Exception as e:
             logger.error(f"Error revoking API key: {e}")
             return False
+
+    async def list_api_keys(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """List active and non-revoked API keys for a tenant without exposing secrets."""
+        try:
+            if self.tenant_manager and hasattr(self.tenant_manager, "list_api_keys"):
+                keys = self.tenant_manager.list_api_keys(tenant_id)
+                return [
+                    {
+                        "key_id": k.key_id,
+                        "tenant_id": k.tenant_id,
+                        "user_id": k.user_id,
+                        "name": k.name,
+                        "key_prefix": k.key_prefix,
+                        "permissions": k.permissions,
+                        "created_at": k.created_at.isoformat() if hasattr(k.created_at, "isoformat") else str(k.created_at),
+                        "expires_at": k.expires_at.isoformat() if k.expires_at and hasattr(k.expires_at, "isoformat") else (str(k.expires_at) if k.expires_at else None),
+                        "last_used_at": k.last_used_at.isoformat() if k.last_used_at and hasattr(k.last_used_at, "isoformat") else (str(k.last_used_at) if k.last_used_at else None),
+                        "is_active": k.is_active,
+                    }
+                    for k in keys
+                ]
+
+            results = []
+            for raw_k, info in self.api_keys.items():
+                if info.get("tenant_id") == tenant_id:
+                    results.append({
+                        "key_id": info.get("key_id", ""),
+                        "tenant_id": tenant_id,
+                        "user_id": info.get("user_id", ""),
+                        "name": info.get("name", ""),
+                        "key_prefix": raw_k[:12] if len(raw_k) >= 12 else raw_k,
+                        "permissions": info.get("permissions", []),
+                        "created_at": info.get("created_at").isoformat() if hasattr(info.get("created_at"), "isoformat") else str(info.get("created_at")),
+                        "expires_at": info.get("expires_at").isoformat() if info.get("expires_at") and hasattr(info.get("expires_at"), "isoformat") else None,
+                        "last_used_at": None,
+                        "is_active": True,
+                    })
+            return results
+        except Exception as e:
+            logger.error(f"Error listing API keys for tenant {tenant_id}: {e}")
+            return []
+
+    async def authenticate_principal(
+        self,
+        credential: str,
+        tenant_id: Optional[str] = None,
+    ) -> Tuple[bool, Optional[AuthenticatedPrincipal], Optional[str]]:
+        """
+        احراز هویت جامع با تفکیک توکن session یا کلید API و بازگرداندن AuthenticatedPrincipal.
+        """
+        try:
+            if not credential or not isinstance(credential, str) or not credential.strip():
+                return False, None, "Missing authentication credential"
+
+            token = credential.strip()
+
+            # 1. بررسی آیا توکن مربوط به session معتبر کاربر است
+            is_valid_session, session_user = await self.validate_session(token)
+            if is_valid_session and session_user:
+                if tenant_id and session_user.tenant_id != tenant_id:
+                    return False, None, "Session token not valid for requested tenant"
+
+                is_super = session_user.role == UserRole.SUPER_ADMIN.value
+                principal = AuthenticatedPrincipal(
+                    principal_id=session_user.user_id,
+                    identity_type="user_session",
+                    tenant_id=session_user.tenant_id,
+                    username=session_user.username,
+                    role=session_user.role,
+                    permissions=session_user.permissions,
+                    is_super_admin=is_super,
+                )
+                return True, principal, None
+
+            # 2. بررسی به عنوان API key
+            auth_ok, api_user, err_msg = await self.authenticate_api_key(
+                token, tenant_id=tenant_id
+            )
+            if auth_ok and api_user:
+                key_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                key_obj = None
+                if self.tenant_manager and hasattr(self.tenant_manager, "get_api_key_by_hash"):
+                    key_obj = self.tenant_manager.get_api_key_by_hash(key_hash)
+                    if not key_obj:
+                        key_obj = self.tenant_manager.get_api_key_by_hash(token)
+
+                key_id = key_obj.key_id if key_obj else api_user.user_id
+                perms = (
+                    key_obj.permissions
+                    if key_obj and key_obj.permissions
+                    else api_user.permissions
+                )
+                is_super = (
+                    api_user.role == UserRole.SUPER_ADMIN.value
+                    or (key_obj is not None and "manage_tenant" in key_obj.permissions)
+                )
+
+                principal = AuthenticatedPrincipal(
+                    principal_id=key_id,
+                    identity_type="api_key",
+                    tenant_id=api_user.tenant_id,
+                    username=api_user.username,
+                    role=api_user.role,
+                    permissions=perms,
+                    is_super_admin=is_super,
+                )
+                return True, principal, None
+
+            return False, None, err_msg or "Invalid authentication credential"
+        except Exception as e:
+            logger.error(f"Error authenticating principal: {e}")
+            return False, None, "Authentication service error"
 
     async def validate_session(
         self, session_token: str

@@ -331,3 +331,43 @@ DEFAULT_TIER_CONFIGS = {
         ),
     ),
 }
+
+
+class TenantApiKey(BaseModel):
+    """API key credential for tenant access."""
+
+    key_id: str = Field(..., description="Unique key identifier")
+    tenant_id: str = Field(..., description="Associated tenant ID")
+    user_id: str = Field(..., description="User ID who owns or created the key")
+    name: str = Field(..., description="Descriptive name or label for the key")
+    key_hash: str = Field(..., description="Cryptographic SHA-256 hash of the secret key")
+    key_prefix: str = Field(..., description="Public prefix for key identification")
+    permissions: List[str] = Field(default_factory=list, description="Explicit permissions")
+    created_at: datetime = Field(
+        default_factory=datetime.now, description="Creation timestamp"
+    )
+    expires_at: Optional[datetime] = Field(None, description="Expiration timestamp")
+    last_used_at: Optional[datetime] = Field(None, description="Last used timestamp")
+    is_active: bool = Field(default=True, description="Active status")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class AuthenticatedPrincipal(BaseModel):
+    """Resolved identity and authorization context for an API request."""
+
+    principal_id: str = Field(..., description="User ID or Key ID of the principal")
+    identity_type: str = Field(
+        ..., description="Credential type: 'api_key' or 'user_session'"
+    )
+    tenant_id: str = Field(..., description="Tenant ID to which this principal belongs")
+    username: Optional[str] = Field(None, description="Username if authenticated as user")
+    role: str = Field(default="user", description="Assigned role in tenant")
+    permissions: List[str] = Field(
+        default_factory=list, description="Granted permissions"
+    )
+    is_super_admin: bool = Field(
+        default=False, description="Whether principal possesses cross-tenant super-admin rights"
+    )
+
+    model_config = ConfigDict(use_enum_values=True)

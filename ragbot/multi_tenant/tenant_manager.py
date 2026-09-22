@@ -24,6 +24,7 @@ from .models import (
     TenantLimits,
     TenantFeatures,
     DEFAULT_TIER_CONFIGS,
+    TenantApiKey,
 )
 
 
@@ -106,6 +107,27 @@ class TenantManager:
                     created_at TEXT NOT NULL
                 )
             """)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS tenant_api_keys (
+                    key_id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    key_hash TEXT NOT NULL,
+                    key_prefix TEXT NOT NULL,
+                    permissions_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT,
+                    last_used_at TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1
+                )
+            """)
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON tenant_api_keys (key_hash)
+            """)
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_api_keys_tenant ON tenant_api_keys (tenant_id)
+            """)
 
     def _load_persisted_data(self) -> None:
         """Load stored tenants and users into memory cache on startup."""
@@ -159,6 +181,167 @@ class TenantManager:
                 )
         except Exception as e:
             logger.error(f"Error saving tenant user: {e}")
+
+    def save_api_key(self, api_key: TenantApiKey) -> None:
+        """Persist tenant API key in database."""
+        try:
+            with self._conn:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO tenant_api_keys (
+                        key_id, tenant_id, user_id, name, key_hash, key_prefix,
+                        permissions_json, created_at, expires_at, last_used_at, is_active
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        api_key.key_id,
+                        api_key.tenant_id,
+                        api_key.user_id,
+                        api_key.name,
+                        api_key.key_hash,
+                        api_key.key_prefix,
+                        json.dumps(api_key.permissions),
+                        api_key.created_at.isoformat(),
+                        api_key.expires_at.isoformat() if api_key.expires_at else None,
+                        api_key.last_used_at.isoformat() if api_key.last_used_at else None,
+                        1 if api_key.is_active else 0,
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"Error saving tenant API key: {e}")
+            raise
+
+    def get_api_key_by_hash(self, key_hash: str) -> Optional[TenantApiKey]:
+        """Lookup active API key by cryptographic SHA-256 hash."""
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(
+                """
+                SELECT key_id, tenant_id, user_id, name, key_hash, key_prefix,
+                       permissions_json, created_at, expires_at, last_used_at, is_active
+                FROM tenant_api_keys
+                WHERE key_hash = ? AND is_active = 1
+                """,
+                (key_hash,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return TenantApiKey(
+                key_id=row[0],
+                tenant_id=row[1],
+                user_id=row[2],
+                name=row[3],
+                key_hash=row[4],
+                key_prefix=row[5],
+                permissions=json.loads(row[6]) if row[6] else [],
+                created_at=datetime.fromisoformat(row[7]),
+                expires_at=datetime.fromisoformat(row[8]) if row[8] else None,
+                last_used_at=datetime.fromisoformat(row[9]) if row[9] else None,
+                is_active=bool(row[10]),
+            )
+        except Exception as e:
+            logger.error(f"Error fetching API key by hash: {e}")
+            return None
+
+    def get_api_key_by_id(self, key_id: str) -> Optional[TenantApiKey]:
+        """Lookup API key by key ID."""
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(
+                """
+                SELECT key_id, tenant_id, user_id, name, key_hash, key_prefix,
+                       permissions_json, created_at, expires_at, last_used_at, is_active
+                FROM tenant_api_keys
+                WHERE key_id = ?
+                """,
+                (key_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return TenantApiKey(
+                key_id=row[0],
+                tenant_id=row[1],
+                user_id=row[2],
+                name=row[3],
+                key_hash=row[4],
+                key_prefix=row[5],
+                permissions=json.loads(row[6]) if row[6] else [],
+                created_at=datetime.fromisoformat(row[7]),
+                expires_at=datetime.fromisoformat(row[8]) if row[8] else None,
+                last_used_at=datetime.fromisoformat(row[9]) if row[9] else None,
+                is_active=bool(row[10]),
+            )
+        except Exception as e:
+            logger.error(f"Error fetching API key by id {key_id}: {e}")
+            return None
+
+    def revoke_api_key(self, key_id: str, tenant_id: Optional[str] = None) -> bool:
+        """Revoke API key immediately in persistent storage."""
+        try:
+            with self._conn:
+                if tenant_id:
+                    cursor = self._conn.execute(
+                        "UPDATE tenant_api_keys SET is_active = 0 WHERE key_id = ? AND tenant_id = ?",
+                        (key_id, tenant_id),
+                    )
+                else:
+                    cursor = self._conn.execute(
+                        "UPDATE tenant_api_keys SET is_active = 0 WHERE key_id = ?",
+                        (key_id,),
+                    )
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error revoking API key {key_id}: {e}")
+            return False
+
+    def list_api_keys(self, tenant_id: str) -> List[TenantApiKey]:
+        """List all API keys belonging to a tenant."""
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(
+                """
+                SELECT key_id, tenant_id, user_id, name, key_hash, key_prefix,
+                       permissions_json, created_at, expires_at, last_used_at, is_active
+                FROM tenant_api_keys
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC
+                """,
+                (tenant_id,),
+            )
+            keys = []
+            for row in cursor.fetchall():
+                keys.append(
+                    TenantApiKey(
+                        key_id=row[0],
+                        tenant_id=row[1],
+                        user_id=row[2],
+                        name=row[3],
+                        key_hash=row[4],
+                        key_prefix=row[5],
+                        permissions=json.loads(row[6]) if row[6] else [],
+                        created_at=datetime.fromisoformat(row[7]),
+                        expires_at=datetime.fromisoformat(row[8]) if row[8] else None,
+                        last_used_at=datetime.fromisoformat(row[9]) if row[9] else None,
+                        is_active=bool(row[10]),
+                    )
+                )
+            return keys
+        except Exception as e:
+            logger.error(f"Error listing API keys for tenant {tenant_id}: {e}")
+            return []
+
+    def update_api_key_last_used(self, key_id: str) -> None:
+        """Update last_used_at timestamp for an API key."""
+        try:
+            with self._conn:
+                self._conn.execute(
+                    "UPDATE tenant_api_keys SET last_used_at = ? WHERE key_id = ?",
+                    (datetime.now().isoformat(), key_id),
+                )
+        except Exception as e:
+            logger.debug(f"Error updating API key last_used_at: {e}")
 
     async def create_tenant(
         self,
@@ -413,6 +596,7 @@ class TenantManager:
                 with self._conn:
                     self._conn.execute("DELETE FROM tenants WHERE tenant_id=?", (tenant_id,))
                     self._conn.execute("DELETE FROM tenant_users WHERE tenant_id=?", (tenant_id,))
+                    self._conn.execute("DELETE FROM tenant_api_keys WHERE tenant_id=?", (tenant_id,))
                     self._conn.execute("DELETE FROM tenant_usage WHERE tenant_id=?", (tenant_id,))
                     self._conn.execute("DELETE FROM tenant_audit_logs WHERE tenant_id=?", (tenant_id,))
 
