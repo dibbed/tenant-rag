@@ -404,6 +404,9 @@ class RedisSettings(PydanticBaseSettings):
 class PluginSettings(PydanticBaseSettings):
     """Plugin system configuration settings."""
 
+    enabled: bool = Field(
+        default=False, description="Enable plugin system"
+    )
     directory: str = Field(default="plugins", description="Plugin directory path")
     auto_load: bool = Field(
         default=False, description="Automatically load plugins on startup"
@@ -458,6 +461,37 @@ class PluginSettings(PydanticBaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="PLUGIN_",
+        extra="ignore",
+    )
+
+
+class MultiTenantSettings(PydanticBaseSettings):
+    """Multi-tenant system configuration settings."""
+
+    enabled: bool = Field(
+        default=False, description="Enable multi-tenant data isolation"
+    )
+    default_tier: str = Field(
+        default="free", description="Default tenant tier for new tenants"
+    )
+    tenant_isolation_enabled: bool = Field(
+        default=True, description="Enable tenant data isolation"
+    )
+    tenant_audit_logging: bool = Field(
+        default=True, description="Enable tenant audit logging"
+    )
+    max_tenants_per_instance: int = Field(
+        default=1000, description="Maximum number of tenants per instance"
+    )
+    tenant_cleanup_interval_hours: int = Field(
+        default=24, description="Interval for cleaning up expired tenants (hours)"
+    )
+    data_dir: Path = Field(
+        default=Path("data/tenants"), description="Tenant persistence directory"
+    )
+
+    model_config = SettingsConfigDict(
+        env_prefix="MULTI_TENANT_",
         extra="ignore",
     )
 
@@ -1459,16 +1493,28 @@ class Settings(PydanticBaseSettings):
     plugin_directory: str = Field(
         default="plugins", description="Plugin directory path"
     )
-    auto_load_plugins: bool = Field(
-        default=False, description="Automatically load plugins on startup"
-    )
     plugins: PluginSettings = Field(
         default_factory=PluginSettings,
         description="Plugin system settings",
     )
+    # Multi-tenant System
+    multi_tenant: MultiTenantSettings = Field(
+        default_factory=MultiTenantSettings,
+        description="Multi-tenant system settings",
+    )
+
+    @property
+    def enable_multi_tenant(self) -> bool:
+        """Backward-compatible accessor for multi-tenant enabled flag."""
+        return self.multi_tenant.enabled
+
+    @property
+    def auto_load_plugins(self) -> bool:
+        """Backward-compatible accessor for auto_load_plugins flag."""
+        return self.plugins.auto_load
 
     # Vector Database
-    vector_db: Literal["faiss", "chromadb", "qdrant", "weaviate"] = Field(
+    vector_db: Literal["faiss", "chromadb", "qdrant"] = Field(
         default="faiss", description="Vector database type"
     )
     store_path: Path = Field(

@@ -47,6 +47,7 @@ class CacheEntry:
     access_count: int
     last_access: float
     confidence_score: float
+    tenant_id: Optional[str] = None
 
 
 class SemanticCache:
@@ -89,11 +90,14 @@ class SemanticCache:
         self._cleanup_task = None
         self._start_cleanup_task()
 
-    async def get_similar_answer(self, query: str) -> Optional[CacheEntry]:
-        """جستجوی پاسخ مشابه در کش.
+    async def get_similar_answer(
+        self, query: str, tenant_id: Optional[str] = None
+    ) -> Optional[CacheEntry]:
+        """جستجوی پاسخ مشابه در کش با تفکیک tenant.
 
         Args:
             query: پرسش کاربر
+            tenant_id: شناسه اختیاری tenant برای جداسازی کش
 
         Returns:
             ورودی کش مشابه یا None اگر مشابهی پیدا نشود
@@ -104,8 +108,8 @@ class SemanticCache:
         # تولید جاسازی پرسش
         query_embedding = await self._get_query_embedding(query)
 
-        # جستجوی مشابه
-        best_match = await self._find_best_match(query_embedding)
+        # جستجوی مشابه با در نظر گرفتن محدوده tenant
+        best_match = await self._find_best_match(query_embedding, tenant_id=tenant_id)
 
         if best_match:
             # به‌روزرسانی آمار دسترسی
@@ -143,8 +147,9 @@ class SemanticCache:
         context: List[str],
         metadata: Dict[str, Any],
         confidence_score: float = 1.0,
+        tenant_id: Optional[str] = None,
     ) -> None:
-        """ذخیره پاسخ در کش.
+        """ذخیره پاسخ در کش با تفکیک tenant.
 
         Args:
             query: پرسش کاربر
@@ -152,6 +157,7 @@ class SemanticCache:
             context: زمینه استفاده شده
             metadata: متادیتای اضافی
             confidence_score: امتیاز اطمینان پاسخ (0.0 تا 1.0)
+            tenant_id: شناسه اختیاری tenant برای جداسازی کش
         """
         # تولید جاسازی پرسش
         query_embedding = await self._get_query_embedding(query)
@@ -167,10 +173,11 @@ class SemanticCache:
             access_count=0,
             last_access=time.time(),
             confidence_score=confidence_score,
+            tenant_id=tenant_id,
         )
 
-        # تولید کلید یکتا
-        cache_key = self._generate_cache_key(query, query_embedding)
+        # تولید کلید یکتا با پیشوند tenant
+        cache_key = self._generate_cache_key(query, query_embedding, tenant_id=tenant_id)
 
         # بررسی محدودیت اندازه
         if len(self.cache) >= self.max_size:
@@ -265,12 +272,13 @@ class SemanticCache:
         return query_embedding
 
     async def _find_best_match(
-        self, query_embedding: List[float]
+        self, query_embedding: List[float], tenant_id: Optional[str] = None
     ) -> Optional[CacheEntry]:
-        """یافتن بهترین تطبیق در کش.
+        """یافتن بهترین تطبیق در کش با در نظر گرفتن شناسه tenant.
 
         Args:
             query_embedding: جاسازی پرسش
+            tenant_id: شناسه اختیاری tenant
 
         Returns:
             بهترین ورودی کش یا None
@@ -281,6 +289,9 @@ class SemanticCache:
         best_similarity = 0.0
 
         for cache_entry in self.cache.values():
+            if getattr(cache_entry, "tenant_id", None) != tenant_id:
+                continue
+
             # محاسبه شباهت کسینوسی
             similarity = self._cosine_similarity(
                 query_embedding, cache_entry.query_embedding
@@ -318,12 +329,15 @@ class SemanticCache:
 
         return dot_product / (norm1 * norm2)
 
-    def _generate_cache_key(self, query: str, embedding: List[float]) -> str:
-        """تولید کلید یکتای کش.
+    def _generate_cache_key(
+        self, query: str, embedding: List[float], tenant_id: Optional[str] = None
+    ) -> str:
+        """تولید کلید یکتای کش با تفکیک tenant.
 
         Args:
             query: پرسش کاربر
             embedding: جاسازی پرسش
+            tenant_id: شناسه اختیاری tenant
 
         Returns:
             کلید یکتای کش
@@ -331,6 +345,8 @@ class SemanticCache:
         # استفاده از هش جاسازی برای کلید
         embedding_str = json.dumps(embedding, sort_keys=True)
         key_data = f"{query}_{embedding_str}"
+        if tenant_id:
+            key_data = f"{tenant_id}:{key_data}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:16]
 
     async def _evict_least_used(self) -> None:
@@ -403,13 +419,22 @@ class SemanticCache:
             "ttl_seconds": self.ttl_seconds,
         }
 
-    async def clear_cache(self) -> None:
-        """پاک‌سازی کامل کش."""
-        self.cache.clear()
-        self.embedding_cache.clear()
-        self.hit_count = 0
-        self.miss_count = 0
-        self.eviction_count = 0
+    async def clear_cache(self, tenant_id: Optional[str] = None) -> None:
+        """پاک‌سازی کامل کش یا پاک‌سازی ورودی‌های یک tenant مشخص."""
+        if tenant_id is not None:
+            keys_to_delete = [
+                k
+                for k, v in self.cache.items()
+                if getattr(v, "tenant_id", None) == tenant_id
+            ]
+            for k in keys_to_delete:
+                del self.cache[k]
+        else:
+            self.cache.clear()
+            self.embedding_cache.clear()
+            self.hit_count = 0
+            self.miss_count = 0
+            self.eviction_count = 0
 
     clear = clear_cache
 

@@ -51,6 +51,8 @@ htmlcov/
 logs/
 *.sqlite
 *.db
+data/tenants/
+plugins/*.json
 
 # Caches and runtime outputs
 cache/
