@@ -115,14 +115,20 @@ Fine-tunes the asynchronous HTML and web document ingestion engine.
 
 ## 9. Multi-Tenant Subsystem Settings
 
-Configures tenant isolation, SQLite storage, and quota management.
+Configures tenant isolation, SQLite storage, API key authentication, and quota management.
 
 | Environment Variable | Type | Default | Description |
 |:---|:---|:---|:---|
-| `MULTI_TENANT_ENABLED` | `boolean` | `false` | Enable multi-tenant data and cache partitioning. |
+| `MULTI_TENANT_ENABLED` | `boolean` | `false` | Enable multi-tenant data, cache partitioning, and API key authentication. |
 | `MULTI_TENANT_DEFAULT_TIER` | `string` | `"free"` | Default subscription tier (`free`, `basic`, `premium`, `enterprise`). |
 | `MULTI_TENANT_DATA_DIR` | `string` | `"./data/tenants"` | Storage location for `tenants.db` and SQLite metadata. |
 | `MULTI_TENANT_AUTO_PROVISION` | `boolean` | `false` | Automatically provision tenants on first detected request. |
+
+### CLI Key Management Commands
+When `MULTI_TENANT_ENABLED=true`, manage API keys via the CLI:
+- `ragbot-cli tenant create-api-key --tenant-id <id> --name <label>`: Generate a new raw `rgb_...` API key.
+- `ragbot-cli tenant list-api-keys --tenant-id <id>`: List active keys with masked prefixes.
+- `ragbot-cli tenant revoke-api-key --tenant-id <id> --key-id <key_id_or_token>`: Immediately revoke a key.
 
 ---
 

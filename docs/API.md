@@ -26,11 +26,23 @@ All requests (except health check and documentation endpoints) pass through an i
 ### CORS
 CORS is preconfigured with permissive defaults (`*`) for cross-origin web client integration. Allowed origins can be customized in `ragbot/api/app.py`.
 
-### Multi-Tenant Context (`X-Tenant-ID`)
-When multi-tenancy is enabled (`MULTI_TENANT_ENABLED=true`), clients can specify the tenant context using the HTTP header:
-- **Header**: `X-Tenant-ID: <tenant_id>`
-- **Scope**: Supported on `/api/v1/query`, `/api/v1/documents/upload`, `/api/v1/documents/text`, `/api/v1/documents/url`, and `/api/v1/documents/reset`.
-- **Behavior**: Partitions vector retrieval, document ingestion storage, semantic cache entries, and reset operations to the specified tenant. When multi-tenancy is disabled, the header is ignored.
+### Tenant Authentication & Authorization Model
+
+When multi-tenancy is enabled (`MULTI_TENANT_ENABLED=true`), API endpoints enforce strict zero-trust identity and boundary authorization:
+
+1. **Authentication vs Routing**:
+   - **Identity Authentication**: Clients must supply credentials via `X-API-Key: rgb_<token>` or `Authorization: Bearer <token>`.
+   - **Routing Context**: Clients specify the target tenant context via `X-Tenant-ID: <tenant_id>`. If omitted, the tenant associated with the authenticated principal is used automatically.
+2. **Boundary Enforcement & Status Codes**:
+   - **401 Unauthorized**: Missing credentials, invalid API key, expired key, or revoked key.
+   - **403 Forbidden**: Cross-tenant access attempt (e.g. Tenant A trying to access Tenant B), inactive or suspended tenant, or insufficient permissions for the action.
+   - **Reset Authorization**: `/api/v1/documents/reset` strictly requires `admin` or `super_admin` role. Non-admin principals receive `403 Forbidden`.
+3. **Cryptographic Key Storage**:
+   - Raw keys follow the format `rgb_<secrets.token_urlsafe(32)>` and are only displayed once upon generation.
+   - Keys are cryptographically hashed using SHA-256 (`key_hash`) before persistence in SQLite (`data/tenants/tenants.db`).
+   - Listing keys (`ragbot-cli tenant list-api-keys`) masks secrets, displaying only a 12-character prefix (`rgb_...`) and metadata.
+4. **Single-Tenant Compatibility**:
+   - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`, the default), requests proceed without any authentication headers or tenant context, maintaining 100% backward compatibility.
 
 ---
 

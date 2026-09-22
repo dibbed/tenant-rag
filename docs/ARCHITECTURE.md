@@ -195,9 +195,17 @@ RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
    - Tenant-scoped invalidation (`clear_cache(tenant_id=...)`) purges only the target tenant's entries.
 3. **Tenant-Scoped Reset**:
    - Resetting Tenant A (`/api/v1/documents/reset` with `X-Tenant-ID: tenant_a`) clears only Tenant A's vector index and semantic cache entries, leaving Tenant B completely unaffected.
-4. **Transport**:
-   - `X-Tenant-ID` HTTP header parsed by `get_tenant_context` dependency in FastAPI routes.
+   - Reset operations are protected by role-based access control, requiring `admin` or `super_admin` role.
+4. **Transport & Identity Boundaries**:
+   - `get_current_principal` authenticates incoming credentials (`X-API-Key` or `Authorization: Bearer <token>`) against SQLite-backed hashed keys and user sessions.
+   - `get_authorized_tenant_context` checks tenant matching: non-super-admin principals are strictly forbidden from specifying another tenant's `X-Tenant-ID`.
+   - Missing credentials yield `HTTP 401 Unauthorized`; tenant mismatch or inactive tenant yield `HTTP 403 Forbidden`.
    - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`), evaluates to `None` with zero overhead.
+
+### Cryptographic Credential Model
+- **No Plaintext Keys**: API keys follow the pattern `rgb_<secrets.token_urlsafe(32)>`. Only SHA-256 cryptographic hashes are stored in the SQLite `tenant_api_keys` table.
+- **Immediate Revocation**: Calling `revoke_tenant_api_key` immediately deactivates the key in SQLite and in-memory caches, rejecting subsequent requests with `HTTP 401 Unauthorized`.
+- **Secret Masking**: Key listing and log outputs expose only the 12-character key prefix (e.g. `rgb_...`) and metadata, never the full secret or internal hash.
 
 ---
 

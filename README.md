@@ -185,6 +185,9 @@ See [docs/VECTOR_STORES.md](docs/VECTOR_STORES.md) for database-specific configu
 
 ## 🛡️ Security & Rate Limiting
 
+- **Tenant Authentication & Authorization**: In multi-tenant mode (`MULTI_TENANT_ENABLED=true`), identity authentication (`X-API-Key: rgb_<token>` or `Authorization: Bearer <token>`) is decoupled from routing headers (`X-Tenant-ID`). Requests attempting cross-tenant access receive `HTTP 403 Forbidden`. Missing credentials return `HTTP 401 Unauthorized`.
+- **Hashed API Key Storage**: Raw API keys are prefixed (`rgb_...`), displayed only upon generation, and persisted strictly as SHA-256 hashes in SQLite (`tenants.db`). Keys can be immediately revoked without restarting.
+- **Store Reset Protection**: Store reset (`/api/v1/documents/reset`) is guarded by RBAC, requiring an authenticated `admin` or `super_admin` role.
 - **Sliding-Window Rate Limiting**: In-memory rate limiting middleware per client IP address. Configured via `SECURITY_RATE_LIMIT_REQUESTS=60` and `SECURITY_RATE_LIMIT_WINDOW=60`. Exceeding limits returns `HTTP 429 Too Many Requests` with standard `Retry-After` headers.
 - **Path Sanitization**: Uploaded files and metadata keys are sanitized against directory traversal attacks.
 - **Payload Constraints**: Maximum document text payloads and file uploads enforced via `SECURITY_MAX_FILE_SIZE_MB=50` (returns `HTTP 413` when exceeded).
