@@ -2903,3 +2903,73 @@ class RAGService:
             logger.error(f"Error authenticating tenant user: {e}")
             return {"error": str(e)}
 
+    async def create_tenant_api_key(
+        self,
+        tenant_id: str,
+        name: str = "default",
+        user_id: Optional[str] = None,
+        expires_days: int = 365,
+        permissions: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Create a new API key for a tenant."""
+        try:
+            if not self.tenant_auth:
+                return {"error": "Multi-tenant support is disabled"}
+
+            success, raw_key, error = await self.tenant_auth.create_api_key(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                name=name,
+                expires_days=expires_days,
+                permissions=permissions,
+            )
+            if success:
+                return {
+                    "success": True,
+                    "tenant_id": tenant_id,
+                    "name": name,
+                    "api_key": raw_key,
+                    "prefix": raw_key[:12] if raw_key else "",
+                    "expires_days": expires_days,
+                }
+            return {"error": error or "Failed to create API key"}
+        except Exception as e:
+            logger.error(f"Error creating tenant API key: {e}")
+            return {"error": str(e)}
+
+    async def revoke_tenant_api_key(
+        self,
+        tenant_id: str,
+        api_key_or_id: str,
+        revoked_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Revoke a tenant API key."""
+        try:
+            if not self.tenant_auth:
+                return {"error": "Multi-tenant support is disabled"}
+
+            success = await self.tenant_auth.revoke_api_key(
+                tenant_id=tenant_id,
+                api_key_or_id=api_key_or_id,
+                revoked_by=revoked_by,
+            )
+            if success:
+                return {"success": True, "message": "API key revoked successfully"}
+            return {"error": "API key not found or already revoked"}
+        except Exception as e:
+            logger.error(f"Error revoking tenant API key: {e}")
+            return {"error": str(e)}
+
+    async def list_tenant_api_keys(self, tenant_id: str) -> Dict[str, Any]:
+        """List active API keys for a tenant without exposing secret hashes."""
+        try:
+            if not self.tenant_auth:
+                return {"error": "Multi-tenant support is disabled"}
+
+            keys = await self.tenant_auth.list_api_keys(tenant_id)
+            return {"success": True, "tenant_id": tenant_id, "api_keys": keys}
+        except Exception as e:
+            logger.error(f"Error listing tenant API keys: {e}")
+            return {"error": str(e)}
+
+

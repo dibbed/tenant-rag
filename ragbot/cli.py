@@ -814,6 +814,31 @@ def _build_parser() -> argparse.ArgumentParser:
     parser_auth_user.add_argument("--password", required=True, help="Password")
     parser_auth_user.set_defaults(func=cmd_authenticate_tenant_user)
 
+    # Create tenant API key
+    parser_create_api_key = tenant_sub.add_parser(
+        "create-api-key", help="Create a tenant API key"
+    )
+    parser_create_api_key.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_create_api_key.add_argument("--name", default="default", help="Key name / label")
+    parser_create_api_key.add_argument("--user-id", help="User ID associated with key")
+    parser_create_api_key.add_argument("--expires-days", type=int, default=365, help="Key expiration in days")
+    parser_create_api_key.set_defaults(func=cmd_create_tenant_api_key)
+
+    # Revoke tenant API key
+    parser_revoke_api_key = tenant_sub.add_parser(
+        "revoke-api-key", help="Revoke a tenant API key"
+    )
+    parser_revoke_api_key.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_revoke_api_key.add_argument("--key-id", required=True, help="Key ID or API key to revoke")
+    parser_revoke_api_key.set_defaults(func=cmd_revoke_tenant_api_key)
+
+    # List tenant API keys
+    parser_list_api_keys = tenant_sub.add_parser(
+        "list-api-keys", help="List active tenant API keys"
+    )
+    parser_list_api_keys.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_list_api_keys.set_defaults(func=cmd_list_tenant_api_keys)
+
     return parser
 
 
@@ -1116,6 +1141,62 @@ async def cmd_authenticate_tenant_user(args) -> int:
         return 1
 
 
+async def cmd_create_tenant_api_key(args) -> int:
+    """Create a tenant API key"""
+    try:
+        service = await _get_rag_service()
+        result = await service.create_tenant_api_key(
+            tenant_id=args.tenant_id,
+            name=args.name,
+            user_id=getattr(args, "user_id", None),
+            expires_days=getattr(args, "expires_days", 365),
+        )
+        if "error" in result:
+            print(f"❌ Error creating API key: {result['error']}")
+            return 1
+
+        print("🔑 Tenant API Key created successfully (Store securely - it will not be shown again):")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error creating tenant API key: {e}")
+        return 1
+
+
+async def cmd_revoke_tenant_api_key(args) -> int:
+    """Revoke a tenant API key"""
+    try:
+        service = await _get_rag_service()
+        result = await service.revoke_tenant_api_key(
+            tenant_id=args.tenant_id,
+            api_key_or_id=args.key_id,
+        )
+        if "error" in result:
+            print(f"❌ Error revoking API key: {result['error']}")
+            return 1
+
+        print("✅ API key revoked successfully")
+        return 0
+    except Exception as e:
+        logger.error(f"Error revoking tenant API key: {e}")
+        return 1
+
+
+async def cmd_list_tenant_api_keys(args) -> int:
+    """List tenant API keys"""
+    try:
+        service = await _get_rag_service()
+        result = await service.list_tenant_api_keys(args.tenant_id)
+        if "error" in result:
+            print(f"❌ Error listing API keys: {result['error']}")
+            return 1
+
+        print(f"🔑 Active API Keys for tenant {args.tenant_id}:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error listing tenant API keys: {e}")
+        return 1
 
 
 def main() -> None:

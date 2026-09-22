@@ -11,6 +11,7 @@ from ragbot.api.dependencies import (
     get_integration_service_dep,
     get_rag_service_dep,
     get_tenant_context,
+    verify_reset_authorization,
 )
 from ragbot.api.schemas.documents import (
     IngestResponse,
@@ -330,6 +331,7 @@ async def reset_store(
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
     tenant_id: Optional[str] = Depends(get_tenant_context),
+    _auth: None = Depends(verify_reset_authorization),
 ) -> ResetResponse:
     """
     Clear all documents from the vector store and invalidate all cache layers.
