@@ -7,8 +7,13 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from ragbot.api.app import create_app
-from ragbot.api.dependencies import get_integration_service_dep, get_rag_service_dep
+from ragbot.api.dependencies import (
+    get_current_principal,
+    get_integration_service_dep,
+    get_rag_service_dep,
+)
 from ragbot.configs.settings import Settings, MultiTenantSettings
+from ragbot.multi_tenant.models import AuthenticatedPrincipal
 from ragbot.services.rag_service import IngestResult, QueryResult
 
 
@@ -56,6 +61,13 @@ def test_query_route_with_tenant_header(mock_multi_tenant_rag_service, mock_inte
         app = create_app(lifespan_context=None)
         app.dependency_overrides[get_integration_service_dep] = lambda: mock_integration_service
         app.dependency_overrides[get_rag_service_dep] = lambda: mock_multi_tenant_rag_service
+        app.dependency_overrides[get_current_principal] = lambda: AuthenticatedPrincipal(
+            principal_id="key_001",
+            identity_type="api_key",
+            tenant_id="acme_tenant_99",
+            role="admin",
+            permissions=["ask_questions", "upload_documents", "delete_documents"],
+        )
 
         with TestClient(app) as client:
             response = client.post(
@@ -75,6 +87,13 @@ def test_document_text_ingest_with_tenant_header(mock_multi_tenant_rag_service, 
         app = create_app(lifespan_context=None)
         app.dependency_overrides[get_integration_service_dep] = lambda: mock_integration_service
         app.dependency_overrides[get_rag_service_dep] = lambda: mock_multi_tenant_rag_service
+        app.dependency_overrides[get_current_principal] = lambda: AuthenticatedPrincipal(
+            principal_id="key_001",
+            identity_type="api_key",
+            tenant_id="acme_tenant_99",
+            role="admin",
+            permissions=["ask_questions", "upload_documents", "delete_documents"],
+        )
 
         with TestClient(app) as client:
             response = client.post(
@@ -94,6 +113,13 @@ def test_document_reset_with_tenant_header(mock_multi_tenant_rag_service, mock_i
         app = create_app(lifespan_context=None)
         app.dependency_overrides[get_integration_service_dep] = lambda: mock_integration_service
         app.dependency_overrides[get_rag_service_dep] = lambda: mock_multi_tenant_rag_service
+        app.dependency_overrides[get_current_principal] = lambda: AuthenticatedPrincipal(
+            principal_id="key_001",
+            identity_type="api_key",
+            tenant_id="acme_tenant_99",
+            role="admin",
+            permissions=["ask_questions", "upload_documents", "delete_documents"],
+        )
 
         with TestClient(app) as client:
             response = client.post(
