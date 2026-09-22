@@ -713,6 +713,107 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser_comprehensive.set_defaults(func=cmd_comprehensive_analytics)
 
+    # Plugin command
+    parser_plugin = subparsers.add_parser("plugin", help="Plugin management")
+    parser_plugin.add_argument(
+        "action",
+        choices=["load", "unload", "reload", "list", "status"],
+        help="Plugin action",
+    )
+    parser_plugin.add_argument("--plugin-id", help="Plugin ID")
+    parser_plugin.add_argument("--path", help="Plugin file path")
+    parser_plugin.add_argument("--config", help="Plugin configuration (JSON string)")
+    parser_plugin.set_defaults(func=cmd_plugin, cmd="plugin")
+
+    # Multi-tenant commands
+    parser_tenant = subparsers.add_parser("tenant", help="Multi-tenant management")
+    tenant_sub = parser_tenant.add_subparsers(dest="tenant_cmd", required=True)
+
+    # Create tenant
+    parser_create_tenant = tenant_sub.add_parser("create", help="Create a new tenant")
+    parser_create_tenant.add_argument("--name", required=True, help="Tenant name")
+    parser_create_tenant.add_argument(
+        "--tier",
+        default="free",
+        choices=["free", "basic", "premium", "enterprise"],
+        help="Tenant tier",
+    )
+    parser_create_tenant.add_argument(
+        "--plan",
+        default="trial",
+        choices=["trial", "monthly", "yearly", "custom"],
+        help="Tenant plan",
+    )
+    parser_create_tenant.add_argument("--domain", help="Tenant domain")
+    parser_create_tenant.add_argument("--email", help="Contact email")
+    parser_create_tenant.set_defaults(func=cmd_create_tenant)
+
+    # Get tenant info
+    parser_tenant_info = tenant_sub.add_parser("info", help="Get tenant information")
+    parser_tenant_info.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_tenant_info.set_defaults(func=cmd_tenant_info)
+
+    # Tenant analytics
+    parser_tenant_analytics = tenant_sub.add_parser(
+        "analytics", help="Get tenant analytics"
+    )
+    parser_tenant_analytics.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_tenant_analytics.add_argument(
+        "--days", type=int, default=30, help="Number of days"
+    )
+    parser_tenant_analytics.set_defaults(func=cmd_tenant_analytics)
+
+    # Tenant usage trends
+    parser_tenant_trends = tenant_sub.add_parser(
+        "trends", help="Get tenant usage trends"
+    )
+    parser_tenant_trends.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_tenant_trends.add_argument(
+        "--days", type=int, default=30, help="Number of days"
+    )
+    parser_tenant_trends.add_argument(
+        "--metric",
+        default="queries",
+        choices=["queries", "documents", "storage", "api_calls", "cost"],
+        help="Metric to analyze",
+    )
+    parser_tenant_trends.set_defaults(func=cmd_tenant_trends)
+
+    # Tenant security report
+    parser_tenant_security = tenant_sub.add_parser(
+        "security", help="Get tenant security report"
+    )
+    parser_tenant_security.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_tenant_security.add_argument(
+        "--days", type=int, default=30, help="Number of days"
+    )
+    parser_tenant_security.set_defaults(func=cmd_tenant_security)
+
+    # Create tenant user
+    parser_create_user = tenant_sub.add_parser(
+        "create-user", help="Create a tenant user"
+    )
+    parser_create_user.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_create_user.add_argument("--username", required=True, help="Username")
+    parser_create_user.add_argument("--email", required=True, help="Email")
+    parser_create_user.add_argument("--password", required=True, help="Password")
+    parser_create_user.add_argument(
+        "--role",
+        default="user",
+        choices=["super_admin", "admin", "manager", "user", "viewer"],
+        help="User role",
+    )
+    parser_create_user.set_defaults(func=cmd_create_tenant_user)
+
+    # Authenticate tenant user
+    parser_auth_user = tenant_sub.add_parser(
+        "auth-user", help="Authenticate a tenant user"
+    )
+    parser_auth_user.add_argument("--tenant-id", required=True, help="Tenant ID")
+    parser_auth_user.add_argument("--username", required=True, help="Username")
+    parser_auth_user.add_argument("--password", required=True, help="Password")
+    parser_auth_user.set_defaults(func=cmd_authenticate_tenant_user)
+
     return parser
 
 
@@ -770,6 +871,248 @@ async def cmd_comprehensive_analytics(args) -> int:
         return 0
     except Exception as e:
         logger.error(f"Error getting comprehensive analytics: {e}")
+        return 1
+
+
+# Plugin command functions
+async def cmd_plugin(args: argparse.Namespace) -> int:
+    """Plugin management commands"""
+    try:
+        rag = await _get_rag_service()
+
+        if not rag.plugin_manager:
+            print("Plugin manager not available")
+            return 1
+
+        plugin_manager = rag.plugin_manager
+
+        if args.action == "load":
+            if not args.path:
+                print("Please specify plugin path with --path")
+                return 1
+
+            config = json.loads(args.config) if args.config else None
+            plugin_id = await plugin_manager.load_plugin(args.path, config)
+
+            if plugin_id:
+                print(f"Plugin loaded successfully: {plugin_id}")
+                return 0
+            else:
+                print("Failed to load plugin")
+                return 1
+
+        elif args.action == "unload":
+            if not args.plugin_id:
+                print("Please specify plugin ID with --plugin-id")
+                return 1
+
+            success = await plugin_manager.unload_plugin(args.plugin_id)
+
+            if success:
+                print(f"Plugin unloaded successfully: {args.plugin_id}")
+                return 0
+            else:
+                print(f"Failed to unload plugin: {args.plugin_id}")
+                return 1
+
+        elif args.action == "reload":
+            if not args.plugin_id:
+                print("Please specify plugin ID with --plugin-id")
+                return 1
+
+            result = await plugin_manager.reload_plugin(args.plugin_id)
+
+            if result:
+                print(f"Plugin reloaded successfully: {args.plugin_id}")
+                return 0
+            else:
+                print(f"Failed to reload plugin: {args.plugin_id}")
+                return 1
+
+        elif args.action == "list":
+            plugins = await plugin_manager.list_plugins()
+
+            if plugins:
+                print(f"Installed plugins ({len(plugins)}):")
+                for plugin_id, plugin_info in plugins.items():
+                    status = plugin_info.get("status", "unknown")
+                    name = plugin_info.get("metadata", {}).get("name", plugin_id)
+                    plugin_type = plugin_info.get("metadata", {}).get("type", "unknown")
+
+                    print(f"  - {name} ({plugin_id})")
+                    print(f"    Status: {status}")
+                    print(f"    Type: {plugin_type}")
+                    print()
+            else:
+                print("No plugins installed")
+
+            return 0
+
+        elif args.action == "status":
+            if not args.plugin_id:
+                print("Please specify plugin ID with --plugin-id")
+                return 1
+
+            status = await plugin_manager.get_plugin_status(args.plugin_id)
+
+            if status:
+                print(f"Plugin {args.plugin_id} status: {status.value if hasattr(status, 'value') else status}")
+                return 0
+            else:
+                print(f"Plugin {args.plugin_id} not found")
+                return 1
+
+        else:
+            print(f"Unknown plugin action: {args.action}")
+            return 1
+
+    except Exception as e:
+        print(f"Plugin command error: {e}")
+        return 1
+
+
+# Multi-tenant command functions
+async def cmd_create_tenant(args) -> int:
+    """Create a new tenant"""
+    try:
+        service = await _get_rag_service()
+        result = await service.create_tenant(
+            name=args.name,
+            tier=args.tier,
+            plan=args.plan,
+            domain=args.domain,
+            contact_email=args.email,
+        )
+
+        if "error" in result:
+            print(f"❌ Error creating tenant: {result['error']}")
+            return 1
+
+        print("✅ Tenant created successfully:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error creating tenant: {e}")
+        return 1
+
+
+async def cmd_tenant_info(args) -> int:
+    """Get tenant information"""
+    try:
+        service = await _get_rag_service()
+        info = await service.get_tenant_info(args.tenant_id)
+
+        if "error" in info:
+            print(f"❌ Error getting tenant info: {info['error']}")
+            return 1
+
+        print("🏢 Tenant Information:")
+        print(json.dumps(info, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error getting tenant info: {e}")
+        return 1
+
+
+async def cmd_tenant_analytics(args) -> int:
+    """Get tenant analytics"""
+    try:
+        service = await _get_rag_service()
+        analytics = await service.get_tenant_analytics(args.tenant_id, args.days)
+
+        if "error" in analytics:
+            print(f"❌ Error getting tenant analytics: {analytics['error']}")
+            return 1
+
+        print("📊 Tenant Analytics:")
+        print(json.dumps(analytics, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error getting tenant analytics: {e}")
+        return 1
+
+
+async def cmd_tenant_trends(args) -> int:
+    """Get tenant usage trends"""
+    try:
+        service = await _get_rag_service()
+        trends = await service.get_tenant_usage_trends(
+            args.tenant_id, args.days, args.metric
+        )
+
+        if "error" in trends:
+            print(f"❌ Error getting tenant trends: {trends['error']}")
+            return 1
+
+        print(f"📈 Tenant Usage Trends ({args.metric}):")
+        print(json.dumps(trends, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error getting tenant trends: {e}")
+        return 1
+
+
+async def cmd_tenant_security(args) -> int:
+    """Get tenant security report"""
+    try:
+        service = await _get_rag_service()
+        security = await service.get_tenant_security_report(args.tenant_id, args.days)
+
+        if "error" in security:
+            print(f"❌ Error getting tenant security report: {security['error']}")
+            return 1
+
+        print("🔒 Tenant Security Report:")
+        print(json.dumps(security, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error getting tenant security report: {e}")
+        return 1
+
+
+async def cmd_create_tenant_user(args) -> int:
+    """Create a tenant user"""
+    try:
+        service = await _get_rag_service()
+        result = await service.create_tenant_user(
+            tenant_id=args.tenant_id,
+            username=args.username,
+            email=args.email,
+            password=args.password,
+            role=args.role,
+        )
+
+        if "error" in result:
+            print(f"❌ Error creating tenant user: {result['error']}")
+            return 1
+
+        print("✅ Tenant user created successfully:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error creating tenant user: {e}")
+        return 1
+
+
+async def cmd_authenticate_tenant_user(args) -> int:
+    """Authenticate a tenant user"""
+    try:
+        service = await _get_rag_service()
+        result = await service.authenticate_tenant_user(
+            tenant_id=args.tenant_id,
+            username=args.username,
+            password=args.password,
+        )
+
+        if "error" in result:
+            print(f"❌ Authentication failed: {result['error']}")
+            return 1
+
+        print("✅ User authenticated successfully:")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except Exception as e:
+        logger.error(f"Error authenticating tenant user: {e}")
         return 1
 
 

@@ -38,6 +38,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             integration_service = await get_integration_service()
             app.state.integration_service = integration_service
             app.state.rag_service = integration_service.get_rag_service()
+
+        # Initialize plugin system if enabled
+        if app.state.rag_service:
+            from ragbot.configs.settings import settings
+
+            plugins_cfg = getattr(settings, "plugins", object())
+            if getattr(plugins_cfg, "enabled", False) or getattr(
+                settings, "auto_load_plugins", False
+            ):
+                if hasattr(app.state.rag_service, "initialize_plugin_system"):
+                    await app.state.rag_service.initialize_plugin_system()
+
         logger.info("RAGBot application services initialized successfully")
     except Exception as exc:
         logger.error(f"Failed to initialize shared services during startup: {exc}")
@@ -48,6 +60,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info("Shutting down RAGBot API application services...")
     try:
+        # Gracefully stop active plugins
+        if app.state.rag_service and getattr(
+            app.state.rag_service, "plugin_manager", None
+        ):
+            try:
+                active_pids = list(
+                    app.state.rag_service.plugin_manager.active_plugins.keys()
+                )
+                for pid in active_pids:
+                    await app.state.rag_service.plugin_manager.stop_plugin(pid)
+            except Exception as plug_err:
+                logger.warning(f"Error stopping plugins during shutdown: {plug_err}")
+
         svc = getattr(app.state, "integration_service", None)
         if svc is not None and hasattr(svc, "shutdown"):
             shutdown_res = svc.shutdown()

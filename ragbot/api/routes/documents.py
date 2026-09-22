@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
-from ragbot.api.dependencies import get_integration_service_dep, get_rag_service_dep
+from ragbot.api.dependencies import (
+    get_integration_service_dep,
+    get_rag_service_dep,
+    get_tenant_context,
+)
 from ragbot.api.schemas.documents import (
     IngestResponse,
     ResetResponse,
@@ -28,6 +33,7 @@ async def upload_document(
     file: UploadFile = File(...),
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
+    tenant_id: Optional[str] = Depends(get_tenant_context),
 ) -> IngestResponse:
     """
     Upload and ingest a document file (PDF, DOCX, TXT, HTML, MD, etc.).
@@ -85,6 +91,7 @@ async def upload_document(
                 "original_filename": filename,
                 "file_size": len(content),
             },
+            tenant_id=tenant_id,
         )
 
         if not result.success:
@@ -103,6 +110,7 @@ async def upload_document(
                     "filename": filename,
                     "chunks_created": result.chunks_created,
                     "processing_time": result.processing_time,
+                    "tenant_id": tenant_id,
                 },
             )
             await integration_service.record_document_type(ext or "unknown")
@@ -157,6 +165,7 @@ async def ingest_text(
     payload: TextIngestRequest,
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
+    tenant_id: Optional[str] = Depends(get_tenant_context),
 ) -> IngestResponse:
     """Ingest raw text content into the RAG knowledge base."""
     text = payload.text.strip()
@@ -193,6 +202,7 @@ async def ingest_text(
             source=str(temp_path),
             source_type="text",
             metadata=meta,
+            tenant_id=tenant_id,
         )
 
         if not result.success:
@@ -253,6 +263,7 @@ async def ingest_url(
     payload: URLIngestRequest,
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
+    tenant_id: Optional[str] = Depends(get_tenant_context),
 ) -> IngestResponse:
     """Fetch and ingest content from a specified URL."""
     url = payload.url.strip()
@@ -267,6 +278,7 @@ async def ingest_url(
             source=url,
             source_type="url",
             metadata=payload.metadata,
+            tenant_id=tenant_id,
         )
 
         if not result.success:
@@ -279,7 +291,11 @@ async def ingest_url(
             await integration_service.track_user_action(
                 user_id="api_user",
                 action="ingest_url",
-                details={"url": url, "chunks_created": result.chunks_created},
+                details={
+                    "url": url,
+                    "chunks_created": result.chunks_created,
+                    "tenant_id": tenant_id,
+                },
             )
             await integration_service.record_document_type("url")
         except Exception:
@@ -313,37 +329,36 @@ async def ingest_url(
 async def reset_store(
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
+    tenant_id: Optional[str] = Depends(get_tenant_context),
 ) -> ResetResponse:
     """
     Clear all documents from the vector store and invalidate all cache layers.
 
-    Resets the repository knowledge base to a zero state.
+    Resets the repository knowledge base (or specific tenant) to a zero state.
     """
     try:
-        if hasattr(rag_service, "reset_vector_store"):
-            maybe = rag_service.reset_vector_store()
-            success = await maybe if hasattr(maybe, "__await__") else maybe
-        else:
-            success = await rag_service.reset_store()
+        success = await rag_service.reset_store(tenant_id=tenant_id)
 
         cache_cleared = True
-        try:
-            # Clear active IntegrationService cache component if present
-            int_cache = getattr(integration_service, "components", {}).get("cache")
-            if int_cache is not None:
-                if hasattr(int_cache, "clear"):
-                    await int_cache.clear()
-                if hasattr(int_cache, "clear_semantic_cache"):
-                    await int_cache.clear_semantic_cache()
+        # If not tenant-specific reset, also wipe shared global caches
+        if not tenant_id:
+            try:
+                # Clear active IntegrationService cache component if present
+                int_cache = getattr(integration_service, "components", {}).get("cache")
+                if int_cache is not None:
+                    if hasattr(int_cache, "clear"):
+                        await int_cache.clear()
+                    if hasattr(int_cache, "clear_semantic_cache"):
+                        await int_cache.clear_semantic_cache()
 
-            # Clear global cache_manager singleton
-            await cache_manager.initialize()
-            l12_ok = await cache_manager.clear()
-            sem_ok = await cache_manager.clear_semantic_cache()
-            cache_cleared = bool(l12_ok and (sem_ok or True))
-        except Exception as cache_err:
-            logger.warning(f"Cache clear during reset partially failed: {cache_err}")
-            cache_cleared = False
+                # Clear global cache_manager singleton
+                await cache_manager.initialize()
+                l12_ok = await cache_manager.clear()
+                sem_ok = await cache_manager.clear_semantic_cache()
+                cache_cleared = bool(l12_ok and (sem_ok or True))
+            except Exception as cache_err:
+                logger.warning(f"Cache clear during reset partially failed: {cache_err}")
+                cache_cleared = False
 
         if not success:
             raise HTTPException(

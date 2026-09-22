@@ -34,6 +34,16 @@ from ragbot.security import EncryptionManager, KeyManager, SecureBackupManager
 from ragbot.services.document_service import DocumentService
 from ragbot.analytics import AnalyticsDashboard
 from ragbot.utils.debug_helpers import log_pydantic_error
+from ragbot.multi_tenant import TenantManager, TenantAuth, TenantAnalytics
+from ragbot.multi_tenant.models import TenantTier, TenantPlan, TenantStatus
+from ragbot.plugins import (
+    PluginManager,
+    BasePlugin,
+    PluginContext,
+    PluginResult,
+    PluginStatus as PluginStatusEnum,
+    HookType,
+)
 
 
 @dataclass
@@ -228,6 +238,25 @@ class RAGService:
         # Initialize analytics dashboard
         self.analytics_dashboard = AnalyticsDashboard(settings)
 
+        # Multi-tenant vector store and retriever isolation caches
+        self._tenant_vector_stores: Dict[str, Any] = {}
+        self._tenant_retrievers: Dict[str, Any] = {}
+
+        # Initialize multi-tenant components
+        if getattr(settings, "enable_multi_tenant", False) or getattr(
+            getattr(settings, "multi_tenant", object()), "enabled", False
+        ):
+            self.tenant_manager = TenantManager(settings)
+            self.tenant_auth = TenantAuth(self.tenant_manager)
+            self.tenant_analytics = TenantAnalytics(self.tenant_manager)
+        else:
+            self.tenant_manager = None
+            self.tenant_auth = None
+            self.tenant_analytics = None
+
+        # Initialize plugin system
+        self.plugin_manager = self._initialize_plugin_manager()
+
         logger.info("RAG service initialized successfully")
 
         # Log component status
@@ -242,7 +271,277 @@ class RAGService:
             advanced_retriever=bool(self.advanced_retriever),
             semantic_cache=bool(self.semantic_cache),
             document_service=bool(self.document_service),
+            tenant_manager=bool(self.tenant_manager),
+            plugin_manager=bool(self.plugin_manager),
         )
+
+    def get_vector_store(self, tenant_id: Optional[str] = None):
+        """Get vector store for a specific tenant or the default vector store."""
+        if not tenant_id:
+            return self.vector_store
+
+        if tenant_id in self._tenant_vector_stores:
+            return self._tenant_vector_stores[tenant_id]
+
+        if not (
+            getattr(settings, "enable_multi_tenant", False)
+            or getattr(getattr(settings, "multi_tenant", object()), "enabled", False)
+        ):
+            return self.vector_store
+
+        from ragbot.rag.store.factory import VectorStoreFactory
+        from pathlib import Path
+
+        provider = str(getattr(settings, "vector_db", "faiss")).lower()
+        cfg = getattr(settings, "store", object())
+        vector_store_cfg = getattr(settings, "vector_store", object())
+
+        base_kwargs = {
+            "similarity_metric": getattr(cfg, "similarity_metric", "cosine"),
+            "config": vector_store_cfg,
+        }
+
+        if provider == "faiss":
+            base_store_path = Path(
+                getattr(cfg, "store_path", None) or str(settings.store_path)
+            )
+            tenant_store_path = str(base_store_path / "tenants" / tenant_id)
+            base_kwargs.update(
+                {
+                    "store_path": tenant_store_path,
+                    "faiss_nlist": getattr(cfg, "faiss_nlist", 0),
+                    "faiss_nprobe": getattr(cfg, "faiss_nprobe", 0),
+                    "faiss_hnsw_m": getattr(cfg, "faiss_hnsw_m", 0),
+                    "faiss_hnsw_ef_search": getattr(cfg, "faiss_hnsw_ef_search", 0),
+                    "keep_embeddings": getattr(cfg, "store_keep_embeddings", True),
+                }
+            )
+        elif provider in ("chroma", "chromadb"):
+            default_chroma_path = str(settings.store_path / "chroma")
+            base_kwargs.update(
+                {
+                    "persist_directory": getattr(
+                        cfg, "chroma_persist_directory", default_chroma_path
+                    ),
+                    "collection_name": f"tenant_{tenant_id}",
+                    "distance_function": getattr(
+                        cfg, "chroma_distance_function", "cosine"
+                    ),
+                }
+            )
+        elif provider == "qdrant":
+            default_qdrant_path = str(settings.store_path / "qdrant")
+            base_kwargs.update(
+                {
+                    "url": getattr(cfg, "qdrant_url", "http://localhost:6333"),
+                    "path": getattr(cfg, "qdrant_path", default_qdrant_path),
+                    "collection_name": f"tenant_{tenant_id}",
+                    "vector_size": getattr(cfg, "qdrant_vector_size", 1536),
+                    "timeout": getattr(cfg, "qdrant_timeout", 30),
+                }
+            )
+        else:
+            base_kwargs["collection_name"] = f"tenant_{tenant_id}"
+
+        try:
+            store = VectorStoreFactory.create_store(provider, **base_kwargs)
+            self._tenant_vector_stores[tenant_id] = store
+            return store
+        except Exception as e:
+            logger.error(f"Failed to create vector store for tenant {tenant_id}: {e}")
+            return self.vector_store
+
+    def get_retriever(self, tenant_id: Optional[str] = None):
+        """Get advanced retriever instance (default or tenant-specific)."""
+        if not tenant_id or not getattr(
+            getattr(settings, "multi_tenant", object()), "enabled", False
+        ):
+            return self.advanced_retriever
+
+        if tenant_id in self._tenant_retrievers:
+            return self._tenant_retrievers[tenant_id]
+
+        tenant_store = self.get_vector_store(tenant_id)
+        if not tenant_store:
+            return self.advanced_retriever
+
+        try:
+            from ragbot.rag.retrieve.advanced_retriever import AdvancedRetriever
+
+            adv_settings = getattr(settings, "advanced_retrieval", object())
+            retriever = AdvancedRetriever(
+                vector_store=tenant_store,
+                embedder=self.embedder,
+                enable_reranking=getattr(adv_settings, "enable_reranking", False),
+                enable_hybrid=getattr(
+                    adv_settings, "enable_hybrid", getattr(adv_settings, "enable_hybrid_search", False)
+                ),
+                enable_expansion=getattr(
+                    adv_settings,
+                    "enable_expansion",
+                    getattr(adv_settings, "enable_query_expansion", False),
+                ),
+                reranker_model=getattr(adv_settings, "reranker_model", None),
+                reranker_threshold=getattr(adv_settings, "reranker_threshold", None),
+                hybrid_alpha=getattr(adv_settings, "hybrid_alpha", None),
+                keyword_search_enabled=getattr(adv_settings, "keyword_search_enabled", None),
+            )
+            self._tenant_retrievers[tenant_id] = retriever
+            return retriever
+        except Exception as e:
+            logger.warning(f"Failed to create tenant retriever for {tenant_id}: {e}")
+            return self.advanced_retriever
+
+    def _initialize_plugin_manager(self):
+        """Initialize plugin manager"""
+        try:
+            from ragbot.plugins import PluginManager
+
+            plugin_dir = getattr(
+                getattr(settings, "plugins", object()), "plugin_directory", None
+            ) or str(getattr(settings, "plugin_directory", "plugins"))
+            plugin_manager = PluginManager(plugin_directory=str(plugin_dir))
+            logger.info("Plugin manager initialized")
+            return plugin_manager
+        except Exception as e:
+            logger.error(f"Failed to initialize plugin manager: {e}")
+            return None
+
+    async def initialize_plugin_system(self) -> bool:
+        """Initialize and auto-load plugins if enabled"""
+        try:
+            if not self.plugin_manager:
+                logger.warning("Plugin manager not available")
+                return False
+
+            success = await self.plugin_manager.initialize()
+            if success:
+                logger.info("Plugin system initialized successfully")
+                auto_load = getattr(
+                    getattr(settings, "plugins", object()),
+                    "auto_load",
+                    getattr(settings, "auto_load_plugins", False),
+                )
+                if auto_load:
+                    logger.info("Auto-loading plugins...")
+                    loaded_plugins = (
+                        await self.plugin_manager.load_plugins_from_directory()
+                    )
+                    logger.info(f"Auto-loaded {len(loaded_plugins)} plugins")
+                return True
+            else:
+                logger.error("Failed to initialize plugin system")
+                return False
+        except Exception as e:
+            logger.error(f"Error initializing plugin system: {e}")
+            return False
+
+    async def _trigger_plugin_hooks(
+        self, hook_type: HookType, data: Dict[str, Any]
+    ) -> List[PluginResult]:
+        """Execute plugin hooks with observable error logging and failure isolation."""
+        if not self.plugin_manager:
+            return []
+        try:
+            context = PluginContext(plugin_id="", data=data)
+            results = await self.plugin_manager.execute_hooks(hook_type, context)
+            for r in results:
+                if r and not r.success:
+                    logger.warning(
+                        f"Plugin hook {hook_type.value} execution reported failure: {r.error_message}",
+                        hook=hook_type.value,
+                        error=r.error_message,
+                    )
+            return results
+        except Exception as e:
+            logger.error(
+                f"Error executing plugin hooks for {hook_type.value}: {e}",
+                hook=hook_type.value,
+                exc_info=True,
+            )
+            return []
+
+    async def load_plugin(
+        self, plugin_path: str, config: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Load a plugin into the system"""
+        try:
+            if not self.plugin_manager:
+                return {"success": False, "error": "Plugin manager not initialized"}
+
+            plugin_id = await self.plugin_manager.load_plugin(plugin_path, config)
+            if plugin_id:
+                return {"success": True, "plugin_id": plugin_id, "status": "loaded"}
+            else:
+                return {"success": False, "error": "Failed to load plugin"}
+        except Exception as e:
+            logger.error(f"Error loading plugin: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def unload_plugin(self, plugin_id: str) -> Dict[str, Any]:
+        """Unload a plugin from the system"""
+        try:
+            if not self.plugin_manager:
+                return {"success": False, "error": "Plugin manager not initialized"}
+
+            success = await self.plugin_manager.unload_plugin(plugin_id)
+            return {
+                "success": success,
+                "plugin_id": plugin_id,
+                "status": "unloaded" if success else "failed",
+            }
+        except Exception as e:
+            logger.error(f"Error unloading plugin {plugin_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def get_plugin_status(self, plugin_id: str) -> Dict[str, Any]:
+        """Get status of a plugin"""
+        try:
+            if not self.plugin_manager:
+                return {"success": False, "error": "Plugin manager not initialized"}
+
+            status = await self.plugin_manager.get_plugin_status(plugin_id)
+            if status:
+                return {
+                    "success": True,
+                    "plugin_id": plugin_id,
+                    "status": status.value if hasattr(status, "value") else str(status),
+                }
+            else:
+                return {"success": False, "error": "Plugin not found"}
+        except Exception as e:
+            logger.error(f"Error getting plugin status: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def list_plugins(self) -> Dict[str, Any]:
+        """List all plugins"""
+        try:
+            if not self.plugin_manager:
+                return {"success": False, "error": "Plugin manager not initialized"}
+
+            plugins = await self.plugin_manager.list_plugins()
+            return {"success": True, "plugins": plugins, "count": len(plugins)}
+        except Exception as e:
+            logger.error(f"Error listing plugins: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def reload_plugin(self, plugin_id: str) -> Dict[str, Any]:
+        """Reload a plugin"""
+        try:
+            if not self.plugin_manager:
+                return {"success": False, "error": "Plugin manager not initialized"}
+
+            result = await self.plugin_manager.reload_plugin(plugin_id)
+            if result:
+                return {"success": True, "plugin_id": plugin_id, "status": "reloaded"}
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to reload plugin {plugin_id}",
+                }
+        except Exception as e:
+            logger.error(f"Error reloading plugin {plugin_id}: {e}")
+            return {"success": False, "error": str(e)}
 
     async def create_secure_backup(
         self, backup_name: Optional[str] = None
@@ -685,6 +984,7 @@ class RAGService:
         source: str,
         source_type: str = None,
         metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> IngestResult:
         """
         Ingest a document into the RAG system.
@@ -693,6 +993,7 @@ class RAGService:
             source: Document source (file path, URL, text content)
             source_type: Type of source (pdf, url, text, etc.) - auto-detected if None
             metadata: Optional additional metadata
+            tenant_id: Optional tenant identifier for multi-tenant isolation
 
         Returns:
             IngestResult: Result of the ingestion operation
@@ -700,6 +1001,43 @@ class RAGService:
         start_time = time.time()
 
         self._increment_counter("total_ingests")
+
+        # Trigger pre-ingest hook
+        await self._trigger_plugin_hooks(
+            HookType.PRE_DOCUMENT_INGEST,
+            {
+                "source": source,
+                "source_type": source_type,
+                "metadata": metadata,
+                "tenant_id": tenant_id,
+            },
+        )
+
+        # Multi-tenant limits and status verification
+        if tenant_id and self.tenant_manager:
+            tenant = await self.tenant_manager.get_tenant(tenant_id)
+            if not tenant or (
+                isinstance(tenant.status, TenantStatus)
+                and tenant.status != TenantStatus.ACTIVE
+            ) or (str(getattr(tenant, "status", "")).lower() != "active"):
+                return IngestResult(
+                    success=False,
+                    document_id="",
+                    chunks_created=0,
+                    processing_time=0.0,
+                    error_message=f"Tenant '{tenant_id}' is not active or does not exist",
+                )
+            can_proceed = await self.tenant_manager.check_tenant_limits(
+                tenant_id, "document"
+            )
+            if not can_proceed:
+                return IngestResult(
+                    success=False,
+                    document_id="",
+                    chunks_created=0,
+                    processing_time=0.0,
+                    error_message=f"Tenant '{tenant_id}' exceeded document limits",
+                )
 
         # Auto-detect source type if not provided
         if source_type is None:
@@ -750,6 +1088,7 @@ class RAGService:
                     "chunk_index": i,
                     "total_chunks": len(chunks),
                     "span": span,
+                    **({"tenant_id": tenant_id} if tenant_id else {}),
                     **chunk.metadata,
                     **(metadata or {}),
                 }
@@ -778,7 +1117,11 @@ class RAGService:
 
             # Step 6: Store in vector database
             await self._store_chunks(
-                chunk_texts, embeddings, chunk_metadata, encrypted_embeddings
+                chunk_texts,
+                embeddings,
+                chunk_metadata,
+                encrypted_embeddings,
+                tenant_id=tenant_id,
             )
             logger.debug(f"Stored {len(chunks)} chunks in vector store")
 
@@ -794,6 +1137,26 @@ class RAGService:
                     "source_type": source_type,
                     "content_length": len(document.text),
                     "document_metadata": document.metadata,
+                    **({"tenant_id": tenant_id} if tenant_id else {}),
+                },
+            )
+
+            # Track tenant usage
+            if tenant_id and self.tenant_manager:
+                await self.tenant_manager.track_tenant_usage(
+                    tenant_id,
+                    "document",
+                    metadata={"chunks": len(chunks), "document_id": document_id},
+                )
+
+            # Trigger post-ingest hook
+            await self._trigger_plugin_hooks(
+                HookType.POST_DOCUMENT_INGEST,
+                {
+                    "document_id": document_id,
+                    "chunks_created": len(chunks),
+                    "processing_time": processing_time,
+                    "tenant_id": tenant_id,
                 },
             )
 
@@ -909,8 +1272,9 @@ class RAGService:
         embeddings: List[List[float]],
         metadata: List[Dict[str, Any]],
         encrypted_embeddings: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> None:
-        """Store chunks in vector store with optional encryption."""
+        """Store chunks in vector store with optional encryption and tenant isolation."""
         try:
             timeout = 60.0  # Default timeout
             started = time.time()
@@ -922,8 +1286,12 @@ class RAGService:
                         meta["_encrypted_embedding"] = encrypted_embeddings[i]
                         meta["_encryption_enabled"] = True
 
+            target_store = self.get_vector_store(tenant_id)
+            if not target_store:
+                raise DocumentProcessingError("Target vector store is not available")
+
             await asyncio.wait_for(
-                self.vector_store.add_texts(texts, embeddings, metadata),
+                target_store.add_texts(texts, embeddings, metadata),
                 timeout=timeout,
             )
             try:
@@ -932,6 +1300,7 @@ class RAGService:
                     items=len(texts),
                     duration=f"{time.time() - started:.2f}s",
                     timeout_sec=timeout,
+                    tenant_id=tenant_id,
                 )
             except Exception:
                 pass
@@ -944,6 +1313,7 @@ class RAGService:
         lang: str = "en",
         top_k: Optional[int] = None,
         similarity_threshold: Optional[float] = None,
+        tenant_id: Optional[str] = None,
     ) -> QueryResult:
         """
         Query documents and generate an answer.
@@ -953,6 +1323,7 @@ class RAGService:
             lang: Response language (en, fa)
             top_k: Number of chunks to retrieve
             similarity_threshold: Minimum similarity threshold
+            tenant_id: Optional tenant identifier for isolation
 
         Returns:
             QueryResult: Query result with answer and sources
@@ -961,6 +1332,45 @@ class RAGService:
         self.last_query_time = datetime.now()
 
         self._increment_counter("total_queries")
+
+        # Trigger pre-query hook
+        await self._trigger_plugin_hooks(
+            HookType.PRE_QUERY,
+            {
+                "question": question,
+                "lang": lang,
+                "top_k": top_k,
+                "tenant_id": tenant_id,
+            },
+        )
+
+        # Multi-tenant status and limits check
+        if tenant_id and self.tenant_manager:
+            tenant = await self.tenant_manager.get_tenant(tenant_id)
+            if not tenant or (
+                isinstance(tenant.status, TenantStatus)
+                and tenant.status != TenantStatus.ACTIVE
+            ) or (str(getattr(tenant, "status", "")).lower() != "active"):
+                return QueryResult(
+                    answer=f"Tenant '{tenant_id}' is not active or does not exist",
+                    sources=[],
+                    confidence_score=0.0,
+                    processing_time=0.0,
+                    language=lang,
+                    metadata={"error": "tenant_inactive_or_not_found", "tenant_id": tenant_id},
+                )
+            can_proceed = await self.tenant_manager.check_tenant_limits(
+                tenant_id, "query"
+            )
+            if not can_proceed:
+                return QueryResult(
+                    answer=f"Tenant '{tenant_id}' exceeded daily query limits",
+                    sources=[],
+                    confidence_score=0.0,
+                    processing_time=0.0,
+                    language=lang,
+                    metadata={"error": "tenant_limit_exceeded", "tenant_id": tenant_id},
+                )
 
         # trace id for this request
         trace_id = f"q-{int(time.time() * 1000)}"
@@ -983,38 +1393,59 @@ class RAGService:
         # Check semantic cache first
         if self.semantic_cache:
             try:
-                cached_result = await self.semantic_cache.get_similar_answer(question)
+                cached_result = await self.semantic_cache.get_similar_answer(
+                    question, tenant_id=tenant_id
+                )
                 if cached_result:
                     logger.info("Found semantically similar answer in cache")
-                    return QueryResult(
+                    cached_qr = QueryResult(
                         answer=cached_result.answer,
                         sources=cached_result.context,
                         confidence_score=cached_result.confidence_score,
                         processing_time=time.time() - start_time,
                         language=lang,
                         retrieved_chunks=cached_result.context,
-                        metadata={**cached_result.metadata, "cached": True},
+                        metadata={
+                            **cached_result.metadata,
+                            "cached": True,
+                            **({"tenant_id": tenant_id} if tenant_id else {}),
+                        },
                     )
+                    await self._trigger_plugin_hooks(
+                        HookType.PRE_RESPONSE,
+                        {
+                            "question": question,
+                            "answer": cached_qr.answer,
+                            "cached": True,
+                            "tenant_id": tenant_id,
+                        },
+                    )
+                    await self._trigger_plugin_hooks(
+                        HookType.POST_RESPONSE,
+                        {"result": cached_qr, "tenant_id": tenant_id},
+                    )
+                    return cached_qr
             except Exception as e:
                 logger.warning(f"Error checking semantic cache: {e}")
                 self.component_error_counts["semantic_cache"] += 1
 
         try:
             # Step 1: Use Advanced Retriever if available
-            if self.advanced_retriever:
-                logger.debug("Using advanced retriever for enhanced search")
-                retrieved_chunks = await self.advanced_retriever.retrieve(
+            retriever = self.get_retriever(tenant_id)
+            if retriever:
+                logger.debug("Using retriever for search")
+                retrieved_chunks = await retriever.retrieve(
                     question, top_k=top_k
                 )
                 logger.debug(
-                    f"Advanced retriever found {len(retrieved_chunks)} relevant chunks"
+                    f"Retriever found {len(retrieved_chunks)} relevant chunks"
                 )
             else:
                 # Fallback to basic retrieval
                 logger.debug("Using basic retriever")
                 question_embedding = await self._embed_question(question)
                 search_result = await self._retrieve_context(
-                    question_embedding, top_k, similarity_threshold
+                    question_embedding, top_k, similarity_threshold, tenant_id=tenant_id
                 )
                 retrieved_chunks = (
                     search_result.documents
@@ -1024,6 +1455,16 @@ class RAGService:
                 logger.debug(
                     f"Basic retriever found {len(retrieved_chunks)} relevant chunks"
                 )
+
+            # Trigger post-query hook
+            await self._trigger_plugin_hooks(
+                HookType.POST_QUERY,
+                {
+                    "question": question,
+                    "retrieved_count": len(retrieved_chunks),
+                    "tenant_id": tenant_id,
+                },
+            )
 
             # Step 1.5: Apply advanced query features if enabled
             if retrieved_chunks and settings.vector_store.enable_advanced_queries:
@@ -1162,6 +1603,16 @@ class RAGService:
             answer_text = await self._generate_answer(context_texts, question, lang)
             logger.debug(f"Generated answer: {len(answer_text)} characters")
 
+            # Trigger pre-response hook
+            await self._trigger_plugin_hooks(
+                HookType.PRE_RESPONSE,
+                {
+                    "question": question,
+                    "answer": answer_text,
+                    "tenant_id": tenant_id,
+                },
+            )
+
             processing_time = time.time() - start_time
 
             # Record performance metrics
@@ -1252,6 +1703,7 @@ class RAGService:
                     "similarity_threshold": similarity_threshold,
                     "citations": citations,
                     "references": references,
+                    **({"tenant_id": tenant_id} if tenant_id else {}),
                 },
             )
 
@@ -1270,11 +1722,29 @@ class RAGService:
                             "retrieved_count": len(retrieved_chunks),
                         },
                         confidence_score=confidence_score,
+                        tenant_id=tenant_id,
                     )
                     logger.debug("Answer cached in semantic cache")
                 except Exception as e:
                     logger.warning(f"Failed to cache answer: {e}")
                     self.component_error_counts["semantic_cache"] += 1
+
+            # Track tenant usage
+            if tenant_id and self.tenant_manager:
+                await self.tenant_manager.track_tenant_usage(
+                    tenant_id,
+                    "query",
+                    metadata={
+                        "question": question[:100],
+                        "confidence": confidence_score,
+                    },
+                )
+
+            # Trigger post-response hook
+            await self._trigger_plugin_hooks(
+                HookType.POST_RESPONSE,
+                {"result": result, "tenant_id": tenant_id},
+            )
 
             logger.info(
                 f"Query processed successfully: {len(answer_text)} chars answer, "
@@ -1382,9 +1852,11 @@ class RAGService:
         qvec: List[float],
         top_k: int,
         similarity_threshold: Optional[float] = None,
+        tenant_id: Optional[str] = None,
     ):
-        """Retrieve context chunks from vector store."""
-        if not self.vector_store:
+        """Retrieve context chunks from vector store with tenant isolation."""
+        target_store = self.get_vector_store(tenant_id)
+        if not target_store:
             logger.error("Vector store is not available")
             raise DocumentProcessingError("Vector store is not available")
 
@@ -1393,6 +1865,7 @@ class RAGService:
             top_k=top_k,
             similarity_threshold=similarity_threshold,
             embedding_dimension=len(qvec),
+            tenant_id=tenant_id,
         )
 
         timeout = 30.0  # Default timeout
@@ -1412,7 +1885,7 @@ class RAGService:
         while attempt <= max_retries:
             try:
                 results = await asyncio.wait_for(
-                    self.vector_store.search(qvec, top_k=top_k), timeout=timeout
+                    target_store.search(qvec, top_k=top_k), timeout=timeout
                 )
                 break
             except Exception as e:
@@ -1721,15 +2194,49 @@ class RAGService:
             },
         )
 
-    async def reset_store(self) -> bool:
+    async def reset_store(self, tenant_id: Optional[str] = None) -> bool:
         """
-        Reset the vector store and clear all associated caches.
+        Reset the vector store and clear associated caches (global or tenant-specific).
+
+        Args:
+            tenant_id: Optional tenant ID to isolate reset to a single tenant.
 
         Returns:
             bool: True if reset was successful, False otherwise
         """
         try:
-            logger.info("Resetting vector store and associated caches")
+            if tenant_id:
+                logger.info(f"Resetting vector store and cache for tenant: {tenant_id}")
+                store = self.get_vector_store(tenant_id)
+                if hasattr(store, "clear"):
+                    maybe = store.clear()
+                    if hasattr(maybe, "__await__"):
+                        await maybe
+                elif hasattr(store, "reset"):
+                    maybe = store.reset()
+                    if hasattr(maybe, "__await__"):
+                        await maybe
+                else:
+                    cfg = getattr(settings, "store", object())
+                    base_store_path = settings.store_path
+                    tenant_path = base_store_path / "tenants" / tenant_id
+                    if tenant_path.exists():
+                        shutil.rmtree(tenant_path, ignore_errors=True)
+
+                self._tenant_vector_stores.pop(tenant_id, None)
+                self._tenant_retrievers.pop(tenant_id, None)
+
+                if self.semantic_cache is not None:
+                    try:
+                        await self.semantic_cache.clear_cache(tenant_id=tenant_id)
+                    except Exception as cache_err:
+                        logger.warning(
+                            f"Failed to clear semantic cache for tenant {tenant_id}: {cache_err}"
+                        )
+
+                return True
+
+            logger.info("Resetting default vector store and associated caches")
 
             # 1. Reset vector store
             if hasattr(self.vector_store, "clear"):
@@ -1747,6 +2254,9 @@ class RAGService:
                 store_path.mkdir(parents=True, exist_ok=True)
                 self.vector_store = self._initialize_default_vector_store()
 
+            self._tenant_vector_stores.clear()
+            self._tenant_retrievers.clear()
+
             # 2. Clear semantic cache if present
             if self.semantic_cache is not None:
                 try:
@@ -1756,10 +2266,14 @@ class RAGService:
                         maybe_sc = self.semantic_cache.clear()
                         if hasattr(maybe_sc, "__await__"):
                             await maybe_sc
-                    elif hasattr(self.semantic_cache, "cache") and hasattr(self.semantic_cache.cache, "clear"):
+                    elif hasattr(self.semantic_cache, "cache") and hasattr(
+                        self.semantic_cache.cache, "clear"
+                    ):
                         self.semantic_cache.cache.clear()
                 except Exception as cache_err:
-                    logger.warning(f"Failed to clear semantic cache during reset: {cache_err}")
+                    logger.warning(
+                        f"Failed to clear semantic cache during reset: {cache_err}"
+                    )
 
             # 3. Clear general cache manager if present
             if self.cache is not None:
@@ -1769,7 +2283,9 @@ class RAGService:
                         if hasattr(maybe_c, "__await__"):
                             await maybe_c
                 except Exception as cache_err:
-                    logger.warning(f"Failed to clear general cache during reset: {cache_err}")
+                    logger.warning(
+                        f"Failed to clear general cache during reset: {cache_err}"
+                    )
 
             # Reset error counts
             self.component_error_counts = {
@@ -2180,4 +2696,210 @@ class RAGService:
             )
         except Exception as e:
             logger.error(f"Error recording satisfaction feedback: {e}")
+
+    # Aliases for API and CLI compatibility
+    query = query_documents
+    reset_vector_store = reset_store
+
+    # Multi-tenant forwarding methods
+    async def create_tenant(
+        self,
+        name: str,
+        tier: str = "free",
+        plan: str = "trial",
+        domain: Optional[str] = None,
+        contact_email: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create new tenant"""
+        try:
+            if not self.tenant_manager:
+                return {"error": "Multi-tenant support is disabled"}
+
+            tenant_config = await self.tenant_manager.create_tenant(
+                name=name,
+                tier=TenantTier(tier),
+                plan=TenantPlan(plan),
+                domain=domain,
+                contact_email=contact_email,
+            )
+
+            return {
+                "success": True,
+                "tenant_id": tenant_config.tenant_id,
+                "name": tenant_config.name,
+                "tier": tenant_config.tier.value
+                if hasattr(tenant_config.tier, "value")
+                else str(tenant_config.tier),
+                "plan": tenant_config.plan.value
+                if hasattr(tenant_config.plan, "value")
+                else str(tenant_config.plan),
+            }
+        except Exception as e:
+            logger.error(f"Error creating tenant: {e}")
+            return {"error": str(e)}
+
+    async def get_tenant_info(self, tenant_id: str) -> Dict[str, Any]:
+        """Get tenant info"""
+        try:
+            if not self.tenant_manager:
+                return {"error": "Multi-tenant support is disabled"}
+
+            tenant = await self.tenant_manager.get_tenant(tenant_id)
+            if not tenant:
+                return {"error": "Tenant not found"}
+
+            return {
+                "tenant_id": tenant.tenant_id,
+                "name": tenant.name,
+                "tier": tenant.tier.value
+                if hasattr(tenant.tier, "value")
+                else str(tenant.tier),
+                "plan": tenant.plan.value
+                if hasattr(tenant.plan, "value")
+                else str(tenant.plan),
+                "status": tenant.status.value
+                if hasattr(tenant.status, "value")
+                else str(tenant.status),
+                "created_at": tenant.created_at.isoformat()
+                if hasattr(tenant.created_at, "isoformat")
+                else str(tenant.created_at),
+                "expires_at": tenant.expires_at.isoformat()
+                if tenant.expires_at and hasattr(tenant.expires_at, "isoformat")
+                else None,
+                "limits": {
+                    "max_documents": tenant.limits.max_documents,
+                    "max_queries_per_day": tenant.limits.max_queries_per_day,
+                    "max_storage_gb": tenant.limits.max_storage_gb,
+                    "max_users": tenant.limits.max_users,
+                },
+                "features": {
+                    "advanced_analytics": tenant.features.advanced_analytics,
+                    "ml_insights": tenant.features.ml_insights,
+                    "predictive_analytics": tenant.features.predictive_analytics,
+                    "api_access": tenant.features.api_access,
+                },
+            }
+        except Exception as e:
+            logger.error(f"Error getting tenant info: {e}")
+            return {"error": str(e)}
+
+    async def get_tenant_analytics(
+        self, tenant_id: str, days: int = 30
+    ) -> Dict[str, Any]:
+        """Get tenant analytics dashboard"""
+        try:
+            if not self.tenant_analytics:
+                return {"error": "Multi-tenant support is disabled"}
+
+            return await self.tenant_analytics.get_tenant_dashboard(tenant_id)
+        except Exception as e:
+            logger.error(f"Error getting tenant analytics: {e}")
+            return {"error": str(e)}
+
+    async def get_tenant_usage_trends(
+        self,
+        tenant_id: str,
+        days: int = 30,
+        metric: str = "queries",
+    ) -> Dict[str, Any]:
+        """Get tenant usage trends"""
+        try:
+            if not self.tenant_analytics:
+                return {"error": "Multi-tenant support is disabled"}
+
+            return await self.tenant_analytics.get_usage_trends(
+                tenant_id, days, metric
+            )
+        except Exception as e:
+            logger.error(f"Error getting tenant usage trends: {e}")
+            return {"error": str(e)}
+
+    async def get_tenant_security_report(
+        self,
+        tenant_id: str,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """Get tenant security report"""
+        try:
+            if not self.tenant_analytics:
+                return {"error": "Multi-tenant support is disabled"}
+
+            return await self.tenant_analytics.get_security_report(tenant_id, days)
+        except Exception as e:
+            logger.error(f"Error getting tenant security report: {e}")
+            return {"error": str(e)}
+
+    async def create_tenant_user(
+        self,
+        tenant_id: str,
+        username: str,
+        email: str,
+        password: str,
+        role: str = "user",
+    ) -> Dict[str, Any]:
+        """Create tenant user"""
+        try:
+            if not self.tenant_auth:
+                return {"error": "Multi-tenant support is disabled"}
+
+            from ragbot.multi_tenant.tenant_auth import UserRole
+
+            success, user, error = await self.tenant_auth.create_user(
+                tenant_id=tenant_id,
+                username=username,
+                email=email,
+                password=password,
+                role=UserRole(role),
+            )
+
+            if success:
+                return {
+                    "success": True,
+                    "user_id": user.user_id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role.value
+                    if hasattr(user.role, "value")
+                    else str(user.role),
+                }
+            else:
+                return {"error": error}
+        except Exception as e:
+            logger.error(f"Error creating tenant user: {e}")
+            return {"error": str(e)}
+
+    async def authenticate_tenant_user(
+        self,
+        tenant_id: str,
+        username: str,
+        password: str,
+    ) -> Dict[str, Any]:
+        """Authenticate tenant user"""
+        try:
+            if not self.tenant_auth:
+                return {"error": "Multi-tenant support is disabled"}
+
+            success, user, session_token = (
+                await self.tenant_auth.authenticate_user(
+                    tenant_id=tenant_id,
+                    username=username,
+                    password=password,
+                )
+            )
+
+            if success:
+                return {
+                    "success": True,
+                    "user_id": user.user_id,
+                    "username": user.username,
+                    "role": user.role.value
+                    if hasattr(user.role, "value")
+                    else str(user.role),
+                    "session_token": session_token,
+                }
+            else:
+                return {"error": session_token}
+        except Exception as e:
+            logger.error(f"Error authenticating tenant user: {e}")
+            return {"error": str(e)}
 

@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ragbot.api.dependencies import get_integration_service_dep, get_rag_service_dep
+from ragbot.api.dependencies import (
+    get_integration_service_dep,
+    get_rag_service_dep,
+    get_tenant_context,
+)
 from ragbot.api.schemas.query import QueryRequest, QueryResponse
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -21,6 +26,7 @@ async def query_documents(
     payload: QueryRequest,
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
+    tenant_id: Optional[str] = Depends(get_tenant_context),
 ) -> QueryResponse:
     """
     Execute a RAG query against the ingested knowledge base.
@@ -36,6 +42,7 @@ async def query_documents(
             lang=lang,
             top_k=payload.top_k,
             similarity_threshold=payload.similarity_threshold,
+            tenant_id=tenant_id,
         )
 
         processing_time = time.time() - start_time
