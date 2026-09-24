@@ -78,12 +78,16 @@ python -m ragbot.cli plugin list
 python -m ragbot.cli plugin status --plugin-id simple_plugin
 ```
 
-### Loading via Telegram Bot:
+### Loading Programmatically in Python:
 
-```
-/load_plugin plugins/examples/logging_plugin.py
-/list_plugins
-/plugin_status logging_analytics_plugin
+```python
+from ragbot.services.rag_service import RAGService
+
+# Access plugin manager from RAGService instance
+plugin_id = await rag_service.plugin_manager.load_plugin(
+    "plugins/examples/logging_plugin.py"
+)
+plugins = await rag_service.plugin_manager.list_plugins()
 ```
 
 ## Plugin Development

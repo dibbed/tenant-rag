@@ -2,6 +2,23 @@
 
 All notable changes to the RAGBot project are documented in this file.
 
+## 2026-09-24 — Tenant Authentication, Authorization & API Security Hardening
+
+- **Decoupled Identity & Routing**: Enforced zero-trust separation between identity authentication (`X-API-Key: rgb_<token>` or `Authorization: Bearer <token>`) and routing headers (`X-Tenant-ID`). Requests attempting cross-tenant access are strictly blocked with `HTTP 403 Forbidden`. Requests lacking credentials in multi-tenant mode return `HTTP 401 Unauthorized`.
+- **Cryptographic Credential Storage**: Built persistent SQLite credential store (`tenant_api_keys` table in `data/tenants/tenants.db`). Raw keys follow `rgb_<secrets.token_urlsafe(32)>` format, displayed only upon generation. Only SHA-256 hashes (`key_hash`) are persisted with B-tree indexes.
+- **Immediate Revocation**: Added immediate persistent key revocation with SQLite deactivation and in-memory cache invalidation.
+- **Reset Authorization Protection**: Guarded `/api/v1/documents/reset` with RBAC requiring `admin` or `super_admin` role. Non-admin principals receive `HTTP 403 Forbidden`.
+- **CLI Key Management**: Added subcommands under `ragbot-cli tenant`: `create-api-key`, `revoke-api-key`, and `list-api-keys` with secret masking.
+- **Test Suite Pass**: Achieved 627 passed, 1 skipped, 0 failed across full test suite.
+
+## 2026-09-22 — Multi-Tenant Subsystem & Plugin Architecture Restoration
+
+- **Multi-Tenant Subsystem Restoration**: Restored `ragbot/multi_tenant/` with durable SQLite persistence (`tenants.db`) with WAL mode and `asyncio.Lock()` protection.
+- **Hard Vector Store & Cache Isolation**: Partitioned FAISS (tenant directories), Chroma/Qdrant (tenant collections), and SemanticCache (tenant key prefixing and cosine similarity filtering).
+- **Plugin Architecture Restoration**: Restored `ragbot/plugins/` with `PluginManager`, lifecycle integration (`lifespan`), and standard hook points (`PRE/POST_DOCUMENT_INGEST`, `PRE/POST_QUERY`, `PRE/POST_RESPONSE`).
+- **Observable Failure Isolation**: Plugin hook exceptions are isolated and logged as warnings; faulty plugins cannot crash host request processing.
+- **CLI Management**: Added `ragbot-cli tenant` and `ragbot-cli plugin` administrative commands.
+
 ## 2026-09-20 — Core Remediation & Production Hardening
 
 - **Vector Store Concurrency Safety**: Protected `FAISSVectorStore` against race conditions and Windows file sharing collisions (`[WinError 32]`) by wrapping document additions, updates, deletions, clears, and disk saves in an asynchronous class-level lock (`async_lock`).

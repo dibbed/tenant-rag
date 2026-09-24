@@ -174,36 +174,33 @@ dashboard_data = await dashboard.get_comprehensive_dashboard()
 - **Satisfaction Trend**: روند رضایت
 - **Satisfaction Levels**: سطوح رضایت
 
-## 🎯 Commands
+## 🎯 Commands & CLI
 
-### Telegram Bot Commands
+### CLI Analytics Commands
 
-- `/analytics` - نمایش تحلیل رفتار کاربر
-- `/report` - نمایش گزارش جامع تحلیل
+- `python -m ragbot.cli analytics user-analytics --user-id <user_id>` - نمایش تحلیل رفتار کاربر
+- `python -m ragbot.cli analytics comprehensive --days 30` - نمایش گزارش جامع تحلیل سیستم
+- `python -m ragbot.cli analytics predictive` - تحلیل روندهای پیش‌بینی‌کننده
+- `python -m ragbot.cli analytics ml-insights` - دریافت بینش‌های مبتنی بر یادگیری ماشین
 
-### Example Output
+### Example CLI Output
 
-```
-📊 تحلیل رفتار کاربر
-
-👤 پروفایل کاربر:
-🔢 تعداد جلسات: 5
-❓ تعداد پرسش‌ها: 12
-📈 الگوی استفاده: regular_user
-⭐ میانگین رضایت: 4.2
-
-📅 فعالیت اخیر:
-🕐 آخرین جلسه: 3 پرسش
-📊 جلسات هفته: 2
-❓ پرسش‌های هفته: 8
-
-💡 توصیه‌ها:
-• سعی کنید بیشتر از بات استفاده کنید تا پاسخ‌های بهتری دریافت کنید
-• شما علاقه‌مند به موضوعات AI, machine learning هستید
-
-😊 رضایت:
-⭐ میانگین امتیاز: 4.2/5
-📊 تعداد بازخورد: 3
+```json
+{
+  "user_id": "user123",
+  "total_sessions": 5,
+  "total_queries": 12,
+  "usage_pattern": "regular_user",
+  "average_satisfaction": 4.2,
+  "recent_activity": {
+    "last_session_queries": 3,
+    "weekly_sessions": 2,
+    "weekly_queries": 8
+  },
+  "recommendations": [
+    "User frequently queries AI and machine learning topics."
+  ]
+}
 ```
 
 ## 🔍 Insights

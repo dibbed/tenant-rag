@@ -98,6 +98,24 @@ if not semantic_result:
     )
 ```
 
+### 4. استفاده با ایزولاسیون چندمستأجری (Multi-Tenant)
+
+```python
+# ذخیره پاسخ مختص یک مستأجر خاص
+await cache.cache_answer(
+    query="سوال سازمانی",
+    answer="پاسخ محرمانه",
+    context=context_chunks,
+    tenant_id="acme_corp"
+)
+
+# بازیابی فقط درون همان مستأجر
+result = await cache.get_similar_answer("سوال مشابه", tenant_id="acme_corp")
+
+# پاک‌سازی فقط کش همان مستأجر
+await cache.clear_cache(tenant_id="acme_corp")
+```
+
 ## ⚙️ Configuration
 
 تنظیمات در `ragbot/configs/settings.py`:

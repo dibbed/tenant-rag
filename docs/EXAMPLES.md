@@ -170,7 +170,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 Clear all stored vectors and invalidate semantic cache entries:
 
-#### cURL
+#### cURL (Single-Tenant Mode)
 ```bash
 curl -X POST "http://localhost:8000/api/v1/documents/reset"
 ```
@@ -183,3 +183,96 @@ curl -X POST "http://localhost:8000/api/v1/documents/reset"
   "timestamp": 1726817200.5
 }
 ```
+
+---
+
+## 5. Multi-Tenant Authentication & Scoped Operations
+
+When `MULTI_TENANT_ENABLED=true`, include client credentials and tenant routing headers.
+
+### A. Authenticated Tenant Query
+
+#### cURL
+```bash
+curl -X POST "http://localhost:8000/api/v1/query" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rgb_your_secret_api_key_token" \
+  -H "X-Tenant-ID: acme_corp" \
+  -d '{
+    "question": "What is our company remote work policy?",
+    "language": "en"
+  }'
+```
+
+#### Python (`httpx`)
+```python
+import httpx
+
+headers = {
+    "X-API-Key": "rgb_your_secret_api_key_token",
+    "X-Tenant-ID": "acme_corp",
+}
+payload = {
+    "question": "What is our company remote work policy?",
+    "language": "en",
+}
+
+response = httpx.post("http://localhost:8000/api/v1/query", json=payload, headers=headers)
+print(response.json())
+```
+
+### B. Tenant Document Ingestion
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/text" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: rgb_your_secret_api_key_token" \
+  -H "X-Tenant-ID: acme_corp" \
+  -d '{
+    "text": "Confidential internal report for Acme Corp.",
+    "title": "acme_report"
+  }'
+```
+
+### C. Tenant-Scoped Store Reset (Admin Role Required)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/reset" \
+  -H "X-API-Key: rgb_admin_secret_api_key_token" \
+  -H "X-Tenant-ID: acme_corp"
+```
+
+---
+
+## 6. CLI Administration Examples (`ragbot-cli`)
+
+### Tenant and API Key Management
+```bash
+# Provision a new tenant
+python -m ragbot.cli tenant create --name "Acme Corp" --tier premium --plan monthly
+
+# View tenant status and quotas
+python -m ragbot.cli tenant info --tenant-id acme_corp
+
+# Create an API key (shown only once)
+python -m ragbot.cli tenant create-api-key --tenant-id acme_corp --name "production_key"
+
+# List active keys with masked prefixes
+python -m ragbot.cli tenant list-api-keys --tenant-id acme_corp
+
+# Revoke an API key immediately
+python -m ragbot.cli tenant revoke-api-key --tenant-id acme_corp --key-id <key_id_or_token>
+```
+
+### Plugin Management
+```bash
+# List all active plugins
+python -m ragbot.cli plugin list
+
+# Dynamically load a plugin
+python -m ragbot.cli plugin load --path plugins/custom_plugin.py
+
+# Reload an existing plugin without restarting
+python -m ragbot.cli plugin reload --plugin-id custom_plugin
+```
+

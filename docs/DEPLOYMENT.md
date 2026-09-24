@@ -215,6 +215,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./cache:/app/cache
+      - ./plugins:/app/plugins
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

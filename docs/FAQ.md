@@ -68,4 +68,33 @@ Send an authenticated HTTP POST request to:
 ```bash
 curl -X POST "http://localhost:8000/api/v1/documents/reset"
 ```
-This clears the vector store index files and purges all semantic and general cache entries.
+In single-tenant mode, this clears the global vector store index files and purges all semantic and general cache entries. In multi-tenant mode, an authenticated principal with `admin` or `super_admin` role is required; providing `X-Tenant-ID: <id>` clears only that specific tenant's data.
+
+---
+
+## 5. Multi-Tenancy, Security & Plugins
+
+### How does multi-tenant data isolation work?
+When `MULTI_TENANT_ENABLED=true`:
+- **Vector Stores**: FAISS partitions indexes into tenant-specific filesystem directories (`data/vector_store/tenants/<tenant_id>`), while Chroma and Qdrant use tenant-isolated collections (`tenant_<tenant_id>`).
+- **Semantic Cache**: Cache entries are prefixed by tenant ID (`{tenant_id}:{query_hash}`) and cosine similarity searches only compare entries within the caller's tenant partition.
+- **Persistence**: Tenant configs, quotas, and users are durably saved in an embedded SQLite database (`data/tenants/tenants.db`).
+
+### How does API key authentication work?
+API keys follow the format `rgb_<token>`. The raw secret is displayed only once upon generation. The system stores only cryptographic SHA-256 hashes (`key_hash`) in SQLite. Authenticated principals are verified before tenant routing headers (`X-Tenant-ID`) are evaluated, preventing tenant impersonation and cross-tenant data leakage.
+
+### How do I manage API keys via the CLI?
+Use `ragbot-cli`:
+```bash
+# Create key
+python -m ragbot.cli tenant create-api-key --tenant-id <tenant_id> --name "my_key"
+
+# List keys (secrets are masked)
+python -m ragbot.cli tenant list-api-keys --tenant-id <tenant_id>
+
+# Revoke key immediately
+python -m ragbot.cli tenant revoke-api-key --tenant-id <tenant_id> --key-id <key_id>
+```
+
+### Can a faulty plugin crash the API server?
+**No.** RAGBot features an observable failure boundary around plugin execution. Any exception raised by a plugin hook (`PRE_QUERY`, `POST_QUERY`, `PRE_DOCUMENT_INGEST`, etc.) is captured, logged as a warning, and wrapped in a failure result. The core RAG request pipeline continues unimpeded.

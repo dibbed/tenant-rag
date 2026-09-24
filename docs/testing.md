@@ -30,7 +30,7 @@ pytest -o addopts='' -q
 
 ## 2. Test Suite Topology
 
-The repository organizes tests into four clean, isolated directories under `tests/`:
+The repository organizes tests into five clean, isolated directories under `tests/`:
 
 ```text
 tests/
@@ -42,12 +42,19 @@ tests/
 │   ├── test_semantic_cache.py   # Cosine similarity cache hits/misses, eviction
 │   ├── test_chunkers.py         # Text chunking algorithms and boundary detection
 │   ├── test_loaders.py          # PDF, DOCX, TXT, HTML parsers
+│   ├── test_multi_tenant.py     # Tenant CRUD, SQLite persistence, quota enforcement
+│   ├── test_cli_tenant_keys.py  # CLI tenant API key commands
 │   └── test_validation.py       # Pydantic schema validation rules
 ├── integration/          # Multi-component integration tests
-│   ├── test_phase4_quality_integration.py  # QAChain with embedding & retrieval pipelines
-│   └── test_migrate_faiss_to_qdrant.py     # Cross-store migration verification
+│   ├── test_api_tenant_plugin.py          # Multi-tenant and plugin API route integration
+│   ├── test_multi_tenant_isolation.py     # Cross-tenant vector & cache partition checks
+│   ├── test_phase4_quality_integration.py # QAChain with embedding & retrieval pipelines
+│   └── test_migrate_faiss_to_qdrant.py    # Cross-store migration verification
+├── security/             # Security, authentication, and authorization test suite
+│   └── test_tenant_auth_security.py       # Impersonation, cross-tenant, reset RBAC, revocation
 └── e2e/                  # End-to-end full system flows
-    └── test_project_e2e_complete.py        # Complete ingest-retrieve-answer flows
+    ├── test_project_e2e_complete.py       # Complete ingest-retrieve-answer flows
+    └── test_security_workflows.py         # End-to-end security and rate limit validation
 ```
 
 ---
@@ -58,7 +65,12 @@ tests/
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = ""; $env:TORCH_DEVICE = "cpu"; .\venv\Scripts\pytest.exe -o addopts='' -q
 ```
-*Current benchmark*: ~593 passed, 2 skipped, 0 failed in ~115 seconds.
+*Current benchmark*: **627 passed, 1 skipped, 0 failed in ~110 seconds**.
+
+### Run Security & Multi-Tenant Authorization Tests
+```powershell
+$env:CUDA_VISIBLE_DEVICES = ""; $env:TORCH_DEVICE = "cpu"; .\venv\Scripts\pytest.exe -o addopts='' tests/security/ -v
+```
 
 ### Run API Endpoints & Rate Limiter Tests Only
 ```powershell
