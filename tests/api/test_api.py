@@ -95,10 +95,13 @@ class TestApiApplicationLifecycle:
 
     def test_application_lifespan(self):
         """Application startup initializes services and shutdown releases them."""
-        with patch(
-            "ragbot.api.app.get_integration_service", new_callable=AsyncMock
-        ) as mock_get_svc, patch(
-            "ragbot.api.app.shutdown_integration_service", new_callable=AsyncMock
+        import sys
+        app_mod = sys.modules["ragbot.api.app"]
+
+        with patch.object(
+            app_mod, "get_integration_service", new_callable=AsyncMock
+        ) as mock_get_svc, patch.object(
+            app_mod, "shutdown_integration_service", new_callable=AsyncMock
         ) as mock_shutdown:
             mock_svc = MagicMock()
             mock_svc.get_rag_service.return_value = MagicMock()

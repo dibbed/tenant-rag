@@ -2,7 +2,7 @@
 تست‌های پشتیبانی چندفرمت
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, mock_open, patch
 
 import pytest
 
@@ -131,10 +131,7 @@ class TestHTMLLoader:
         </html>
         """
 
-        with patch(
-            "builtins.open",
-            Mock(return_value=Mock(read=Mock(return_value=html_content))),
-        ):
+        with patch("builtins.open", mock_open(read_data=html_content)):
             document = await loader.load("test.html")
 
             # Assertions
@@ -219,10 +216,7 @@ class TestMarkdownLoader:
         [Link text](https://example.com)
         """
 
-        with patch(
-            "builtins.open",
-            Mock(return_value=Mock(read=Mock(return_value=markdown_content))),
-        ):
+        with patch("builtins.open", mock_open(read_data=markdown_content)):
             document = await loader.load("test.md")
 
             # Assertions
