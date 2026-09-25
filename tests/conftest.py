@@ -1,5 +1,5 @@
 """
-Shared fixtures and configuration for RAG Telegram bot tests.
+Shared fixtures and configuration for TenantRAG tests.
 
 This module provides common test fixtures, mock objects, and configuration
 that can be used across all test modules.

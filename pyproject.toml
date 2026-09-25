@@ -1,36 +1,51 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ragbot"
+name = "tenant-rag"
 version = "1.0.0"
-description = "A production-ready Telegram bot using Retrieval-Augmented Generation (RAG)"
+description = "Multi-tenant RAG microservice for SaaS backends with isolated vector storage and semantic caching."
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "RAG Bot Team", email = "support@ragbot.dev"}
+    {name = "TenantRAG Team"}
 ]
 maintainers = [
-    {name = "RAG Bot Team", email = "support@ragbot.dev"}
+    {name = "TenantRAG Team"}
 ]
-keywords = ["telegram", "bot", "rag", "ai", "chatbot", "nlp"]
+keywords = [
+    "rag",
+    "retrieval-augmented-generation",
+    "multi-tenant",
+    "fastapi",
+    "vector-search",
+    "semantic-cache",
+    "faiss",
+    "qdrant",
+    "chromadb",
+    "ollama",
+    "rest-api",
+    "python",
+    "microservice",
+    "self-hosted",
+    "persian",
+]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Communications :: Chat",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "pydantic==2.7.1",
-    "pydantic-settings==2.3.4",
+    "pydantic>=2.7.1,<3.0.0",
+    "pydantic-settings>=2.3.0,<3.0.0",
     "loguru==0.7.2",
     "python-dotenv==1.0.0",
     "langchain==0.2.6",
@@ -151,19 +166,23 @@ test = [
 ]
 
 [project.scripts]
+tenantrag = "ragbot.cli:main"
+tenant-rag = "ragbot.cli:main"
 ragbot = "ragbot.main:main"
 ragbot-setup = "ragbot.configs.setup:main"
 ragbot-migrate = "ragbot.configs.migrate:main"
 ragbot-cli = "ragbot.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dibbed/rag-telegram-assistant"
-Repository = "https://github.com/dibbed/rag-telegram-assistant"
-Documentation = "https://github.com/dibbed/rag-telegram-assistant/docs"
-"Bug Reports" = "https://github.com/dibbed/rag-telegram-assistant/issues"
+Homepage = "https://github.com/dibbed/tenant-rag"
+Repository = "https://github.com/dibbed/tenant-rag"
+Documentation = "https://github.com/dibbed/tenant-rag/blob/main/docs/ARCHITECTURE.md"
+"Bug Reports" = "https://github.com/dibbed/tenant-rag/issues"
 
 [tool.setuptools.packages.find]
-exclude = ["tests*", "docs*"]
+where = ["."]
+include = ["ragbot*"]
+exclude = ["tests*", "docs*", "benchmarks*", "scripts*", "venv*"]
 
 [tool.setuptools.package-data]
 ragbot = ["py.typed"]

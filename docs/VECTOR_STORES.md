@@ -52,23 +52,7 @@ RAGBot supports multiple vector databases for different use cases, offering flex
 - ✅ HNSW algorithm optimization
 - ✅ REST API access
 - ✅ Clustering support
-- ✅ Production-ready
-
-### 4. **Weaviate** 🔥
-
-- **Best for**: Enterprise, advanced ML features
-- **Strengths**: GraphQL API, multi-modal support
-- **Configuration**: `VECTOR_STORE_DEFAULT_STORE=weaviate`
-- **Dependencies**: `weaviate-client`
-
-#### Weaviate Features:
-
-- ✅ GraphQL native API
-- ✅ Multi-modal support
-- ✅ Advanced schema management
-- ✅ Enterprise-grade features
-- ✅ Complex query capabilities
-- ✅ Semantic search optimization
+- ✅ Distributed clustering and replication
 
 ## 🔧 Configuration
 
@@ -78,10 +62,10 @@ RAGBot supports multiple vector databases for different use cases, offering flex
 
 ```bash
 # Choose your vector store
-VECTOR_STORE_DEFAULT_STORE=faiss  # faiss, chroma, qdrant, weaviate
+VECTOR_STORE_DEFAULT_STORE=faiss  # faiss, chroma, qdrant
 
 # Available stores
-VECTOR_STORE_AVAILABLE_STORES=faiss,chroma,qdrant,weaviate
+VECTOR_STORE_AVAILABLE_STORES=faiss,chroma,qdrant
 
 # Advanced features
 VECTOR_STORE_ENABLE_METADATA_FILTERING=true
@@ -139,17 +123,6 @@ VECTOR_STORE_QDRANT_ENABLE_HYBRID_SEARCH=true
 VECTOR_STORE_QDRANT_ENABLE_RERANKING=true
 ```
 
-#### Weaviate Configuration
-
-```bash
-# Weaviate Advanced Settings
-VECTOR_STORE_WEAVIATE_URL=http://localhost:8080
-VECTOR_STORE_WEAVIATE_CLASS_NAME=RagBot
-VECTOR_STORE_WEAVIATE_API_KEY=your-api-key
-VECTOR_STORE_WEAVIATE_ENABLE_GRAPHQL=true
-VECTOR_STORE_WEAVIATE_ENABLE_MULTI_MODAL=false
-```
-
 ## 🚀 Quick Start
 
 ### Switching Vector Stores
@@ -163,10 +136,7 @@ export VECTOR_STORE_DEFAULT_STORE=chroma
 # Switch to Qdrant
 export VECTOR_STORE_DEFAULT_STORE=qdrant
 
-# Switch to Weaviate
-export VECTOR_STORE_DEFAULT_STORE=weaviate
-
-# Run the bot
+# Run the API server
 python main.py
 ```
 
@@ -175,7 +145,7 @@ python main.py
 ```python
 # In your .env file
 VECTOR_STORE_DEFAULT_STORE=chroma
-VECTOR_STORE_CHROMA_PERSIST_DIRECTORY=./my_chroma_db
+VECTOR_STORE_CHROMA_PERSIST_DIRECTORY=./chroma_db
 ```
 
 ### Installation
@@ -198,9 +168,6 @@ pip install chromadb
 
 # Qdrant
 pip install qdrant-client
-
-# Weaviate
-pip install weaviate-client
 ```
 
 ## 📊 Performance Comparison
@@ -210,7 +177,6 @@ pip install weaviate-client
 | FAISS    | 10-50            | 50-200            | 0.1            | Small-medium datasets |
 | Chroma   | 50-200           | 100-500           | 1-5            | RAG applications      |
 | Qdrant   | 20-100           | 200-1000          | 5-10           | Large datasets        |
-| Weaviate | 100-500          | 500-2000          | 10-30          | Enterprise            |
 
 ## 🔄 Migration Between Stores
 
@@ -281,25 +247,20 @@ python -m ragbot.cli benchmark-stores \
 | Development/Testing   | FAISS             | Fast, simple, offline         |
 | RAG Applications      | Chroma            | Rich metadata, easy setup     |
 | Production/Large Data | Qdrant            | High performance, scalable    |
-| Enterprise            | Weaviate          | Advanced features, GraphQL    |
 | Prototype/MVP         | FAISS or Chroma   | Quick setup, good performance |
-| Multi-modal Data      | Weaviate          | Native multi-modal support    |
 | High Throughput       | Qdrant            | Optimized for performance     |
-| Complex Queries       | Weaviate          | GraphQL, advanced filtering   |
 
 ### Feature Comparison
 
-| Feature            | FAISS | Chroma | Qdrant | Weaviate |
-| ------------------ | ----- | ------ | ------ | -------- |
-| Metadata Filtering | ❌    | ✅     | ✅     | ✅       |
-| Hybrid Search      | ❌    | ✅     | ✅     | ✅       |
-| Reranking          | ❌    | ✅     | ✅     | ✅       |
-| GPU Support        | ✅    | ❌     | ❌     | ✅       |
-| Persistence        | ✅    | ✅     | ✅     | ✅       |
-| Clustering         | ❌    | ❌     | ✅     | ✅       |
-| REST API           | ❌    | ✅     | ✅     | ✅       |
-| GraphQL            | ❌    | ❌     | ❌     | ✅       |
-| Multi-modal        | ❌    | ❌     | ❌     | ✅       |
+| Feature            | FAISS | Chroma | Qdrant |
+| ------------------ | ----- | ------ | ------ |
+| Metadata Filtering | ❌    | ✅     | ✅     |
+| Hybrid Search      | ❌    | ✅     | ✅     |
+| Reranking          | ❌    | ✅     | ✅     |
+| GPU Support        | ✅    | ❌     | ❌     |
+| Persistence        | ✅    | ✅     | ✅     |
+| Clustering         | ❌    | ❌     | ✅     |
+| REST API           | ❌    | ✅     | ✅     |
 
 ## 🔧 Advanced Configuration
 
@@ -367,9 +328,6 @@ VECTOR_STORE_RETRIEVAL_RERANKING_TOP_K=20
 # Check if the service is running
 # For Qdrant:
 docker run -p 6333:6333 qdrant/qdrant
-
-# For Weaviate:
-docker run -p 8080:8080 semitechnologies/weaviate:latest
 ```
 
 #### 2. Out of Memory Errors
@@ -484,7 +442,6 @@ VECTOR_STORE_ENABLE_ERROR_TRACKING=true
 - [FAISS Documentation](https://github.com/facebookresearch/faiss)
 - [Chroma Documentation](https://docs.trychroma.com/)
 - [Qdrant Documentation](https://qdrant.tech/documentation/)
-- [Weaviate Documentation](https://weaviate.io/developers/weaviate)
 
 ## 🆘 Support
 

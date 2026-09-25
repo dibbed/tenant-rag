@@ -2,7 +2,7 @@
 
 ## 📋 Overview
 
-Get started with multiple vector stores in RAGBot API in just a few minutes!
+Get started with multiple vector stores in TenantRAG API in just a few minutes!
 
 ## ⚡ 30-Second Setup
 
@@ -25,10 +25,6 @@ export VECTOR_STORE_DEFAULT_STORE=chroma
 # Option 3: Qdrant (Requires server)
 docker run -p 6333:6333 qdrant/qdrant
 export VECTOR_STORE_DEFAULT_STORE=qdrant
-
-# Option 4: Weaviate (Requires server)
-docker run -p 8080:8080 semitechnologies/weaviate:latest
-export VECTOR_STORE_DEFAULT_STORE=weaviate
 ```
 
 ### 3. Run the API Server
@@ -61,15 +57,7 @@ export VECTOR_STORE_DEFAULT_STORE=chroma
 ```bash
 docker run -p 6333:6333 qdrant/qdrant
 export VECTOR_STORE_DEFAULT_STORE=qdrant
-# ✅ High performance, scalable, production-ready
-```
-
-### For Enterprise → **Weaviate**
-
-```bash
-docker run -p 8080:8080 semitechnologies/weaviate:latest
-export VECTOR_STORE_DEFAULT_STORE=weaviate
-# ✅ Advanced features, GraphQL, multi-modal
+# ✅ High performance, scalable, distributed vector search
 ```
 
 ## 🔧 Quick Configuration
@@ -90,13 +78,10 @@ VECTOR_STORE_ENABLE_HYBRID_SEARCH=true
 VECTOR_STORE_FAISS_INDEX_TYPE=hnsw
 
 # Chroma
-VECTOR_STORE_CHROMA_PERSIST_DIRECTORY=./my_chroma_db
+VECTOR_STORE_CHROMA_PERSIST_DIRECTORY=./chroma_db
 
 # Qdrant
 VECTOR_STORE_QDRANT_URL=http://localhost:6333
-
-# Weaviate
-VECTOR_STORE_WEAVIATE_URL=http://localhost:8080
 ```
 
 ## 🧪 Test Your Setup
@@ -154,11 +139,10 @@ python main.py
 
 ```bash
 # Check if services are running
-docker ps  # Should show qdrant/weaviate containers
+docker ps  # Should show qdrant container
 
 # Restart services
 docker run -p 6333:6333 qdrant/qdrant
-docker run -p 8080:8080 semitechnologies/weaviate:latest
 ```
 
 ### Problem: "Dependencies not installed"
@@ -167,7 +151,6 @@ docker run -p 8080:8080 semitechnologies/weaviate:latest
 # Install specific dependencies
 pip install chromadb          # For Chroma
 pip install qdrant-client     # For Qdrant
-pip install weaviate-client   # For Weaviate
 
 # Or install all at once
 pip install -e ".[vectorstores]"

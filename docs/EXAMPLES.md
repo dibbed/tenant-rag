@@ -244,7 +244,7 @@ curl -X POST "http://localhost:8000/api/v1/documents/reset" \
 
 ---
 
-## 6. CLI Administration Examples (`ragbot-cli`)
+## 6. CLI Administration Examples (`tenantrag`)
 
 ### Tenant and API Key Management
 ```bash

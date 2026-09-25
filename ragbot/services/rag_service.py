@@ -2709,6 +2709,7 @@ class RAGService:
         plan: str = "trial",
         domain: Optional[str] = None,
         contact_email: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create new tenant"""
         try:
@@ -2721,6 +2722,7 @@ class RAGService:
                 plan=TenantPlan(plan),
                 domain=domain,
                 contact_email=contact_email,
+                tenant_id=tenant_id,
             )
 
             return {

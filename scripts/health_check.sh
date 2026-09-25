@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RAG Telegram Bot Health Check Script
+# TenantRAG Health Check Script
 # Usage: ./scripts/health_check.sh [options]
 
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-HEALTH_ENDPOINT="http://localhost:8080/health"
+HEALTH_ENDPOINT="http://localhost:8000/api/v1/health"
 TIMEOUT=10
 
 # Colors for output
@@ -39,7 +39,7 @@ log_error() {
 check_containers() {
     log_info "Checking Docker containers..."
     
-    local containers=("rag-telegram-bot")
+    local containers=("tenant-rag")
     local all_healthy=true
     
     for container in "${containers[@]}"; do
@@ -106,41 +106,15 @@ check_health_endpoint() {
     fi
 }
 
-# Check Telegram Bot API connectivity
-check_telegram_api() {
-    log_info "Checking Telegram Bot API connectivity..."
-    
-    if [[ -f "$PROJECT_DIR/.env" ]]; then
-        local bot_token=$(grep "^BOT_TOKEN=" "$PROJECT_DIR/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'")
-        
-        if [[ -n "$bot_token" && "$bot_token" != "your_telegram_bot_token_here" ]]; then
-            local telegram_url="https://api.telegram.org/bot$bot_token/getMe"
-            
-            if command -v curl &> /dev/null; then
-                local response=$(curl -s --max-time "$TIMEOUT" "$telegram_url" 2>/dev/null || echo '{"ok":false}')
-                local ok=$(echo "$response" | grep -o '"ok":[^,]*' | cut -d':' -f2 | tr -d ' ')
-                
-                if [[ "$ok" == "true" ]]; then
-                    log_success "Telegram Bot API: Connected"
-                    local username=$(echo "$response" | grep -o '"username":"[^"]*' | cut -d'"' -f4)
-                    if [[ -n "$username" ]]; then
-                        echo "Bot username: @$username"
-                    fi
-                    return 0
-                else
-                    log_error "Telegram Bot API: Authentication failed"
-                    return 1
-                fi
-            else
-                log_warning "curl not available, skipping Telegram API check"
-                return 0
-            fi
-        else
-            log_warning "Bot token not configured, skipping Telegram API check"
-            return 0
-        fi
+# Check storage directories
+check_storage() {
+    log_info "Checking storage directories..."
+    local storage_dir="$PROJECT_DIR/data/vector_stores"
+    if [[ -d "$storage_dir" ]]; then
+        log_success "Storage directory exists: $storage_dir"
+        return 0
     else
-        log_warning ".env file not found, skipping Telegram API check"
+        log_warning "Storage directory not yet created: $storage_dir"
         return 0
     fi
 }
@@ -222,7 +196,7 @@ check_memory_usage() {
     log_info "Checking memory usage..."
     
     if command -v docker &> /dev/null; then
-        local container_stats=$(docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null | grep "rag-telegram-bot" || echo "")
+        local container_stats=$(docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}" 2>/dev/null | grep "tenant-rag" || echo "")
         
         if [[ -n "$container_stats" ]]; then
             echo "Container stats:"
@@ -277,7 +251,7 @@ generate_report() {
     local failed_checks=0
     
     echo "=================================="
-    echo "RAG Telegram Bot Health Report"
+    echo "TenantRAG Health Report"
     echo "Generated: $(date)"
     echo "=================================="
     echo
@@ -289,7 +263,7 @@ generate_report() {
     check_health_endpoint || { overall_status="degraded"; ((failed_checks++)); }
     echo
     
-    check_telegram_api || { overall_status="degraded"; ((failed_checks++)); }
+    check_storage || { overall_status="degraded"; ((failed_checks++)); }
     echo
     
     check_openai_api || { overall_status="degraded"; ((failed_checks++)); }
@@ -325,14 +299,14 @@ generate_report() {
 # Show help
 show_help() {
     cat << EOF
-RAG Telegram Bot Health Check Script
+TenantRAG Health Check Script
 
 Usage: $0 [options]
 
 Options:
   --containers    - Check only Docker containers
   --endpoint      - Check only health endpoint
-  --telegram      - Check only Telegram API
+  --storage       - Check vector store directory
   --openai        - Check only OpenAI API
   --disk          - Check only disk space
   --memory        - Check only memory usage
@@ -360,8 +334,8 @@ main() {
         --endpoint)
             check_health_endpoint
             ;;
-        --telegram)
-            check_telegram_api
+        --storage)
+            check_storage
             ;;
         --openai)
             check_openai_api

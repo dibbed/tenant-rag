@@ -87,8 +87,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app(lifespan_context: Any = lifespan) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="RAGBot API",
-        description="API-First Backend for Retrieval-Augmented Generation (RAG)",
+        title="TenantRAG API",
+        description="Multi-Tenant RAG Microservice for SaaS Backends",
         version="1.0.0",
         lifespan=lifespan_context,
     )

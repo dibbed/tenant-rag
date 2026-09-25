@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RAG Telegram Bot Backup Script
+# TenantRAG Backup Script
 # Usage: ./scripts/backup.sh [backup_name]
 
 set -euo pipefail
@@ -44,12 +44,12 @@ create_backup_dir() {
 
 # Backup vector store data
 backup_vector_store() {
-    local vector_store_dir="$PROJECT_DIR/data/vector_store"
+    local vector_store_dir="$PROJECT_DIR/data/vector_stores"
     local backup_path="$BACKUP_DIR/${BACKUP_NAME}_vector_store.tar.gz"
     
     if [[ -d "$vector_store_dir" && "$(ls -A "$vector_store_dir")" ]]; then
         log_info "Backing up vector store data..."
-        tar -czf "$backup_path" -C "$PROJECT_DIR" data/vector_store/
+        tar -czf "$backup_path" -C "$PROJECT_DIR" data/vector_stores/
         log_success "Vector store backup created: $backup_path"
     else
         log_warning "Vector store directory is empty or doesn't exist"
@@ -176,7 +176,7 @@ main() {
 # Show help
 show_help() {
     cat << EOF
-RAG Telegram Bot Backup Script
+TenantRAG Backup Script
 
 Usage: $0 [backup_name]
 

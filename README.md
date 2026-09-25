@@ -1,18 +1,127 @@
-# RAGBot — Production-Ready API-First RAG Backend
+# TenantRAG
 
-[![CI](https://github.com/dibbed/rag-telegram-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/rag-telegram-assistant/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-627%20Passed%2C%200%20Failed-success.svg)](#-testing--verification)
+**Multi-tenant RAG infrastructure for SaaS backends.**
+
+[![CI](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/Local%20Tests-627%20Passed%2C%200%20Failed-success.svg)](#-testing--verification)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Multi-Tenant](https://img.shields.io/badge/Multi--Tenant-Isolated%20%26%20Hardened-orange.svg)](docs/ARCHITECTURE.md#-multi-tenant-subsystem)
 
-High-performance, production-ready Python backend providing an **API-first Retrieval-Augmented Generation (RAG)** platform over documents (PDF, DOCX, TXT, HTML, Markdown, PPTX, XLSX, images via OCR) and web URLs. 
-
-Features native multilingual capabilities (English and Persian), hardened multi-tenant isolation with cryptographic SHA-256 API key authentication, failure-isolated in-process plugins, multi-tier semantic caching, concurrency-safe vector stores (FAISS with class-level `async_lock`, Chroma, Qdrant, Weaviate), sliding-window rate limiting, and broad LLM support (OpenAI, Anthropic Claude, OpenRouter, Ollama, HuggingFace).
+TenantRAG is an API-first Python microservice providing Retrieval-Augmented Generation (RAG) designed specifically for multi-tenant SaaS architectures. It provides directory-partitioned vector stores per tenant, tenant-scoped semantic caching, salted SHA-256 API key authentication, and native support for local and cloud LLMs.
 
 > [!NOTE]
 > **مستندات فارسی**: مستندات کامل به زبان فارسی در فایل [README.fa.md](README.fa.md) در دسترس است.
+
+---
+
+## ⚡ 60-Second Quickstart
+
+### 1. Installation & Setup
+
+```bash
+# Clone repository
+git clone https://github.com/dibbed/tenant-rag.git
+cd tenant-rag
+
+# Create virtual environment and install
+python -m venv venv
+# On Windows: .\venv\Scripts\Activate.ps1 | On Linux/macOS: source venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
+
+# Configure environment
+cp env.example .env
+# Note: MULTI_TENANT_ENABLED=true in .env activates tenant partitioning and API key authentication.
+# When disabled, TenantRAG operates in single-tenant zero-config development mode.
+```
+
+### 2. Start the Server
+
+```bash
+python main.py
+# Server starts at http://localhost:8000
+# Interactive OpenAPI Docs: http://localhost:8000/docs
+```
+
+### 3. Provision Tenant & API Key (CLI)
+
+```bash
+# Create tenant
+tenantrag tenant create --tenant-id acme_corp --name "Acme Corporation"
+
+# Issue SHA-256 hashed API key (shown once)
+tenantrag tenant create-key --tenant-id acme_corp --name "backend_api"
+# Example output: Key created: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8
+```
+
+### 4. Ingest a Document (cURL)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/text" \
+  -H "X-Tenant-ID: acme_corp" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Acme employees can expense home office equipment up to $500 annually.",
+    "title": "expense_policy_2026"
+  }'
+```
+
+### 5. Query with Grounded Citations (cURL)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/query" \
+  -H "X-Tenant-ID: acme_corp" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is the annual home office equipment budget?",
+    "language": "en"
+  }'
+```
+
+**Response:**
+```json
+{
+  "answer": "Acme employees are eligible to expense home office equipment up to $500 annually.",
+  "sources": ["expense_policy_2026"],
+  "confidence_score": 0.95,
+  "processing_time": 0.38,
+  "language": "en"
+}
+```
+
+---
+
+## 🏢 Multi-Tenancy Architecture
+
+Unlike shared vector spaces that rely solely on metadata filters, TenantRAG enforces **siloed storage partitioning**:
+
+```
+Client Request (X-Tenant-ID: acme_corp, X-API-Key: rgb_...)
+       │
+       ▼
+┌────────────────────────────────────────────────────────┐
+│ FastAPI Gateway (Authentication & Tenant Boundary)     │
+└───────────────────────────┬────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+    ┌──────────────────┐        ┌──────────────────┐
+    │ Tenant A: Acme   │        │ Tenant B: Beta   │
+    ├──────────────────┤        ├──────────────────┤
+    │ • Cache A        │        │ • Cache B        │
+    │ • Vector Store A │        │ • Vector Store B │
+    │   data/vector_   │        │   data/vector_   │
+    │   stores/acme/   │        │   stores/beta/   │
+    └──────────────────┘        └──────────────────┘
+```
+
+- **Storage Partitioning:** Index files are written to dedicated tenant directories (`data/vector_stores/<tenant_id>/`). Tenant A cannot search, view, or overwrite Tenant B's vectors.
+- **Tenant-Scoped Semantic Cache:** Cached query embeddings are keyed by tenant ID. Lookups evaluate cosine similarity only within the authenticated tenant's partition.
+- **Authentication Separation:** Identity resolution (`X-API-Key`) is decoupled from routing (`X-Tenant-ID`). Requests attempting to access another tenant's data return `HTTP 403 Forbidden`.
+- *Note:* Tenant isolation is enforced via filesystem partitioning and query filtering; it does not encrypt data at rest on disk. See [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -20,48 +129,48 @@ Features native multilingual capabilities (English and Persian), hardened multi-
 
 ```mermaid
 flowchart TD
-    Client["Client Applications<br/>(Web, Mobile, Microservices)"]
+    Client["Client Applications<br/>(SaaS Backends, Webhooks, Microservices)"]
 
     subgraph Transport ["1. HTTP Transport & Security Layer (FastAPI)"]
-        RL["Sliding-Window Rate Limiter<br/>(RFC HTTP 429)"]
+        RL["Sliding-Window Rate Limiter<br/>(HTTP 429 RFC)"]
         CORS["CORS & Origin Validation"]
-        AuthMiddleware["Principal Identity Resolver<br/>(X-API-Key / Bearer Token)"]
-        TenantAuthBoundary["Tenant Authorization Boundary<br/>(X-Tenant-ID Matching & Status)"]
-        API["FastAPI REST Router (/api/v1)"]
+        AuthResolver["Identity Resolver<br/>(X-API-Key / Bearer Token)"]
+        TenantBoundary["Tenant Authorization Boundary<br/>(X-Tenant-ID Matching & Status)"]
+        APIRouter["FastAPI REST Router (/api/v1)"]
     end
 
     subgraph ServiceLayer ["2. Orchestration & Core Services"]
-        IntService["IntegrationService<br/>(Lifespan & Health Engine)"]
-        RAGService["RAGService<br/>(Query, Ingest, Store Resets)"]
-        TenantMgr["TenantManager & TenantAuth<br/>(Durable SQLite & SHA-256 Hashes)"]
-        PluginMgr["PluginManager<br/>(Failure-Isolated Lifecycle Hooks)"]
+        IntService["IntegrationService<br/>(Lifespan Engine)"]
+        RAGService["RAGService<br/>(Ingest, Query, Reset)"]
+        TenantMgr["TenantManager & TenantAuth<br/>(SQLite WAL & SHA-256 Hashes)"]
+        PluginMgr["PluginManager<br/>(In-Process Lifecycle Hooks)"]
     end
 
     subgraph CacheSystem ["3. Multi-Tier Caching"]
-        SemanticCache["SemanticCache<br/>(Tenant-Partitioned Cosine Similarity)"]
+        SemanticCache["SemanticCache<br/>(Tenant-Partitioned Cosine Matching)"]
         L1Cache["L1 Memory Cache"]
         L2Cache["L2 Redis Cache (Optional)"]
     end
 
     subgraph RAGCore ["4. Core RAG Pipeline"]
-        Loaders["Loaders<br/>(PDF, DOCX, XLSX, PPTX, HTML, MD, OCR)"]
+        Loaders["Loaders<br/>(PDF, DOCX, XLSX, PPTX, HTML, Markdown, OCR)"]
         Chunkers["Chunkers<br/>(Token, Semantic, Hierarchical, Adaptive)"]
-        Embedders["Embedders<br/>(SentenceTransformers, OpenAI, HuggingFace)"]
-        Stores["Vector Stores<br/>(FAISS async_lock, Chroma, Qdrant, Weaviate)"]
-        QAChain["QAChain<br/>(Bilingual Prompt Templates & Citations)"]
+        Embedders["Embedders<br/>(SentenceTransformers, OpenAI)"]
+        Stores["Vector Stores<br/>(FAISS async_lock, ChromaDB, Qdrant)"]
+        QAChain["QAChain<br/>(Grounded Prompting & Citations)"]
     end
 
-    subgraph Providers ["5. LLM Inference Providers"]
+    subgraph Providers ["5. Inference Providers"]
         OpenAI["OpenAI (GPT-4o, GPT-3.5)"]
-        Claude["Anthropic Claude (Messages API)"]
-        OpenRouter["OpenRouter (Free & Hosted Models)"]
+        Claude["Anthropic Claude"]
+        OpenRouter["OpenRouter (Hosted Models)"]
         Ollama["Ollama (Local Models)"]
-        HFLocal["HuggingFace Local (Offline PyTorch)"]
+        HFLocal["HuggingFace Local (CPU/GPU)"]
     end
 
-    Client --> RL --> CORS --> AuthMiddleware --> TenantAuthBoundary --> API
-    API --> IntService
-    API --> RAGService
+    Client --> RL --> CORS --> AuthResolver --> TenantBoundary --> APIRouter
+    APIRouter --> IntService
+    APIRouter --> RAGService
 
     RAGService <--> PluginMgr
     RAGService <--> TenantMgr
@@ -75,254 +184,138 @@ flowchart TD
 
 ---
 
-## ✨ Key Capabilities
+## ✨ Verified Capabilities
 
-| Capability | Technical Details |
-|:---|:---|
-| **API-First Architecture** | Clean REST API built on FastAPI 0.115+ with interactive Swagger UI, ReDoc, automated Pydantic schema validation, and single-instance Lifespan management. |
-| **Enterprise Multi-Tenancy** | Zero-trust identity and routing separation. Data, vector index partitions, and semantic caches strictly segregated per tenant. Durable SQLite persistence (`tenants.db`). |
-| **Cryptographic Authentication** | Raw keys formatted as `rgb_<token>` shown only once upon creation. Only SHA-256 hashes stored in SQLite with compound indexes. Immediate revocation and prefix masking (`rgb_...`). |
-| **Failure-Isolated Plugins** | Trusted in-process plugin architecture with standard lifecycle hooks (`PRE/POST_DOCUMENT_INGEST`, `PRE/POST_QUERY`, `PRE/POST_RESPONSE`). Exceptions in plugins never disrupt host requests. |
-| **Concurrency-Safe Vector Stores** | `FAISSVectorStore` protected by class-level `async_lock`, preventing race conditions and Windows file collisions (`[WinError 32]`). First-class support for Chroma, Qdrant, and Weaviate. |
-| **Multi-Tier Semantic Caching** | Sub-50ms query response reuse by computing embedding cosine similarity (`>= 0.85 threshold`). Tenant-isolated cache keys preventing cross-tenant information leakage. |
-| **Native Multilingual (FA / EN)** | Grounded prompt templates and tokenization tuned for Persian (`fa`) and English (`en`), returning answer text, source document citations, and confidence scores. |
-| **Comprehensive CLI** | `ragbot-cli` for automated operations: tenant provisioning, API key issuance/revocation, plugin management, store migration, benchmarking, and analytics. |
-
----
-
-## 🚀 Quick Start
-
-### 1. Prerequisites & Environment Setup
-
-Ensure Python 3.10, 3.11, or 3.12 is installed:
-
-```bash
-# Clone the repository
-git clone https://github.com/dibbed/rag-telegram-assistant.git
-cd rag-telegram-assistant
-
-# Create and activate virtual environment
-# Windows (PowerShell):
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# Linux / macOS:
-python3 -m venv venv
-source venv/bin/activate
-
-# Upgrade pip and install dependencies
-pip install -U pip
-pip install -r requirements.txt
-```
-
-### 2. Configuration
-
-Copy the example configuration to `.env`:
-
-```bash
-cp env.example .env
-```
-
-Minimal configuration for free local testing:
-```env
-# Server
-HOST=0.0.0.0
-PORT=8000
-
-# LLM Provider (options: openrouter, openai, anthropic, ollama, hf_local)
-LLM_PROVIDER=openrouter
-LLM_MODEL=x-ai/grok-4-fast:free
-OPENROUTER_API_KEY=your_openrouter_key_here
-
-# Embeddings (Sentence Transformers runs offline on CPU)
-EMBED_PROVIDER=sentence_transformers
-EMBED_MODEL=intfloat/e5-small-v2
-
-# Vector Store (faiss, chroma, qdrant, weaviate)
-VECTOR_STORE_DEFAULT_STORE=faiss
-```
-
-### 3. Start the Server
-
-```bash
-# Via Python entry point:
-python main.py
-
-# Or via Uvicorn directly:
-uvicorn ragbot.api.app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Interactive documentation is immediately available at:
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-- **OpenAPI Schema**: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+1. **Multi-Tenant by Design:** Native SQLite WAL database (`data/tenants/tenants.db`) managing tenant metadata, quotas, and API keys. Vector indices and semantic caches are physically separated per tenant.
+2. **Headless FastAPI Microservice:** Designed as a standalone REST API microservice rather than a full visual AI application platform. Standard JSON schemas, automated Pydantic validation, and interactive OpenAPI documentation.
+3. **Tenant-Scoped Semantic Cache:** Reuses responses for semantically similar queries by computing embedding cosine similarity within the caller's tenant partition.
+4. **Vector Store Backends:** Modular vector storage supporting **FAISS** (with class-level async locks), **ChromaDB**, and **Qdrant**.
+5. **LLM Provider Flexibility:** Connect to **OpenAI**, **Anthropic Claude**, **OpenRouter**, **Ollama** (offline local models), or **HuggingFace Local**.
+6. **Salted SHA-256 API Key Authentication:** Keys (`rgb_<token>`) are hashed using SHA-256 prior to storage. Comparison uses constant-time string comparison (`secrets.compare_digest`).
+7. **Concurrency-Hardened for Single Nodes:** `FAISSVectorStore` uses class-level `asyncio.Lock()` to prevent Windows OS file-locking collisions (`PermissionError`) during simultaneous reads and writes. SQLite uses WAL journal mode with write locks.
+8. **Failure-Isolated Plugins:** In-process plugin architecture supporting lifecycle hooks (`PRE/POST_QUERY`, `PRE/POST_DOCUMENT_INGEST`, `PRE/POST_RESPONSE`). Exceptions in plugins are caught and logged without aborting client requests.
+9. **Bilingual English & Persian Support:** Out-of-the-box support for Persian punctuation marks (`؟`, `؛`, `،`), numeral conversion, localized QA prompt templates, and `fas+eng` OCR defaults.
+10. **Administrative CLI (`tenantrag`):** Command-line tool for tenant provisioning, key lifecycle, store migration, and benchmarking.
 
 ---
 
 ## 📡 REST API Reference
 
-### Core Endpoints
-
-| Method | Endpoint | Description | Auth Required (Multi-Tenant) |
+| Method | Endpoint | Description | Auth Required |
 |:---|:---|:---|:---|
-| `GET` | `/health` / `/api/v1/health` | Subsystem operational status and health metrics | No |
-| `POST` | `/api/v1/query` | Ask questions with grounded citations and confidence scores | Yes (`X-API-Key` or Bearer) |
-| `POST` | `/api/v1/documents/upload` | Upload and ingest document files (PDF, Word, Excel, PPTX, etc.) | Yes (`X-API-Key` or Bearer) |
-| `POST` | `/api/v1/documents/text` | Ingest raw text directly into the knowledge base | Yes (`X-API-Key` or Bearer) |
-| `POST` | `/api/v1/documents/url` | Ingest web page content from a remote URL | Yes (`X-API-Key` or Bearer) |
-| `POST` | `/api/v1/documents/reset` | Clear stored vectors and invalidate semantic cache entries | Yes (Admin Role Required) |
+| `GET` | `/health` / `/api/v1/health` | System health check and component status | No |
+| `POST` | `/api/v1/query` | Ask questions with grounded source citations | Yes (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/text` | Ingest raw text directly into tenant index | Yes (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/upload` | Upload and ingest document files (PDF, DOCX, XLSX, etc.) | Yes (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/url` | Ingest web content from a remote URL | Yes (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/reset` | Clear stored vectors and flush tenant cache | Yes (Admin Role Required) |
+
+Interactive documentation is available when the server is running:
+- **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ---
 
-### API Usage Examples
+## 🛠️ Administrative CLI
 
-#### 1. RAG Query (Single-Tenant Mode)
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What chunking strategies are supported by the system?",
-    "language": "en",
-    "top_k": 4,
-    "similarity_threshold": 0.6
-  }'
-```
-
-**Response:**
-```json
-{
-  "answer": "RAGBot supports token, semantic, hierarchical, and adaptive chunking strategies...",
-  "sources": ["architecture_overview.pdf (Page 4)"],
-  "confidence_score": 0.94,
-  "processing_time": 0.42,
-  "language": "en",
-  "retrieved_chunks": 4,
-  "metadata": {}
-}
-```
-
-#### 2. Multi-Tenant Query with API Key Authentication
+TenantRAG provides `tenantrag` (aliased to `ragbot-cli` for backward compatibility):
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: rgb_abcdef1234567890abcdef1234567890" \
-  -H "X-Tenant-ID: acme_corp" \
-  -d '{
-    "question": "What is our internal leave policy?",
-    "language": "en"
-  }'
-```
+# View CLI commands
+tenantrag --help
 
-#### 3. Ingesting Plain Text into Knowledge Base
+# Create a tenant
+tenantrag tenant create --tenant-id org_alpha --name "Alpha Organization"
 
-```bash
-curl -X POST "http://localhost:8000/api/v1/documents/text" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Employees may work remotely up to 3 days per week with team manager approval.",
-    "title": "remote_work_policy",
-    "metadata": {"department": "HR", "effective_year": 2026}
-  }'
-```
+# Issue an API key
+tenantrag tenant create-key --tenant-id org_alpha --name "production_key"
 
-#### 4. Resetting the Knowledge Base (Requires Admin Role in Multi-Tenant Mode)
+# List active keys
+tenantrag tenant list-keys --tenant-id org_alpha
 
-```bash
-curl -X POST "http://localhost:8000/api/v1/documents/reset" \
-  -H "X-API-Key: rgb_admin_token_here" \
-  -H "X-Tenant-ID: acme_corp"
+# Revoke an API key
+tenantrag tenant revoke-key --tenant-id org_alpha --key-id <key_id>
+
+# Ingest local file directly via CLI
+tenantrag ingest --file handbook.pdf --tenant-id org_alpha
+
+# Query index directly via CLI
+tenantrag query --question "What is the policy?" --tenant-id org_alpha
 ```
 
 ---
 
-## 🛠️ CLI Operations Guide (`ragbot-cli`)
+## 📊 Reproducible Benchmarks
 
-RAGBot includes a command-line interface for administrative and maintenance tasks:
+TenantRAG includes reproducible benchmark scripts under `benchmarks/` to measure real performance on your hardware before making quantitative claims:
 
 ```bash
-# General help
-python -m ragbot.cli --help
+# Measure semantic cache latency (cold miss vs warm hit)
+python benchmarks/bench_cache.py --iterations 50
 
-# Multi-Tenant Management
-python -m ragbot.cli tenant create --name "Acme Corp" --tier premium --plan monthly
-python -m ragbot.cli tenant info --tenant-id <tenant_id>
-python -m ragbot.cli tenant create-api-key --tenant-id <tenant_id> --name "production_key"
-python -m ragbot.cli tenant list-api-keys --tenant-id <tenant_id>
-python -m ragbot.cli tenant revoke-api-key --tenant-id <tenant_id> --key-id <key_id>
+# Profile process RSS memory footprint across ingestion stages
+python benchmarks/bench_memory.py --chunks 1000
 
-# Plugin Management
-python -m ragbot.cli plugin list
-python -m ragbot.cli plugin load --path plugins/custom_plugin.py
-python -m ragbot.cli plugin reload --plugin-id custom_plugin
-python -m ragbot.cli plugin unload --plugin-id custom_plugin
+# Test concurrent async operations across multiple tenants
+python benchmarks/bench_concurrency.py --concurrency 10 --tenants 3 --ops 10
 
-# Vector Store Benchmarking & Migration
-python -m ragbot.cli benchmark-stores --stores faiss chroma
-python -m ragbot.cli migrate-store --source faiss --target qdrant
+# Benchmark vector store indexing throughput (chunks/sec)
+python benchmarks/bench_ingest.py --backend faiss --chunks 500
 ```
 
----
-
-## 🛡️ Security Architecture
-
-- **Decoupled Identity & Routing**: Identity (`X-API-Key` or Bearer token) is cryptographically authenticated first. Mismatched tenant headers (`X-Tenant-ID`) are rejected with `HTTP 403 Forbidden` (`Access to requested tenant is denied`). Missing credentials return `HTTP 401 Unauthorized`.
-- **Zero Plaintext Storage**: Only SHA-256 cryptographic hashes (`key_hash`) are persisted in SQLite. Secret keys (`rgb_...`) are returned only once upon creation.
-- **RBAC Store Reset**: Store wipes via `/api/v1/documents/reset` strictly require `admin` or `super_admin` role. Non-admins receive `HTTP 403 Forbidden`.
-- **Sliding-Window Rate Limiting**: In-memory IP-based sliding-window rate limiter enforcing request quotas (`SECURITY_RATE_LIMIT_REQUESTS=60` per minute). Exceeding requests receive RFC-compliant `HTTP 429 Too Many Requests` with `Retry-After` headers.
-- **Payload & Path Sanitization**: Uploaded files and metadata keys are sanitized against directory traversal attacks. File uploads exceeding `SECURITY_MAX_FILE_SIZE_MB` (default 50MB) are rejected with `HTTP 413`.
+All benchmark scripts output structured JSON containing system metadata, Python version, duration, and latency percentiles.
 
 ---
 
 ## 🧪 Testing & Verification
 
-Automated testing enforces **strict CPU isolation** to prevent CUDA driver contention:
+The test suite runs with strict CPU isolation to guarantee deterministic execution without GPU dependencies:
 
-### Windows (PowerShell):
-```powershell
+```bash
+# Windows (PowerShell):
 $env:CUDA_VISIBLE_DEVICES = ""
 $env:TORCH_DEVICE = "cpu"
-.\venv\Scripts\pytest.exe -o addopts='' -q
-```
+pytest -q
 
-### Linux / macOS:
-```bash
+# Linux / macOS:
 export CUDA_VISIBLE_DEVICES=""
 export TORCH_DEVICE="cpu"
-pytest -o addopts='' -q
+pytest -q
 ```
 
-**Latest Test Suite Verification:**
+**Verified Test Baseline:**
 ```text
-627 passed, 1 skipped, 6 warnings in 110.00s (100% pass rate)
+627 passed, 1 skipped, 0 failed in CPU isolation
 ```
-
-See [docs/testing.md](docs/testing.md) for full test suite topology and fixtures documentation.
 
 ---
 
 ## 🐳 Docker Deployment
 
-Run the complete stack using Docker Compose:
+A standalone container setup is provided via `Dockerfile` and `docker-compose.yml`:
 
 ```bash
+# Build and start container on port 8000
 docker compose up --build -d
+
+# Verify health endpoint
+curl http://localhost:8000/api/v1/health
 ```
 
-Mounts `./data`, `./logs`, and `./cache` directories for offline and persistent operation. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production Nginx, SSL, and systemd configurations.
+*Note:* Docker Compose binds to port `8000`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for production deployment topologies.
 
 ---
 
 ## 📚 Documentation Index
 
-- 📖 [Architecture Guide](docs/ARCHITECTURE.md)
+- 🛡️ [Security & Tenant Boundaries](SECURITY.md)
+- 🤝 [Contributing Guidelines](CONTRIBUTING.md)
+- 📖 [Architecture Deep-Dive](docs/ARCHITECTURE.md)
 - 📡 [REST API Specification](docs/API.md)
-- ⚙️ [Configuration Reference](docs/configuration.md)
-- 🚀 [Production Deployment Guide](docs/DEPLOYMENT.md)
-- 🧪 [Testing & Verification Guide](docs/testing.md)
+- ⚙️ [Configuration Guide](docs/configuration.md)
+- 🚀 [Deployment Guide](docs/DEPLOYMENT.md)
 - 🗄️ [Vector Stores Reference](docs/VECTOR_STORES.md)
-- 📚 [Multi-Format Document Support](docs/MULTI_FORMAT_SUPPORT.md)
+- 📚 [Document Format Loaders](docs/MULTI_FORMAT_SUPPORT.md)
 - 💡 [API Usage Examples](docs/EXAMPLES.md)
 - ❓ [Frequently Asked Questions (FAQ)](docs/FAQ.md)
 - 🇮🇷 [Persian Documentation (راهنمای فارسی)](README.fa.md)
@@ -332,4 +325,4 @@ Mounts `./data`, `./logs`, and `./cache` directories for offline and persistent 
 
 ## 📄 License
 
-MIT License © 2025–2026 [dibbed](https://github.com/dibbed).
+MIT License © 2025–2026 TenantRAG Maintainers.

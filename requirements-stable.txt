@@ -1,4 +1,4 @@
-# Stable requirements for RAG Telegram Assistant
+# Stable requirements for TenantRAG
 # These versions are tested and compatible with each other
 
 ############################

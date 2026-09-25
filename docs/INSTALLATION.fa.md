@@ -1,4 +1,4 @@
-# 🚀 راهنمای نصب و راه‌اندازی RAGBot
+# 🚀 راهنمای نصب و راه‌اندازی TenantRAG
 
 این راهنما مراحل نصب وابستگی‌ها، تنظیم متغیرهای محیطی و اجرای سرور API را شرح می‌دهد.
 
@@ -16,8 +16,8 @@
 
 ### گام اول: کلون کردن مخزن
 ```bash
-git clone https://github.com/dibbed/rag-telegram-assistant.git
-cd rag-telegram-assistant
+git clone https://github.com/dibbed/tenant-rag.git
+cd tenant-rag
 ```
 
 ### گام دوم: ساخت و فعال‌سازی محیط مجازی

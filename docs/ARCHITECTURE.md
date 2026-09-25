@@ -1,6 +1,6 @@
-# 🏗️ RAGBot System Architecture
+# 🏗️ TenantRAG System Architecture
 
-RAGBot is an API-first Retrieval-Augmented Generation (RAG) platform architected for high-performance document ingestion, semantic search, and context-aware answer generation.
+TenantRAG is an API-first Retrieval-Augmented Generation (RAG) platform architected for high-performance document ingestion, semantic search, and context-aware answer generation.
 
 ---
 
@@ -36,7 +36,7 @@ flowchart TD
         Loaders["Document Loaders (PDF, DOCX, TXT, HTML, MD, OCR)"]
         Chunkers["Chunkers (Token, Semantic, Hierarchical, Adaptive)"]
         Embedder["Embedding Models (SentenceTransformers, OpenAI)"]
-        VectorStore["Vector Store (FAISS async_lock / Chroma / Qdrant / Weaviate)"]
+        VectorStore["Vector Store (FAISS async_lock / Chroma / Qdrant)"]
         QAChain["QAChain Orchestrator"]
     end
 
@@ -109,7 +109,6 @@ flowchart TD
   - `FAISSVectorStore`: High-speed local index. Concurrency-safe via class-level `async_lock`, preventing race conditions during index mutation and file replace operations.
   - `ChromaVectorStore`: Embedded metadata-filtered vector storage.
   - `QdrantVectorStore`: Scalable vector database with payload indexing.
-  - `WeaviateVectorStore`: Enterprise GraphQL-based vector database.
 - **QA Chain (`ragbot/rag/qa/chain.py`)**:
   - Contextual prompt assembly with Persian and English language templates.
   - Multi-provider support: OpenAI, Anthropic Claude (Messages API), OpenRouter, Ollama, and local HuggingFace Transformers.
@@ -211,12 +210,12 @@ RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
 
 ## 🔌 Plugin Subsystem (`ragbot/plugins/`)
 
-RAGBot features an in-process, trusted plugin architecture for extending RAG lifecycle behavior without modifying core code:
+TenantRAG features an in-process, trusted plugin architecture for extending RAG lifecycle behavior without modifying core code:
 
 ### Plugin Lifecycle & Lifespan
 - **Discovery**: Automatically scans and loads valid plugins from `settings.plugin_directory`.
 - **Lifecycle Integration**: Asynchronously initialized on FastAPI startup (`lifespan`) and cleanly unloaded on shutdown.
-- **Dynamic Management**: Plugins can be dynamically loaded, unloaded, and reloaded via `PluginManager` and `ragbot-cli plugin` commands.
+- **Dynamic Management**: Plugins can be dynamically loaded, unloaded, and reloaded via `PluginManager` and `tenantrag plugin` commands.
 
 ### Observable Failure Isolation
 - Plugins register callbacks against standard hooks (`HookType`):

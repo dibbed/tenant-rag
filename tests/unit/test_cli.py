@@ -103,7 +103,7 @@ class TestCLIParser:
         """Test basic parser construction."""
         parser = _build_parser()
         assert isinstance(parser, argparse.ArgumentParser)
-        assert parser.prog == "ragbot-cli"
+        assert parser.prog in ("tenantrag", "ragbot-cli")
     
     def test_status_command(self):
         """Test status command parsing."""

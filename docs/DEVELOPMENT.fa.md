@@ -10,8 +10,8 @@
 ### نصب ابزارهای توسعه
 ```bash
 # کلون پروژه
-git clone https://github.com/dibbed/rag-telegram-assistant.git
-cd rag-telegram-assistant
+git clone https://github.com/dibbed/tenant-rag.git
+cd tenant-rag
 
 # ایجاد محیط مجازی
 python -m venv venv

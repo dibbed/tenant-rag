@@ -2,7 +2,7 @@
 End-to-end RAG pipeline integration tests.
 
 This module tests the complete RAG workflow from document ingestion
-to query processing without involving the Telegram bot interface.
+to query processing directly via the service layer.
 """
 
 import asyncio

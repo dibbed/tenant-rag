@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RAG Telegram Bot Deployment Script
+# TenantRAG Deployment Script
 # Usage: ./scripts/deploy.sh [environment] [options]
 # Environments: development, staging, production
 # Options: --build, --pull, --logs, --status, --stop
@@ -40,7 +40,7 @@ log_error() {
 # Help function
 show_help() {
     cat << EOF
-RAG Telegram Bot Deployment Script
+TenantRAG Deployment Script
 
 Usage: $0 [environment] [options]
 
@@ -137,7 +137,7 @@ validate_configuration() {
     fi
     
     # Check required variables
-    local required_vars=("BOT_TOKEN" "OPENAI_API_KEY")
+    local required_vars=("OPENAI_API_KEY")
     local missing_vars=()
     
     for var in "${required_vars[@]}"; do
@@ -198,7 +198,7 @@ pull_images() {
 
 # Deploy the application
 deploy() {
-    log_info "Deploying RAG Telegram Bot..."
+    log_info "Deploying TenantRAG..."
     
     local compose_files=("-f" "docker-compose.yml")
     local compose_args=()
@@ -214,7 +214,7 @@ deploy() {
     esac
     
     # Create necessary directories
-    mkdir -p data/vector_store logs
+    mkdir -p data/vector_stores logs
     
     # Deploy
     docker-compose "${compose_files[@]}" up -d "${compose_args[@]}"

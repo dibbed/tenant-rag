@@ -1,40 +1,154 @@
-# RAGBot — پلتفرم بک‌اند سازمانی و API-محور برای RAG
+# TenantRAG — زیرساخت RAG چندمستأجری برای بک‌اند سامانه‌های SaaS
 
-[![CI](https://github.com/dibbed/rag-telegram-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/rag-telegram-assistant/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/تست‌ها-۶۲۷%20قبول%20شده%20(۰%20خطا)-success.svg)](#-تست‌ها-و-اعتبارسنجی)
+**میکروسرویس RAG چندمستأجری مبتنی بر FastAPI برای توسعه‌دهندگان سامانه‌های ابری و سازمانی.**
+
+[![CI](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/Local%20Tests-627%20Passed%2C%200%20Failed-success.svg)](#-تست‌ها-و-اعتبارسنجی)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/مجوز-MIT-blue.svg)](LICENSE)
-[![Multi-Tenant](https://img.shields.io/badge/چندمستأجری-ایزوله%20و%20امن-orange.svg)](docs/ARCHITECTURE.fa.md)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-پلتفرم بک‌اند پرسرعت و بهینه‌سازی‌شده برای تولید تقویت‌شده با بازیابی اطلاعات (**Retrieval-Augmented Generation - RAG**) مبتنی بر **FastAPI REST API**. این سیستم انواع اسناد متنی (شامل PDF، Word، اکسل، پاورپوینت، HTML، مارک‌داون، متن ساده و تصاویر از طریق OCR) و نشانی‌های وب را دریافت و خردسازی کرده و با استفاده از مدل‌های زبانی بزرگ، پاسخ‌هایی دقیق به همراه ارجاع مستند به منابع و شاخص اعتماد ارائه می‌دهد.
-
-دارای پشتیبانی بومی از زبان‌های فارسی و انگلیسی، معماری چندمستأجری (Multi-Tenant) سخت‌گیرانه با احراز هویت کلیدهای رمزنگاری‌شده بر پایه هش SHA-256 در SQLite، زیرسیستم افزونه‌های درون‌پردازشی با تفکیک خطاها، کش چندسطحی معنایی (Semantic Cache)، پایگاه‌های برداری ایمن در برابر دسترسی همزمان (FAISS با `async_lock`، Chroma، Qdrant و Weaviate)، کنترل نرخ درخواست لغزان و اتصال به ارائه‌دهندگان مطرح LLM (OpenAI، Anthropic Claude، OpenRouter، Ollama و HuggingFace).
+پروژه **TenantRAG** یک میکروسرویس مستقل و API-محور به زبان پایتون است که امکان پیاده‌سازی تولید تقویت‌شده با بازیابی اطلاعات (**RAG**) را با تمرکز ویژه بر **جداسازی داده‌های چندمستأجری (Multi-Tenancy)** فراهم می‌سازد. در این سامانه، مخازن برداری هر سازمان در دایرکتوری‌های مجزا ذخیره شده، کش معنایی به شناسه مستأجر مقید است و احراز هویت با کلیدهای API بر پایه هش SHA-256 انجام می‌پذیرد.
 
 > [!NOTE]
-> **English Documentation**: Full English documentation is available in [README.md](README.md).
+> **English Documentation**: مستندات انگلیسی به همراه جزئیات معماری در فایل [README.md](README.md) در دسترس است.
 
 ---
 
-## 🏛️ معماری کلان سیستم
+## ⚡ راه‌اندازی سریع در ۶۰ ثانیه
+
+### ۱. نصب و آماده‌سازی محیط
+
+```bash
+# دریافت مخزن
+git clone https://github.com/dibbed/tenant-rag.git
+cd tenant-rag
+
+# ایجاد و فعال‌سازی محیط مجازی
+python -m venv venv
+# در ویندوز (PowerShell):
+.\venv\Scripts\Activate.ps1
+# در لینوکس / مکینتاش:
+source venv/bin/activate
+
+# نصب وابستگی‌ها
+pip install -r requirements.txt
+pip install -e .
+
+# تنظیم فایل متغیرهای محیطی
+cp env.example .env
+# نکته: مقدار MULTI_TENANT_ENABLED=true در .env جداسازی داده‌ها و احراز هویت کلیدهای API را فعال می‌کند.
+# در صورت غیرفعال بودن، سیستم در حالت تک‌مستأجره توسعه محلی بدون نیاز به احراز هویت اجرا خواهد شد.
+```
+
+### ۲. اجرای سرور API
+
+```bash
+python main.py
+# سرور بر روی پورت 8000 اجرا می‌شود: http://localhost:8000
+# مستندات تعاملی Swagger: http://localhost:8000/docs
+```
+
+### ۳. ایجاد مستأجر و کلید API (از طریق CLI)
+
+```bash
+# ایجاد مستأجر جدید
+tenantrag tenant create --tenant-id acme_corp --name "Acme Corporation"
+
+# صدور کلید دسترسی امن (کلید فقط یک‌بار نمایش داده می‌شود)
+tenantrag tenant create-key --tenant-id acme_corp --name "backend_api"
+# نمونه خروجی: Key created: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8
+```
+
+### ۴. بارگذاری و ایندکس سند (cURL)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/documents/text" \
+  -H "X-Tenant-ID: acme_corp" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "کارکنان شرکت مجاز هستند سالانه تا سقف ۵۰۰ دلار بابت تجهیزات دورکاری هزینه دریافت کنند.",
+    "title": "expense_policy_2026"
+  }'
+```
+
+### ۵. پرسش و دریافت پاسخ با ارجاع مستند (cURL)
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/query" \
+  -H "X-Tenant-ID: acme_corp" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "سقف بودجه سالانه تجهیزات دورکاری چقدر است؟",
+    "language": "fa"
+  }'
+```
+
+**نمونه پاسخ سرور:**
+```json
+{
+  "answer": "بر اساس خط‌مشی ثبت‌شده، کارکنان مجاز به دریافت سالانه تا سقف ۵۰۰ دلار جهت تجهیزات دورکاری هستند.",
+  "sources": ["expense_policy_2026"],
+  "confidence_score": 0.95,
+  "processing_time": 0.38,
+  "language": "fa"
+}
+```
+
+---
+
+## 🏢 معماری جداسازی داده‌ها در مدل چندمستأجری
+
+برخلاف سامانه‌هایی که داده‌های کاربران مختلف را در یک کالکشن مشترک تنها با متادیتا فیلتر می‌کنند، TenantRAG از **تفکیک فیزیکی دایرکتوری‌ها** استفاده می‌کند:
+
+```
+درخواست کلاینت (X-Tenant-ID: acme_corp, X-API-Key: rgb_...)
+       │
+       ▼
+┌────────────────────────────────────────────────────────┐
+│ لایه FastAPI (احراز هویت و بررسی مرز دسترسی مستأجر)   │
+└───────────────────────────┬────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+    ┌──────────────────┐        ┌──────────────────┐
+    │ Tenant A: Acme   │        │ Tenant B: Beta   │
+    ├──────────────────┤        ├──────────────────┤
+    │ • کش اختصاصی     │        │ • کش اختصاصی     │
+    │ • مخزن FAISS A   │        │ • مخزن FAISS B   │
+    │   data/vector_   │        │   data/vector_   │
+    │   stores/acme/   │        │   stores/beta/   │
+    └──────────────────┘        └──────────────────┘
+```
+
+- **تفکیک در سطح سیستم فایل:** فایل‌های ایندکس هر مستأجر در پوشه مجزا (`data/vector_stores/<tenant_id>/`) ذخیره می‌شوند. مستأجر A به هیچ عنوان امکان جستجو یا ویرایش ایندکس‌های مستأجر B را ندارد.
+- **کش معنایی مقید به مستأجر:** ورودی‌های کش حاوی `tenant_id` بوده و محاسبات شباهت کسینوسی منحصراً در محدوده داده‌های همان مستأجر انجام می‌گیرد.
+- **جداسازی مسیر از هویت:** هویت کاربر (`X-API-Key`) مستقل از هدر مسیر (`X-Tenant-ID`) سنجیده می‌شود. تلاش برای دسترسی به مستأجر دیگر با خطای `HTTP 403 Forbidden` مسدود می‌گردد.
+- *توضیح فنی:* جداسازی بر پایه پارتیشن‌بندی دایرکتوری‌ها و تفکیک پرس‌وجوهاست؛ فایل‌های روی دیسک رمزنگاری شده نیستند. برای اطلاعات تکمیلی به [SECURITY.md](SECURITY.md) مراجعه کنید.
+
+---
+
+## 🏛️ دیاگرام معماری سیستم
 
 ```mermaid
 flowchart TD
-    Client["کلاینت‌های متصل<br/>(وب‌سایت، اپلیکیشن، میکروسرویس‌ها)"]
+    Client["کلاینت‌های متصل<br/>(بک‌اند سامانه‌های SaaS، وب‌هوک‌ها، میکروسرویس‌ها)"]
 
     subgraph Transport ["۱. لایه ارتباطی و امنیت HTTP (FastAPI)"]
         RL["محدودساز نرخ درخواست<br/>(Sliding-Window HTTP 429)"]
         CORS["مدیریت دسترسی متقاطع CORS"]
-        AuthMiddleware["احراز هویت هویت کاربر<br/>(X-API-Key / Bearer Token)"]
-        TenantAuthBoundary["اعتبارسنجی مرز مستأجر<br/>(تطبیق X-Tenant-ID و بررسی وضعیت فعال)"]
-        API["مسیریاب اصلی REST (/api/v1)"]
+        AuthResolver["احراز هویت هویت کاربر<br/>(X-API-Key / Bearer Token)"]
+        TenantBoundary["اعتبارسنجی مرز مستأجر<br/>(تطبیق X-Tenant-ID و بررسی وضعیت فعال)"]
+        APIRouter["مسیریاب اصلی REST (/api/v1)"]
     end
 
     subgraph ServiceLayer ["۲. لایه سرویس‌ها و هماهنگی"]
-        IntService["IntegrationService<br/>(مدیریت چرخه حیات و پایش سلامت)"]
-        RAGService["RAGService<br/>(خط لوله پرسش، ثبت سند، بازنشانی مخزن)"]
+        IntService["IntegrationService<br/>(مدیریت چرخه حیات سامانه)"]
+        RAGService["RAGService<br/>(خط لوله پرسش، بارگذاری سند، بازنشانی)"]
         TenantMgr["TenantManager & TenantAuth<br/>(پایگاه پایدار SQLite و هش‌های SHA-256)"]
-        PluginMgr["PluginManager<br/>(موتور افزونه‌های ایزوله با هوک‌های حیات)"]
+        PluginMgr["PluginManager<br/>(موتور افزونه‌های درون‌پردازشی با تفکیک خطا)"]
     end
 
     subgraph CacheSystem ["۳. سیستم کش چند لایه"]
@@ -44,24 +158,24 @@ flowchart TD
     end
 
     subgraph RAGCore ["۴. هسته پردازشی RAG"]
-        Loaders["لودرها<br/>(PDF, DOCX, XLSX, PPTX, HTML, MD, OCR)"]
+        Loaders["لودرها<br/>(PDF, DOCX, XLSX, PPTX, HTML, Markdown, OCR)"]
         Chunkers["چانکرها<br/>(توکنی، معنایی، سلسله‌مراتبی، تطبیقی)"]
-        Embedders["امبدینگ‌ها<br/>(SentenceTransformers, OpenAI, HuggingFace)"]
-        Stores["پایگاه‌های برداری<br/>(FAISS با async_lock، Chroma، Qdrant، Weaviate)"]
+        Embedders["امبدینگ‌ها<br/>(SentenceTransformers, OpenAI)"]
+        Stores["پایگاه‌های برداری<br/>(FAISS با async_lock، ChromaDB، Qdrant)"]
         QAChain["زنجیره تولید پاسخ QAChain<br/>(پرامپت‌های اختصاصی دوزبانه و ارجاع منبع)"]
     end
 
     subgraph Providers ["۵. ارائه‌دهندگان مدل‌های زبانی (LLM)"]
         OpenAI["OpenAI (GPT-4o, GPT-3.5)"]
-        Claude["Anthropic Claude (Messages API)"]
-        OpenRouter["OpenRouter (مدل‌های متن‌باز و رایگان)"]
-        Ollama["Ollama (مدل‌های محلی)"]
-        HFLocal["HuggingFace Local (اجرای آفلاین PyTorch)"]
+        Claude["Anthropic Claude"]
+        OpenRouter["OpenRouter (مدل‌های متن‌باز و تجاری)"]
+        Ollama["Ollama (مدل‌های محلی آفلاین)"]
+        HFLocal["HuggingFace Local (اجرای آفلاین CPU/GPU)"]
     end
 
-    Client --> RL --> CORS --> AuthMiddleware --> TenantAuthBoundary --> API
-    API --> IntService
-    API --> RAGService
+    Client --> RL --> CORS --> AuthResolver --> TenantBoundary --> APIRouter
+    APIRouter --> IntService
+    APIRouter --> RAGService
 
     RAGService <--> PluginMgr
     RAGService <--> TenantMgr
@@ -75,250 +189,131 @@ flowchart TD
 
 ---
 
-## ✨ ویژگی‌های برجسته فنی
+## ✨ قابلیت‌های تأییدشده سامانه
 
-| قابلیت | جزئیات پیاده‌سازی |
-|:---|:---|
-| **معماری API-محور** | پیاده‌سازی با FastAPI نسخه ۰.۱۱۵+، مستندات خودکار Swagger UI و ReDoc، اعتبارسنجی دقیق داده‌ها با Pydantic و مدیریت چرخه حیات با Lifespan. |
-| **ایزولاسیون چندمستأجری** | تفکیک کامل هویت از مسیریابی. جداسازی کامل مخازن برداری، کش معنایی و سهمیه‌های مصرفی به ازای هر مستأجر همراه با پایگاه داده پایدار SQLite (`tenants.db`). |
-| **احراز هویت رمزنگاری‌شده** | کلیدهای API خام با قالب `rgb_<token>` تنها یک‌بار در هنگام ایجاد نمایش داده می‌شوند. در پایگاه داده تنها هش‌های رمزنگاری‌شده SHA-256 ذخیره می‌گردد. قابلیت لغو فوری کلیدها بدون نیاز به راه‌اندازی مجدد سرور. |
-| **معماری افزونه‌های ایزوله** | امکان توسعه سیستم بدون تغییر در هسته اصلی با پشتیبانی از هوک‌های پردازش سند، پرسش و پاسخ. خطاهای احتمالی افزونه‌ها کاملاً ایزوله بوده و اختلالی در عملکرد سرور ایجاد نمی‌کند. |
-| **همزمانی ایمن پایگاه‌های برداری** | مخزن پیش‌فرض FAISS مجهز به قفل سطح کلاس `async_lock` است که از بروز مسابقه داده‌ها (Race Condition) و خطای قفل فایل در ویندوز (`WinError 32`) جلوگیری می‌کند. پشتیبانی کامل از Chroma، Qdrant و Weaviate. |
-| **کش چندسطحی معنایی** | پاسخ‌دهی زیر ۵۰ میلی‌ثانیه به پرسش‌های مشابه بر اساس شباهت کسینوسی امبدینگ‌ها (`آستانه >= ۰.۸۵`). تفکیک کامل کش‌ها بر اساس شناسه مستأجر برای جلوگیری از نشت داده. |
-| **پشتیبانی کامل دوزبانه (فارسی و انگلیسی)** | تنظیم اختصاصی قالب‌های پرامپت، رتبه‌بندی نتایج و بازگرداندن پاسخ نهایی به همراه استناد شفاف به اسناد و درصد اعتماد به پاسخ. |
-| **ابزار خط فرمان جامع (`ragbot-cli`)** | ابزار ترمینال برای مدیریت مستأجرها، صدور و لغو کلیدهای API، مدیریت افزونه‌ها، مهاجرت و بنچمارک مخازن برداری و تحلیل استفاده. |
-
----
-
-## 🚀 شروع سریع
-
-### ۱. پیش‌نیازها و راه‌اندازی محیط
-
-ابتدا مطمئن شوید پایتون نسخه ۳.۱۰، ۳.۱۱ یا ۳.۱۲ روی سیستم نصب است:
-
-```bash
-# کلون مخزن گیت
-git clone https://github.com/dibbed/rag-telegram-assistant.git
-cd rag-telegram-assistant
-
-# ایجاد و فعال‌سازی محیط مجازی
-# در ویندوز (PowerShell):
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# در لینوکس یا مک:
-python3 -m venv venv
-source venv/bin/activate
-
-# ارتقای pip و نصب وابستگی‌ها
-pip install -U pip
-pip install -r requirements.txt
-```
-
-### ۲. تنظیم متغیرهای محیطی
-
-فایل نمونه متغیرهای محیطی را کپی کرده و در صورت تمایل شخصی‌سازی کنید:
-
-```bash
-cp env.example .env
-```
-
-نمونه تنظیمات حداقلی برای تست محلی کاملاً رایگان:
-```env
-# تنظیمات سرور
-HOST=0.0.0.0
-PORT=8000
-
-# ارائه‌دهنده مدل زبانی (openrouter, openai, anthropic, ollama, hf_local)
-LLM_PROVIDER=openrouter
-LLM_MODEL=x-ai/grok-4-fast:free
-OPENROUTER_API_KEY=کلید_شما_در_openrouter
-
-# امبدینگ (Sentence Transformers روی پردازنده مرکزی CPU به صورت آفلاین اجرا می‌شود)
-EMBED_PROVIDER=sentence_transformers
-EMBED_MODEL=intfloat/e5-small-v2
-
-# مخزن برداری پیش‌فرض (faiss, chroma, qdrant, weaviate)
-VECTOR_STORE_DEFAULT_STORE=faiss
-```
-
-### ۳. اجرای سرور API
-
-```bash
-# از طریق فایل اصلی پروژه:
-python main.py
-
-# یا مستقیماً از طریق Uvicorn:
-uvicorn ragbot.api.app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-مستندات تعاملی API بلافاصله در آدرس‌های زیر در دسترس است:
-- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-- **OpenAPI Schema**: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+1. **طراحی بومی برای چندمستأجری:** ذخیره‌سازی مشخصات مستأجران، سهمیه‌ها و کلیدها در SQLite پایدار با قابلیت WAL. جداسازی کامل مخازن برداری و کش به ازای هر مستأجر.
+2. **معماری مستقل و Headless:** ارائه به عنوان یک میکروسرویس REST API سبک بدون تحمیل رابط کاربری سنگین؛ ایده‌آل برای یکپارچه‌سازی با سامانه‌های موجود.
+3. **کش معنایی مقید به مستأجر:** بازاستفاده از پاسخ‌های پرسش‌های مشابه معنایی از طریق محاسبه شباهت کسینوسی در محدوده داده‌های همان مستأجر.
+4. **پشتیبانی از پایگاه‌های برداری استاندارد:** اتصال به مخازن **FAISS** (همراه با قفل‌های غیرهمزمان برای رفع تداخل فایل‌ها)، **ChromaDB** و **Qdrant**.
+5. **اتصال به مدل‌های متنوع LLM:** امکان کار با **OpenAI**، **Anthropic Claude**، **OpenRouter**، **Ollama** (مدل‌های محلی آفلاین) و **HuggingFace Local**.
+6. **احراز هویت با هش SHA-256:** کلیدهای دسترسی به صورت هش‌شده ذخیره شده و اعتبارسنجی با مقایسه زمان‌ثابت (`secrets.compare_digest`) صورت می‌گیرد.
+7. **ایمن‌سازی همزمانی در سرور منفرد:** استفاده از `asyncio.Lock` در سطح کلاس برای جلوگیری از خطاهای قفل‌شدگی فایل در ویندوز هنگام خواندن و نوشتن همزمان ایندکس‌ها.
+8. **افزونه‌های درون‌پردازشی با ایزولاسیون خطا:** امکان اجرای هوک‌های مختلف پردازشی بدون اینکه خطای یک افزونه موجب قطعی درخواست کلاینت شود.
+9. **پشتیبانی دوزبانه انگلیسی و فارسی:** شناسایی علائم نگارشی فارسی (`؟`، `؛`، `،`) در تقطیع متن، تبدیل ارقام فارسی، تنظیم پیش‌فرض OCR به `fas+eng` و الگوهای پرامپت بومی‌سازی‌شده.
+10. **واسط خط فرمان (`tenantrag`):** ابزار CLI کاربردی جهت مدیریت مستأجران، صدور و لغو کلیدها، مهاجرت مخازن و ارزیابی عملکرد.
 
 ---
 
-## 📡 مسیرهای اصلی REST API
+## 📡 مرجع مسیرهای API
 
-| متد | مسیر | توضیحات | احراز هویت (در حالت چندمستأجری) |
+| متد | مسیر (Endpoint) | شرح عملکرد | نیاز به احراز هویت |
 |:---|:---|:---|:---|
-| `GET` | `/health` / `/api/v1/health` | بررسی بلادرنگ سلامت تمام اجزا و زیرسیستم‌ها | بدون نیاز |
-| `POST` | `/api/v1/query` | پرسش و پاسخ متنی به همراه استناد به منابع و امتیاز اعتماد | الزامی (`X-API-Key` یا Bearer) |
-| `POST` | `/api/v1/documents/upload` | بارگذاری و ایندکس فایل‌های سندی (PDF, Word, Excel, PPTX و ...) | الزامی (`X-API-Key` یا Bearer) |
-| `POST` | `/api/v1/documents/text` | ذخیره مستقیم متن خام در پایگاه دانش | الزامی (`X-API-Key` یا Bearer) |
-| `POST` | `/api/v1/documents/url` | استخراج و ایندکس محتوای یک صفحه وب از طریق لینک | الزامی (`X-API-Key` یا Bearer) |
-| `POST` | `/api/v1/documents/reset` | پاک‌سازی اسناد مخزن برداری و نامعتبرسازی کش‌های معنایی | الزامی (سطح دسترسی مدیر) |
+| `GET` | `/health` / `/api/v1/health` | بررسی سلامت سرویس و وضعیت اجزا | خیر |
+| `POST` | `/api/v1/query` | پرسش از اسناد با ارجاع منبع و شاخص اعتماد | بله (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/text` | ثبت متن خام در ایندکس مستأجر | بله (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/upload` | بارگذاری فایل سند (PDF, DOCX, XLSX و ...) | بله (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/url` | استخراج و ایندکس محتوا از نشانی وب | بله (`X-API-Key`, `X-Tenant-ID`) |
+| `POST` | `/api/v1/documents/reset` | پاک‌سازی ایندکس‌ها و کش مستأجر | بله (نقش ادمین) |
 
 ---
 
-### نمونه‌های فراخوانی API
+## 🛠️ راهنمای ابزار خط فرمان (CLI)
 
-#### ۱. پرسش از پایگاه دانش به زبان فارسی
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "انواع روش‌های خردسازی اسناد (Chunking) در سیستم چیست؟",
-    "language": "fa",
-    "top_k": 3,
-    "similarity_threshold": 0.6
-  }'
-```
-
-**پاسخ نمونه:**
-```json
-{
-  "answer": "سیستم RAGBot از چهار راهبرد خردسازی توکنی، معنایی، سلسله‌مراتبی و تطبیقی پشتیبانی می‌کند...",
-  "sources": ["architecture_overview.pdf (صفحه ۴)"],
-  "confidence_score": 0.94,
-  "processing_time": 0.42,
-  "language": "fa",
-  "retrieved_chunks": 3,
-  "metadata": {}
-}
-```
-
-#### ۲. پرسش در حالت چندمستأجری با کلید API
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/query" \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: rgb_abcdef1234567890abcdef1234567890" \
-  -H "X-Tenant-ID: acme_corp" \
-  -d '{
-    "question": "قوانین کاری دورکاری در شرکت چیست؟",
-    "language": "fa"
-  }'
-```
-
-#### ۳. ذخیره متن خام در پایگاه دانش
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/documents/text" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "کارمندان می‌توانند با موافقت مدیر تیم تا سقف ۳ روز در هفته دورکاری کنند.",
-    "title": "سیاست_دورکاری",
-    "metadata": {"واحد": "منابع انسانی", "سال": 1404}
-  }'
-```
-
----
-
-## 🛠️ راهنمای ابزار خط فرمان (`ragbot-cli`)
-
-سیستم دارای یک واسط خط فرمان قدرتمند برای امور مدیریتی و عملیاتی است:
+دستور `tenantrag` (دارای نام مستعار `ragbot-cli` برای حفظ سازگاری گذشته):
 
 ```bash
 # راهنمای کلی دستورات
-python -m ragbot.cli --help
+tenantrag --help
 
-# مدیریت مستأجرها (Multi-Tenant)
-python -m ragbot.cli tenant create --name "شرکت نمونه" --tier premium --plan monthly
-python -m ragbot.cli tenant info --tenant-id <شناسه_مستأجر>
-python -m ragbot.cli tenant create-api-key --tenant-id <شناسه_مستأجر> --name "کلید_تولید"
-python -m ragbot.cli tenant list-api-keys --tenant-id <شناسه_مستأجر>
-python -m ragbot.cli tenant revoke-api-key --tenant-id <شناسه_مستأجر> --key-id <شناسه_کلید>
+# ایجاد مستأجر جدید
+tenantrag tenant create --tenant-id org_alpha --name "Alpha Organization"
 
-# مدیریت افزونه‌ها (Plugins)
-python -m ragbot.cli plugin list
-python -m ragbot.cli plugin load --path plugins/custom_plugin.py
-python -m ragbot.cli plugin reload --plugin-id custom_plugin
-python -m ragbot.cli plugin unload --plugin-id custom_plugin
+# صدور کلید دسترسی
+tenantrag tenant create-key --tenant-id org_alpha --name "production_key"
 
-# بنچمارک و مهاجرت مخازن برداری
-python -m ragbot.cli benchmark-stores --stores faiss chroma
-python -m ragbot.cli migrate-store --source faiss --target qdrant
+# مشاهده کلیدهای فعال
+tenantrag tenant list-keys --tenant-id org_alpha
+
+# لغو کلید دسترسی
+tenantrag tenant revoke-key --tenant-id org_alpha --key-id <key_id>
+
+# ایندکس فایل محلی با مشخص کردن مستأجر
+tenantrag ingest --file handbook.pdf --tenant-id org_alpha
+
+# پرسش از مستأجر با CLI
+tenantrag query --question "مفاد سیاست چیست؟" --tenant-id org_alpha
 ```
 
 ---
 
-## 🛡️ معماری امنیت و کنترل دسترسی
+## 📊 بنچمارک‌های تجدیدپذیر
 
-- **تفکیک کامل هویت از مسیریابی**: هویت کلاینت‌ها ابتدا از طریق هدر `X-API-Key` یا توکن Bearer اعتبارسنجی می‌شود. تلاش برای دسترسی به مستأجر دیگر از طریق هدر `X-Tenant-ID` بلافاصله با خطای `HTTP 403 Forbidden` مسدود می‌گردد. در صورت عدم ارسال کلید، خطای `HTTP 401 Unauthorized` صادر می‌شود.
-- **عدم ذخیره متن کلیدها**: کلیدهای خام با پیشوند `rgb_...` ساخته شده و تنها در لحظه ساخت نمایش داده می‌شوند. در پایگاه SQLite تنها هش امن SHA-256 ذخیره می‌گردد.
-- **محافظت از عملیات بازنشانی**: پاک‌سازی مخزن برداری در مسیر `/api/v1/documents/reset` فقط توسط کاربران دارای نقش مدیر (`admin` یا `super_admin`) مجاز است.
-- **کنترل نرخ درخواست (Rate Limiting)**: کنترل لغزان بر پایه زمان به ازای هر IP با ظرفیت پیش‌فرض ۶۰ درخواست در دقیقه (`SECURITY_RATE_LIMIT_REQUESTS=60`). عبور از حد مجاز با خطای استاندار `HTTP 429 Too Many Requests` پاسخ داده می‌شود.
-- **اعتبارسنجی مسیر و حجم فایل**: جلوگیری خودکار از حملات Path Traversal و محدودسازی حجم اسناد آپلودی (پیش‌فرض ۵۰ مگابایت با خطای `HTTP 413`).
+اسکریپت‌های سنجش عملکرد در پوشه `benchmarks/` قرار دارند تا بتوانید کارایی واقعی سامانه را بر روی سخت‌افزار خود اندازه‌گیری کنید:
+
+```bash
+# سنجش زمان پاسخ کش معنایی (Hit در برابر Miss)
+python benchmarks/bench_cache.py --iterations 50
+
+# پروفایل ردپای حافظه رم پردازه (RSS)
+python benchmarks/bench_memory.py --chunks 1000
+
+# آزمایش همزمانی درخواست‌ها روی مستأجران مختلف
+python benchmarks/bench_concurrency.py --concurrency 10 --tenants 3 --ops 10
+
+# سنجش سرعت ایندکس اسناد در پایگاه برداری
+python benchmarks/bench_ingest.py --backend faiss --chunks 500
+```
 
 ---
 
 ## 🧪 تست‌ها و اعتبارسنجی
 
-اجرای تست‌های خودکار برای جلوگیری از تداخل حافظه کارت گرافیک، به صورت **اجباری روی پردازنده مرکزی (CPU)** انجام می‌شود:
+مجموعه تست‌های خودکار در محیط ایزوله پردازنده (CPU Isolation) اجرا می‌شوند:
 
-### ویندوز (PowerShell):
 ```powershell
+# اجرای تست‌ها در ویندوز (PowerShell):
 $env:CUDA_VISIBLE_DEVICES = ""
 $env:TORCH_DEVICE = "cpu"
-.\venv\Scripts\pytest.exe -o addopts='' -q
+pytest -q
 ```
 
-### لینوکس / مک:
-```bash
-export CUDA_VISIBLE_DEVICES=""
-export TORCH_DEVICE="cpu"
-pytest -o addopts='' -q
-```
-
-**وضعیت آخرین اجرای آزمون‌ها:**
+**وضعیت تأییدشده تست‌ها:**
 ```text
-627 passed, 1 skipped, 6 warnings in 110.00s (نرخ موفقیت ۱۰۰٪)
+627 passed, 1 skipped, 0 failed in CPU isolation
 ```
-
-برای مشاهده ساختار و جزئیات تست‌ها به فایل [docs/testing.md](docs/testing.md) مراجعه نمایید.
 
 ---
 
-## 🐳 استقرار با داکر (Docker)
+## 🐳 راه‌اندازی با داکر (Docker)
 
-اجرای کامل سیستم با استفاده از Docker Compose:
+پیکربندی کانتینر در فایل‌های `Dockerfile` و `docker-compose.yml` آماده استفاده است:
 
 ```bash
+# ساخت و اجرای کانتینر روی پورت 8000
 docker compose up --build -d
-```
 
-دایرکتوری‌های `./data`، `./logs` و `./cache` برای حفظ داده‌ها و کارکرد آفلاین روی سیستم میزبان مونت می‌شوند. برای تنظیمات Nginx و سرورهای توزیع‌شده به [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) مراجعه فرمایید.
+# بررسی سلامت سرویس
+curl http://localhost:8000/api/v1/health
+```
 
 ---
 
 ## 📚 فهرست مستندات
 
-- 📖 [راهنمای جامع معماری](docs/ARCHITECTURE.md) (و [نسخه فارسی](docs/ARCHITECTURE.fa.md))
-- 📡 [مستندات کامل REST API](docs/API.md)
-- ⚙️ [راهنمای متغیرهای محیطی و تنظیمات](docs/configuration.md)
-- 🚀 [راهنمای استقرار در محیط عملیاتی](docs/DEPLOYMENT.md)
-- 🧪 [راهنمای آزمون‌ها و تست‌های خودکار](docs/testing.md)
-- 🗄️ [راهنمای پایگاه‌های داده برداری](docs/VECTOR_STORES.md)
-- 📚 [پشتیبانی از فرمت‌های مختلف اسناد](docs/MULTI_FORMAT_SUPPORT.md)
-- 💡 [مثال‌ها و کدهای نمونه](docs/EXAMPLES.md)
+- 🛡️ [سند امنیت و مرزبندی مستأجران](SECURITY.md)
+- 🤝 [راهنمای مشارکت در پروژه](CONTRIBUTING.md)
+- 📖 [راهنمای جامع معماری](docs/ARCHITECTURE.md)
+- 📡 [مشخصات کامل REST API](docs/API.md)
+- ⚙️ [تنظیمات و پیکربندی](docs/configuration.md)
+- 🚀 [راهنمای استقرار در سرور](docs/DEPLOYMENT.md)
+- 🗄️ [پایگاه‌های برداری](docs/VECTOR_STORES.md)
+- 📚 [پشتیبانی از فرمت‌های اسناد](docs/MULTI_FORMAT_SUPPORT.md)
+- 💡 [نمونه‌های کاربردی](docs/EXAMPLES.md)
 - ❓ [پرسش‌های متداول (FAQ)](docs/FAQ.md)
-- 📜 [گزارش تغییرات (Changelog)](CHANGELOG.md)
+- 📜 [تاریخچه تغییرات](CHANGELOG.md)
 
 ---
 
-## 📄 مجوز
+## 📄 مجوز (License)
 
-مجوز MIT © 2025–2026 [dibbed](https://github.com/dibbed).
+مجوز MIT © 2025–2026 تیم توسعه TenantRAG.

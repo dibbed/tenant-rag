@@ -18,7 +18,7 @@ class VectorStoreConfig(PydanticBaseSettings):
     # Store selection
     default_store: str = Field(default="faiss", description="Default vector store type")
     available_stores: List[str] = Field(
-        default=["faiss", "chroma", "qdrant", "weaviate"],
+        default=["faiss", "chroma", "qdrant"],
         description="Available vector store types",
     )
 

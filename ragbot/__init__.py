@@ -1,13 +1,12 @@
 """
-RAG Telegram Assistant
+TenantRAG
 
-A production-ready Telegram bot using Retrieval-Augmented Generation (RAG)
-for providing grounded answers based on ingested documents.
+Multi-Tenant Retrieval-Augmented Generation (RAG) Microservice
+for SaaS Backends.
 """
 
 __version__ = "1.0.0"
-__author__ = "RAG Bot Team"
-__email__ = "support@ragbot.dev"
+__author__ = "TenantRAG Contributors"
 
 # Core RAG components
 from ragbot.rag import (

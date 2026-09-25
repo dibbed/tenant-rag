@@ -204,7 +204,7 @@ await optimizer.shutdown()
 
 ```bash
 # نمایش متریک‌های عملکرد
-ragbot-cli performance
+tenantrag performance
 
 # خروجی نمونه:
 # Performance Summary:

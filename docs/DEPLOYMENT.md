@@ -184,17 +184,17 @@ Build and run using Docker:
 
 ```bash
 # Build image
-docker build -t ragbot-api:latest .
+docker build -t tenant-rag:latest .
 
 # Run container
 docker run -d \
-  --name ragbot \
+  --name tenant-rag \
   -p 8000:8000 \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/logs:/app/logs \
-  -v $(pwd)/cache:/app/cache \
+  -v $(pwd)/cache:/home/appuser/.cache/huggingface \
   --env-file .env \
-  ragbot-api:latest
+  tenant-rag:latest
 ```
 
 ### Docker Compose
@@ -203,9 +203,9 @@ docker run -d \
 version: '3.8'
 
 services:
-  api:
+  tenant-rag:
     build: .
-    container_name: ragbot-api
+    container_name: tenant-rag
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -214,10 +214,10 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - ./cache:/app/cache
+      - ./cache:/home/appuser/.cache/huggingface
       - ./plugins:/app/plugins
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -240,7 +240,7 @@ services:
    The built-in sliding-window rate limiter tracks requests in memory within each Uvicorn process. When running multiple worker processes (e.g. `--workers 4`), the effective request quota is applied per worker rather than globally across all workers.
    - *Mitigation for large-scale distributed deployments*: Implement rate limiting at the API gateway / Nginx layer or activate distributed Redis rate limiting.
 2. **FAISS Concurrency Model**:
-   `FAISSVectorStore` handles thread-safe and async-safe concurrent access via an in-process class-level `async_lock`. It is ideal for single-node deployments. If horizontal multi-server autoscaling is needed, use a dedicated vector database server such as **Qdrant** or **Weaviate**.
+   `FAISSVectorStore` handles thread-safe and async-safe concurrent access via an in-process class-level `async_lock`. It is ideal for single-node deployments. If horizontal multi-server autoscaling is needed, use a dedicated vector database server such as **Qdrant**.
 3. **Hardware Isolation in CI/CD**:
    Always execute automated testing and validation with CPU isolation variables:
    ```bash

@@ -59,6 +59,7 @@ cache/
 rag_test_outputs/
 data/backups/
 data/vector_store/
+data/vector_stores/
 data/test/
 data/keys/*.db
 data/keys/*.key
@@ -66,9 +67,9 @@ data/keys/keystore/
 
 # Environment variables
 .env
-.env_deepseek
-.env.local
-.env.*.local
+.env.*
+.env_*
+!.env.example
 
 # Editor and OS files
 .vscode/

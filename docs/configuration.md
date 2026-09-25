@@ -52,15 +52,15 @@ Controls the embedding model used for vectorizing documents and incoming user qu
 
 | Environment Variable | Type | Default | Description |
 |:---|:---|:---|:---|
-| `VECTOR_STORE_DEFAULT_STORE` | `string` | `"faiss"` | Default vector store backend: `faiss`, `chroma`, `qdrant`, `weaviate`. |
-| `VECTOR_STORE_AVAILABLE_STORES` | `list` | `["faiss", "chroma", "qdrant", "weaviate"]` | Enabled vector store types. |
-| `VECTOR_STORE_PERSIST_PATH` | `string` | `"./data/vector_store"` | Local filesystem directory for storing index files. |
+| `VECTOR_STORE_DEFAULT_STORE` | `string` | `"faiss"` | Default vector store backend: `faiss`, `chroma`, `qdrant`. |
+| `VECTOR_STORE_AVAILABLE_STORES` | `list` | `["faiss", "chroma", "qdrant"]` | Enabled vector store types. |
+| `VECTOR_STORE_PERSIST_PATH` | `string` | `"./data/vector_stores"` | Local filesystem directory for storing index files. |
 
 ---
 
 ## 5. Caching & Semantic Cache Settings
 
-RAGBot implements a multi-tier cache to avoid redundant embedding generation and LLM calls.
+TenantRAG implements a multi-tier cache to avoid redundant embedding generation and LLM calls.
 
 | Environment Variable | Type | Default | Description |
 |:---|:---|:---|:---|
@@ -125,10 +125,10 @@ Configures tenant isolation, SQLite storage, API key authentication, and quota m
 | `MULTI_TENANT_AUTO_PROVISION` | `boolean` | `false` | Automatically provision tenants on first detected request. |
 
 ### CLI Key Management Commands
-When `MULTI_TENANT_ENABLED=true`, manage API keys via the CLI:
-- `ragbot-cli tenant create-api-key --tenant-id <id> --name <label>`: Generate a new raw `rgb_...` API key.
-- `ragbot-cli tenant list-api-keys --tenant-id <id>`: List active keys with masked prefixes.
-- `ragbot-cli tenant revoke-api-key --tenant-id <id> --key-id <key_id_or_token>`: Immediately revoke a key.
+When `MULTI_TENANT_ENABLED=true`, manage API keys via the CLI (both `tenantrag` and `ragbot-cli` work):
+- `tenantrag tenant create-api-key --tenant-id <id> --name <label>`: Generate a new raw `rgb_...` API key.
+- `tenantrag tenant list-api-keys --tenant-id <id>`: List active keys with masked prefixes.
+- `tenantrag tenant revoke-api-key --tenant-id <id> --key-id <key_id_or_token>`: Immediately revoke a key.
 
 ---
 

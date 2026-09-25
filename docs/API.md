@@ -1,8 +1,8 @@
-# RAGBot REST API Specification
+# TenantRAG REST API Specification
 
 ## 1. Overview
 
-RAGBot exposes a high-performance RESTful HTTP API built on **FastAPI**. It allows web applications, microservices, and external clients to ingest diverse document types, trigger RAG question-answering workflows, check system health, and manage knowledge base state.
+TenantRAG exposes a high-performance RESTful HTTP API built on **FastAPI**. It allows web applications, microservices, and external clients to ingest diverse document types, trigger RAG question-answering workflows, check system health, and manage knowledge base state.
 
 - **Default Base URL**: `http://localhost:8000`
 - **Interactive Documentation**:
@@ -40,7 +40,7 @@ When multi-tenancy is enabled (`MULTI_TENANT_ENABLED=true`), API endpoints enfor
 3. **Cryptographic Key Storage**:
    - Raw keys follow the format `rgb_<secrets.token_urlsafe(32)>` and are only displayed once upon generation.
    - Keys are cryptographically hashed using SHA-256 (`key_hash`) before persistence in SQLite (`data/tenants/tenants.db`).
-   - Listing keys (`ragbot-cli tenant list-api-keys`) masks secrets, displaying only a 12-character prefix (`rgb_...`) and metadata.
+   - Listing keys (`tenantrag tenant list-api-keys`) masks secrets, displaying only a 12-character prefix (`rgb_...`) and metadata.
 4. **Single-Tenant Compatibility**:
    - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`, the default), requests proceed without any authentication headers or tenant context, maintaining 100% backward compatibility.
 
@@ -82,7 +82,7 @@ Executes semantic vector retrieval against the knowledge base and synthesizes a 
 **Request Schema (`QueryRequest`):**
 ```json
 {
-  "question": "What are the chunking strategies supported by RAGBot?",
+  "question": "What are the chunking strategies supported by TenantRAG?",
   "language": "en",
   "top_k": 4,
   "similarity_threshold": 0.6
@@ -99,7 +99,7 @@ Executes semantic vector retrieval against the knowledge base and synthesizes a 
 **Response Schema (`QueryResponse`):**
 ```json
 {
-  "answer": "RAGBot supports token, semantic, hierarchical, and adaptive chunking strategies...",
+  "answer": "TenantRAG supports token, semantic, hierarchical, and adaptive chunking strategies...",
   "sources": [
     "chunking_guide.pdf (Page 4)",
     "loaders_spec.md"

@@ -1,13 +1,12 @@
 """
-Simple CLI for RAG Telegram Assistant: batch ingest, ingest, query, reset, status.
+CLI for TenantRAG: tenant management, API keys, document ingestion, query, and status.
 
 Usage examples:
-  - ragbot-cli batch-ingest --dir ./docs --pattern "*.pdf" --recursive
-  - ragbot-cli ingest --file sample.pdf
-  - ragbot-cli ingest --url https://example.com
-  - ragbot-cli query --question "What is RAG?" --lang en --top-k 4
-  - ragbot-cli reset
-  - ragbot-cli status
+  - tenantrag tenant create --tenant-id tenant_alpha --name "Alpha Corp"
+  - tenantrag tenant create-key --tenant-id tenant_alpha --name "default"
+  - tenantrag ingest --file sample.pdf --tenant-id tenant_alpha
+  - tenantrag query --question "What is RAG?" --lang en --top-k 4 --tenant-id tenant_alpha
+  - tenantrag status
 """
 
 from __future__ import annotations
@@ -108,12 +107,22 @@ async def cmd_reset(_args: argparse.Namespace) -> int:
 
 async def cmd_query(args: argparse.Namespace) -> int:
     rag = await _get_rag_service()
-    res = await rag.query_documents(
-        question=args.question,
-        lang=args.lang,
-        top_k=args.top_k,
-        similarity_threshold=args.threshold,
-    )
+    tenant_id = getattr(args, "tenant_id", None)
+    if tenant_id:
+        res = await rag.query_documents(
+            question=args.question,
+            lang=args.lang,
+            top_k=args.top_k,
+            similarity_threshold=args.threshold,
+            tenant_id=tenant_id,
+        )
+    else:
+        res = await rag.query_documents(
+            question=args.question,
+            lang=args.lang,
+            top_k=args.top_k,
+            similarity_threshold=args.threshold,
+        )
     print("answer:")
     print(res.answer)
     if res.sources:
@@ -142,7 +151,15 @@ async def cmd_ingest(args: argparse.Namespace) -> int:
         print("Provide one of --file/--url/--text")
         return 2
 
-    res = await rag.ingest_document(source, source_type)
+    tenant_id = getattr(args, "tenant_id", None)
+    if tenant_id:
+        res = await rag.ingest_document(
+            source,
+            source_type,
+            tenant_id=tenant_id,
+        )
+    else:
+        res = await rag.ingest_document(source, source_type)
     print("success:", res.success)
     print("document_id:", res.document_id)
     print("chunks:", res.chunks_created)
@@ -379,10 +396,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # migrate
     sp = sub.add_parser("migrate", help="Migrate vector data between providers")
     sp.add_argument(
-        "--source", required=True, help="Source provider (faiss/chroma/qdrant/weaviate)"
+        "--source", required=True, help="Source provider (faiss/chroma/qdrant)"
     )
     sp.add_argument(
-        "--target", required=True, help="Target provider (faiss/chroma/qdrant/weaviate)"
+        "--target", required=True, help="Target provider (faiss/chroma/qdrant)"
     )
     sp.add_argument("--batch-size", type=int, default=500, help="Migration batch size")
     sp.add_argument("--rollback", action="store_true", help="Rollback on first failure")
@@ -410,13 +427,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--source",
         required=True,
-        choices=["faiss", "chroma", "qdrant", "weaviate"],
+        choices=["faiss", "chroma", "qdrant"],
         help="Source vector store type",
     )
     sp.add_argument(
         "--target",
         required=True,
-        choices=["faiss", "chroma", "qdrant", "weaviate"],
+        choices=["faiss", "chroma", "qdrant"],
         help="Target vector store type",
     )
     sp.add_argument(
@@ -452,7 +469,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--stores",
         nargs="+",
         default=["faiss", "chroma", "qdrant"],
-        choices=["faiss", "chroma", "qdrant", "weaviate"],
+        choices=["faiss", "chroma", "qdrant"],
         help="Store types to benchmark",
     )
     sp.add_argument(
@@ -591,7 +608,7 @@ async def cmd_query_advanced(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser"""
     parser = argparse.ArgumentParser(
-        prog="ragbot-cli", description="RAG Telegram Assistant CLI"
+        prog="tenantrag", description="TenantRAG CLI - Multi-Tenant RAG Management Utility"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -618,6 +635,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser_query.add_argument(
         "--threshold", type=float, default=None, help="Similarity threshold"
     )
+    parser_query.add_argument("--tenant-id", help="Tenant ID for tenant-scoped querying")
     parser_query.set_defaults(func=cmd_query, cmd="query")
 
     # Ingest command
@@ -626,6 +644,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser_ingest.add_argument("--url", help="URL to ingest")
     parser_ingest.add_argument("--text", help="Text content to ingest")
     parser_ingest.add_argument("--type", help="Document type (pdf, docx, html, text, etc.)")
+    parser_ingest.add_argument("--tenant-id", help="Tenant ID for tenant-scoped ingestion")
     parser_ingest.set_defaults(func=cmd_ingest, cmd="ingest")
 
     # Batch ingest command
@@ -732,6 +751,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # Create tenant
     parser_create_tenant = tenant_sub.add_parser("create", help="Create a new tenant")
     parser_create_tenant.add_argument("--name", required=True, help="Tenant name")
+    parser_create_tenant.add_argument("--tenant-id", help="Optional custom tenant ID")
     parser_create_tenant.add_argument(
         "--tier",
         default="free",
@@ -816,7 +836,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # Create tenant API key
     parser_create_api_key = tenant_sub.add_parser(
-        "create-api-key", help="Create a tenant API key"
+        "create-api-key", aliases=["create-key"], help="Create a tenant API key"
     )
     parser_create_api_key.add_argument("--tenant-id", required=True, help="Tenant ID")
     parser_create_api_key.add_argument("--name", default="default", help="Key name / label")
@@ -826,7 +846,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # Revoke tenant API key
     parser_revoke_api_key = tenant_sub.add_parser(
-        "revoke-api-key", help="Revoke a tenant API key"
+        "revoke-api-key", aliases=["revoke-key"], help="Revoke a tenant API key"
     )
     parser_revoke_api_key.add_argument("--tenant-id", required=True, help="Tenant ID")
     parser_revoke_api_key.add_argument("--key-id", required=True, help="Key ID or API key to revoke")
@@ -834,7 +854,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # List tenant API keys
     parser_list_api_keys = tenant_sub.add_parser(
-        "list-api-keys", help="List active tenant API keys"
+        "list-api-keys", aliases=["list-keys"], help="List active tenant API keys"
     )
     parser_list_api_keys.add_argument("--tenant-id", required=True, help="Tenant ID")
     parser_list_api_keys.set_defaults(func=cmd_list_tenant_api_keys)
@@ -1001,13 +1021,17 @@ async def cmd_create_tenant(args) -> int:
     """Create a new tenant"""
     try:
         service = await _get_rag_service()
-        result = await service.create_tenant(
-            name=args.name,
-            tier=args.tier,
-            plan=args.plan,
-            domain=args.domain,
-            contact_email=args.email,
-        )
+        tenant_id = getattr(args, "tenant_id", None)
+        kwargs = {
+            "name": args.name,
+            "tier": args.tier,
+            "plan": args.plan,
+            "domain": args.domain,
+            "contact_email": args.email,
+        }
+        if tenant_id:
+            kwargs["tenant_id"] = tenant_id
+        result = await service.create_tenant(**kwargs)
 
         if "error" in result:
             print(f"❌ Error creating tenant: {result['error']}")

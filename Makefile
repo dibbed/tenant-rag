@@ -1,9 +1,9 @@
-# Makefile for RAG Telegram Assistant Development
+# Makefile for TenantRAG Development
 .PHONY: help setup test lint format clean build deploy all
 
 ## 📋 Help
 help:  ## Show this help message
-	@echo "🤖 RAG Telegram Assistant Development Commands"
+	@echo "TenantRAG Development Commands"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
@@ -69,16 +69,16 @@ security:  ## Run security checks
 ## 🐳 Docker
 build:  ## Build Docker image
 	@echo "🏗️ Building Docker image..."
-	@docker build -t rag-telegram-assistant .
+	@docker build -t tenant-rag .
 	@echo "\n✅ Docker image built successfully!"
 
 build-dev:  ## Build development Docker image with tools
 	@echo "🏗️ Building development Docker image..."
-	@docker build --target development -t rag-telegram-assistant:dev .
+	@docker build --target development -t tenant-rag:dev .
 
-run-docker:  ## Run the bot in Docker container
-	@echo "🚀 Running bot in Docker..."
-	@docker run --env-file .env rag-telegram-assistant
+run-docker:  ## Run the service in Docker container
+	@echo "🚀 Running TenantRAG in Docker..."
+	@docker run --env-file .env -p 8000:8000 tenant-rag
 
 docker-compose-up:  ## Start with Docker Compose
 	@echo "🚀 Starting with Docker Compose..."
@@ -126,7 +126,7 @@ clean-all: clean  ## Clean up everything including dependencies
 
 ## 📊 Information
 info:  ## Show project information
-	@echo "🤖 RAG Telegram Assistant Information"
+	@echo "TenantRAG Information"
 	@echo "======================================"
 	@echo ""
 	@echo "📁 Project Structure:"
@@ -140,11 +140,11 @@ info:  ## Show project information
 	@if [ -f coverage.xml ]; then echo "  Coverage report available: htmlcov/index.html"; else echo "  Run 'make test-coverage' to generate"; fi
 	@echo ""
 	@echo "🐳 Docker:"
-	@docker images | grep rag || echo "  Run 'make build' to create image"
+	@docker images | grep tenant || echo "  Run 'make build' to create image"
 	@echo ""
 
 stats:  ## Show project statistics
-	@echo "📊 RAG Telegram Assistant Statistics"
+	@echo "TenantRAG Statistics"
 	@echo "===================================="
 	@echo ""
 	@echo "📄 Source code:"

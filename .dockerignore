@@ -1,0 +1,48 @@
+# Version control
+.git/
+.gitignore
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.hypothesis/
+htmlcov/
+.coverage
+coverage.xml
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg-info/
+
+# Local data and runtime artifacts
+data/vector_stores/
+data/tenants/
+data/test/
+data/backups/
+data/keys/*.key
+data/keys/*.db
+logs/
+*.log
+*.sqlite
+*.db
+
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+
+# IDE and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*Zone.Identifier
+Thumbs.db

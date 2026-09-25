@@ -19,10 +19,10 @@ from ragbot.outputs.logger import logger
 
 
 def main() -> None:
-    """Launch the RAGBot FastAPI application server using Uvicorn."""
+    """Launch the TenantRAG FastAPI application server using Uvicorn."""
     parser = argparse.ArgumentParser(
-        prog="ragbot",
-        description="RAGBot API Server - Production-ready Retrieval-Augmented Generation HTTP API",
+        prog="tenantrag",
+        description="TenantRAG API Server - Multi-tenant Retrieval-Augmented Generation HTTP API",
     )
     parser.add_argument(
         "--host",
