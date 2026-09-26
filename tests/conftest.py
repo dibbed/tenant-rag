@@ -24,6 +24,14 @@ os.environ["LOG_LEVEL"] = "WARNING"
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["ENABLE_REDIS"] = "false"
 
+# Phase 2 security hardening (C5): anonymous single-tenant API access now
+# requires an explicit development opt-in. Most existing tests call the
+# single-tenant API without credentials, so the test session opts in here.
+# Security tests that check the production default remove these variables
+# with monkeypatch.
+os.environ["ENVIRONMENT"] = "development"
+os.environ["ALLOW_ANONYMOUS"] = "true"
+
 
 @pytest.fixture(scope="session")
 def event_loop_policy():

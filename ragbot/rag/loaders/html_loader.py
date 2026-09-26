@@ -28,6 +28,11 @@ except Exception:  # pragma: no cover
 
 from ragbot.configs.settings import settings
 from ragbot.rag.exceptions import DocumentProcessingError
+from ragbot.rag.loaders.url_guard import (
+    UnsafeURLError,
+    fetch_text_safely,
+    validate_url_target,
+)
 
 from .base import Document, DocumentLoader
 
@@ -76,8 +81,17 @@ class HTMLLoader(DocumentLoader):
             ) from e
 
     async def _fetch_url(self, url: str) -> str:
-        """Fetch HTML from URL with retries and timeout."""
+        """Fetch HTML from URL with retries and timeout.
+
+        Security (C6): the URL is validated before any request, redirects are
+        followed manually with every hop validated, and the connector resolver
+        rejects host names that resolve to internal addresses. See
+        ``ragbot.rag.loaders.url_guard``.
+        """
         import sys
+
+        # Validate first, so no code path below can reach an internal target.
+        validate_url_target(url)
 
         if "requests" in sys.modules:
             req = sys.modules["requests"]
@@ -93,14 +107,10 @@ class HTMLLoader(DocumentLoader):
         last_exc: Optional[Exception] = None
         for attempt in range(retries + 1):
             try:
-                async with aiohttp.ClientSession(headers=headers) as session:
-                    async with session.get(
-                        url, headers=headers, timeout=timeout_s
-                    ) as resp:
-                        resp.raise_for_status()
-                        # Respect declared encoding if available
-                        text = await resp.text()
-                        return text
+                return await fetch_text_safely(url, headers=headers, timeout=timeout_s)
+            except UnsafeURLError:
+                # Never retry a blocked target.
+                raise
             except Exception as e:  # noqa: BLE001
                 last_exc = e
                 if attempt < retries:

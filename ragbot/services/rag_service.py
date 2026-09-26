@@ -18,6 +18,7 @@ from ragbot.rag.exceptions import (
     DocumentProcessingError,
     EmbeddingError,
     LLMError,
+    TenantStorageError,
 )
 from ragbot.rag.error_handling import (
     ErrorContext,
@@ -36,6 +37,7 @@ from ragbot.analytics import AnalyticsDashboard
 from ragbot.utils.debug_helpers import log_pydantic_error
 from ragbot.multi_tenant import TenantManager, TenantAuth, TenantAnalytics
 from ragbot.multi_tenant.models import TenantTier, TenantPlan, TenantStatus
+from ragbot.multi_tenant.isolation import validate_tenant_id
 from ragbot.plugins import (
     PluginManager,
     BasePlugin,
@@ -276,12 +278,24 @@ class RAGService:
         )
 
     def get_vector_store(self, tenant_id: Optional[str] = None):
-        """Get vector store for a specific tenant or the default vector store."""
+        """Get the vector store for a tenant, or the default vector store.
+
+        Security (C1/C2): in multi-tenant mode a tenant store is created with
+        ``allow_fallback=False``. If it cannot be created or loaded, this method
+        raises ``TenantStorageError``. It never returns the shared default store
+        for a tenant request, so tenant data cannot be written to, searched in,
+        or deleted from another store.
+        """
         if not tenant_id:
             return self.vector_store
 
-        if tenant_id in self._tenant_vector_stores:
-            return self._tenant_vector_stores[tenant_id]
+        # Security (C12): the tenant id becomes a path segment and a collection
+        # name. Reject ids that could leave the tenant partition.
+        validate_tenant_id(tenant_id)
+
+        cached_store = self._tenant_vector_stores.get(tenant_id)
+        if cached_store is not None:
+            return cached_store
 
         if not (
             getattr(settings, "enable_multi_tenant", False)
@@ -344,26 +358,56 @@ class RAGService:
             base_kwargs["collection_name"] = f"tenant_{tenant_id}"
 
         try:
-            store = VectorStoreFactory.create_store(provider, **base_kwargs)
-            self._tenant_vector_stores[tenant_id] = store
-            return store
+            store = VectorStoreFactory.create_store(
+                provider, allow_fallback=False, **base_kwargs
+            )
         except Exception as e:
-            logger.error(f"Failed to create vector store for tenant {tenant_id}: {e}")
-            return self.vector_store
+            logger.error(
+                f"Vector store for tenant {tenant_id} could not be created or "
+                f"loaded; refusing to fall back to a shared store: {e}"
+            )
+            raise TenantStorageError(
+                f"Vector store for tenant '{tenant_id}' is unavailable",
+                tenant_id=tenant_id,
+                operation="open",
+            ) from e
+
+        if store is None or store is self.vector_store:
+            raise TenantStorageError(
+                f"Vector store for tenant '{tenant_id}' is unavailable",
+                tenant_id=tenant_id,
+                operation="open",
+            )
+
+        self._tenant_vector_stores[tenant_id] = store
+        return store
 
     def get_retriever(self, tenant_id: Optional[str] = None):
-        """Get advanced retriever instance (default or tenant-specific)."""
+        """Get the advanced retriever (default or tenant-specific).
+
+        Security (C1): a tenant request never receives the shared default
+        retriever, because that retriever searches the shared store.
+
+        - If the tenant store cannot be loaded, ``TenantStorageError`` propagates.
+        - If only the tenant retriever cannot be built, this returns ``None`` and
+          the caller uses basic retrieval against the tenant store.
+        """
         if not tenant_id or not getattr(
             getattr(settings, "multi_tenant", object()), "enabled", False
         ):
             return self.advanced_retriever
 
-        if tenant_id in self._tenant_retrievers:
-            return self._tenant_retrievers[tenant_id]
+        cached_retriever = self._tenant_retrievers.get(tenant_id)
+        if cached_retriever is not None:
+            return cached_retriever
 
         tenant_store = self.get_vector_store(tenant_id)
-        if not tenant_store:
-            return self.advanced_retriever
+        if tenant_store is None or tenant_store is self.vector_store:
+            raise TenantStorageError(
+                f"Vector store for tenant '{tenant_id}' is unavailable",
+                tenant_id=tenant_id,
+                operation="open",
+            )
 
         try:
             from ragbot.rag.retrieve.advanced_retriever import AdvancedRetriever
@@ -389,8 +433,11 @@ class RAGService:
             self._tenant_retrievers[tenant_id] = retriever
             return retriever
         except Exception as e:
-            logger.warning(f"Failed to create tenant retriever for {tenant_id}: {e}")
-            return self.advanced_retriever
+            logger.warning(
+                f"Failed to create tenant retriever for {tenant_id}; "
+                f"using tenant-scoped basic retrieval instead: {e}"
+            )
+            return None
 
     def _initialize_plugin_manager(self):
         """Initialize plugin manager"""
@@ -1757,6 +1804,12 @@ class RAGService:
 
             return result
 
+        except TenantStorageError:
+            # Security (C1): a tenant storage failure must fail closed. Do not turn it
+            # into a degraded answer that could come from another store; let the API
+            # layer return an explicit error.
+            self._increment_counter("failed_queries")
+            raise
         except Exception as e:
             processing_time = time.time() - start_time
             error_msg = f"Error processing query: {str(e)}"

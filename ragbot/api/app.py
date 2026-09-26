@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ragbot.api.middleware.rate_limit import RateLimitMiddleware
+from ragbot.api.access_mode import log_access_mode_warnings
 from ragbot.api.routes import router as api_router
 from ragbot.outputs.logger import logger
 from ragbot.services.integration_service import (
@@ -118,6 +119,9 @@ def create_app(lifespan_context: Any = lifespan) -> FastAPI:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "An internal server error occurred"},
         )
+
+    # Security (C5): report the effective authentication mode at startup.
+    log_access_mode_warnings()
 
     # Include API routes
     app.include_router(api_router)

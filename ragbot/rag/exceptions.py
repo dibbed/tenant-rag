@@ -219,3 +219,22 @@ class ValidationError(RAGError):
 # Aliases for backward compatibility and consistency
 RAGBotException = RAGError
 AuthenticationError = ConfigurationError  # For auth-related config errors
+
+
+class TenantStorageError(VectorStoreError):
+    """Raised when a tenant-scoped vector store cannot be created or loaded.
+
+    Security (C1/C2): this error is fail-closed. Code that catches it must not
+    retry the operation against the shared default store or another tenant's
+    store. The query API maps it to HTTP 503 without internal details.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        tenant_id: Optional[str] = None,
+        operation: Optional[str] = None,
+        details: Optional[Any] = None,
+    ) -> None:
+        super().__init__(message, operation=operation, store_type=None, details=details)
+        self.tenant_id = tenant_id

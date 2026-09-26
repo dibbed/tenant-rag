@@ -14,7 +14,12 @@ from ragbot.api.dependencies import (
 from ragbot.api.schemas.query import QueryRequest, QueryResponse
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
-from ragbot.rag.exceptions import EmbeddingError, LLMError, VectorStoreError
+from ragbot.rag.exceptions import (
+    EmbeddingError,
+    LLMError,
+    TenantStorageError,
+    VectorStoreError,
+)
 from ragbot.services.integration_service import IntegrationService
 from ragbot.services.rag_service import QueryResult, RAGService
 
@@ -77,6 +82,14 @@ async def query_documents(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Model provider service unavailable",
+        ) from exc
+    except TenantStorageError as exc:
+        # Security (C1): tenant storage failed closed. Report an explicit error
+        # without internal details.
+        logger.error(f"Tenant storage unavailable during query: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tenant storage is unavailable",
         ) from exc
     except VectorStoreError as exc:
         logger.error(f"Vector store search failure during query: {exc}")

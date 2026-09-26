@@ -23,6 +23,7 @@ from ragbot.caching.cache_manager import cache_manager
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.rag.exceptions import DocumentProcessingError, VectorStoreError
+from ragbot.rag.loaders.url_guard import UnsafeURLError, validate_url_target
 from ragbot.services.integration_service import IntegrationService
 from ragbot.services.rag_service import IngestResult, RAGService
 
@@ -273,6 +274,17 @@ async def ingest_url(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL must start with http:// or https://",
         )
+
+    # Security (C6): reject internal and metadata targets before any fetch. The
+    # loader repeats the check for every redirect hop and at DNS resolution time.
+    try:
+        validate_url_target(url)
+    except UnsafeURLError as exc:
+        logger.warning(f"Blocked URL ingestion target: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL target is not allowed",
+        ) from exc
 
     try:
         result: IngestResult = await rag_service.ingest_document(

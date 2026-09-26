@@ -28,6 +28,13 @@ from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.rag.exceptions import DocumentProcessingError
 from ragbot.rag.loaders.base import BaseLoader, Document
+from ragbot.rag.loaders.url_guard import (
+    MAX_REDIRECTS,
+    REDIRECT_STATUSES,
+    build_safe_connector,
+    resolve_redirect_target,
+    validate_url_target,
+)
 
 
 class URLLoader(BaseLoader):
@@ -199,16 +206,41 @@ class URLLoader(BaseLoader):
             headers.update(custom_headers)
 
             # Make HTTP request
-            async with aiohttp.ClientSession(headers=headers) as session:
+            # Security (C6): validate the target before any network access, follow
+            # redirects manually and validate every hop, and resolve host names with a
+            # resolver that rejects internal addresses. See url_guard.py.
+            validate_url_target(source)
+            async with aiohttp.ClientSession(
+                headers=headers, connector=build_safe_connector()
+            ) as session:
                 attempt = 0
+                redirects = 0
+                current_url = source
                 while True:
                     async with session.get(
-                        source,
+                        current_url,
                         headers=headers,
                         timeout=aiohttp.ClientTimeout(total=self.timeout),
-                        allow_redirects=self.follow_redirects,
+                        allow_redirects=False,
                         cookies=kwargs.get("cookies") or self._cookies_from_settings(),
                     ) as response:
+                        if self.follow_redirects and response.status in REDIRECT_STATUSES:
+                            location = response.headers.get("Location")
+                            if not location:
+                                raise DocumentProcessingError(
+                                    f"HTTP {response.status} redirect without Location for URL: {source}",
+                                    document_type="url",
+                                    source=source,
+                                )
+                            redirects += 1
+                            if redirects > MAX_REDIRECTS:
+                                raise DocumentProcessingError(
+                                    f"Too many redirects for URL: {source}",
+                                    document_type="url",
+                                    source=source,
+                                )
+                            current_url = resolve_redirect_target(current_url, location)
+                            continue
                         # Retry only on transient server errors
                         if (
                             response.status in {502, 503, 504}

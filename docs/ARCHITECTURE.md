@@ -98,7 +98,7 @@ flowchart TD
 ### 4️⃣ RAG Core Engine (`ragbot/rag/`)
 - **Document Loaders (`ragbot/rag/loaders/`)**:
   - `PDFLoader`: High-performance text and structural extraction via PyMuPDF.
-  - `HTMLLoader` & `URLLoader`: Asynchronous web page fetching, HTML stripping, heading hierarchy preservation, and link extraction.
+  - `HTMLLoader` & `URLLoader`: Asynchronous web page fetching, HTML stripping, heading hierarchy preservation, and link extraction. Outbound fetches pass the SSRF guard in `ragbot/rag/loaders/url_guard.py` (see SECURITY.md).
   - `DOCXLoader`, `PPTXLoader`, `XLSXLoader`, `TextLoader`, `MarkdownLoader`.
   - `OCRLoader`: Optical character recognition fallback for scanned images and image-based PDFs (`pytesseract`, `easyocr`).
 - **Text Chunkers (`ragbot/rag/chunkers/`)**:
@@ -188,23 +188,27 @@ RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
 1. **Vector Store Isolation**:
    - **FAISS**: Partitioned via tenant-specific directory paths (`base_store_path / "tenants" / tenant_id`).
    - **Chroma & Qdrant**: Partitioned via isolated collections (`tenant_{tenant_id}`).
+   - **Fail closed**: if a tenant store cannot be created or loaded, the request fails with `TenantStorageError` (`HTTP 503` on `/api/v1/query`). There is no fallback to the shared default store. Tenant ids must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`.
 2. **Semantic Cache Isolation**:
    - Cache keys prefixed with `tenant_id` (`{tenant_id}:{query_hash}`).
    - Cosine similarity matching filters entries strictly by `tenant_id`.
    - Tenant-scoped invalidation (`clear_cache(tenant_id=...)`) purges only the target tenant's entries.
 3. **Tenant-Scoped Reset**:
    - Resetting Tenant A (`/api/v1/documents/reset` with `X-Tenant-ID: tenant_a`) clears only Tenant A's vector index and semantic cache entries, leaving Tenant B completely unaffected.
-   - Reset operations are protected by role-based access control, requiring `admin` or `super_admin` role.
+   - Reset requires `tenant_admin` (role `admin`) on the target tenant, the explicit `delete_documents` permission on that tenant, or `system_admin` (role `super_admin`). The `manager` role and the `manage_tenant` key permission do not grant reset.
 4. **Transport & Identity Boundaries**:
    - `get_current_principal` authenticates incoming credentials (`X-API-Key` or `Authorization: Bearer <token>`) against SQLite-backed hashed keys and user sessions.
-   - `get_authorized_tenant_context` checks tenant matching: non-super-admin principals are strictly forbidden from specifying another tenant's `X-Tenant-ID`.
+   - `get_authorized_tenant_context` checks tenant matching: only `system_admin` principals (role `super_admin`) may name another tenant in `X-Tenant-ID`. Key permissions never grant cross-tenant access.
    - Missing credentials yield `HTTP 401 Unauthorized`; tenant mismatch or inactive tenant yield `HTTP 403 Forbidden`.
-   - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`), evaluates to `None` with zero overhead.
+   - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`) there is no credential store. API requests are rejected with `HTTP 401` unless `ENVIRONMENT=development` and `ALLOW_ANONYMOUS=true` are both set (insecure development mode, logged as a warning at startup).
 
-### Cryptographic Credential Model
-- **No Plaintext Keys**: API keys follow the pattern `rgb_<secrets.token_urlsafe(32)>`. Only SHA-256 cryptographic hashes are stored in the SQLite `tenant_api_keys` table.
-- **Immediate Revocation**: Calling `revoke_tenant_api_key` immediately deactivates the key in SQLite and in-memory caches, rejecting subsequent requests with `HTTP 401 Unauthorized`.
-- **Secret Masking**: Key listing and log outputs expose only the 12-character key prefix (e.g. `rgb_...`) and metadata, never the full secret or internal hash.
+### Credential Model
+- **Key format**: `rgb_<key_id>_<secret>`. `key_id` is 32 hex characters and is used for lookup; `secret` is `secrets.token_urlsafe(32)`. The raw key is shown once and is never stored.
+- **Storage**: `tenant_api_keys.key_hash` holds a salted scrypt hash (`scrypt$n$r$p$salt$hash`, n=2^14, r=8, p=1). Verification is constant-time. The stored hash is never accepted as a credential.
+- **Legacy keys**: keys stored with the old unsalted SHA-256 scheme are rejected with an explicit migration error (`HTTP 401`). See the API key migration section in SECURITY.md.
+- **Immediate Revocation**: revocation and expiry are read from SQLite on every request, so a key revoked from the CLI (another process) stops working at once.
+- **Secret Masking**: key listings return only the 12-character prefix, metadata and `hash_scheme`, never the secret or the hash.
+- **Authorization levels**: `system_admin` (role `super_admin`), `tenant_admin` (role `admin`) and user (all other roles). Key permissions never raise the level; only `system_admin` can cross tenant boundaries.
 
 ---
 

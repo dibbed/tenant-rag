@@ -115,12 +115,21 @@ class VectorStoreFactory:
     }
 
     @classmethod
-    def create_store(cls, store_type: str, **kwargs: Any) -> BaseVectorStore:
+    def create_store(
+        cls, store_type: str, allow_fallback: bool = True, **kwargs: Any
+    ) -> BaseVectorStore:
         """
-        Create a vector store instance based on type with automatic fallback.
+        Create a vector store instance based on type.
 
         Args:
             store_type: Type of vector store to create ("faiss", "chroma", "qdrant")
+            allow_fallback: When True (default, legacy behavior), a missing
+                dependency or a creation error returns a FAISS fallback store.
+                When False, the error is raised as VectorStoreError instead.
+                Security (C2): tenant-scoped stores must pass False. The fallback
+                store does not keep the tenant partition (for Chroma and Qdrant it
+                opens the shared default index), so a silent fallback can mix the
+                data of several tenants.
             **kwargs: Additional configuration parameters for the store
 
         Returns:
@@ -128,9 +137,11 @@ class VectorStoreFactory:
 
         Raises:
             ValueError: If store_type is not supported
-            ImportError: If required dependencies are not available
-            RuntimeError: If store creation fails
+            VectorStoreError: If allow_fallback is False and the store cannot be created
+            RuntimeError: If store creation and the fallback both fail
         """
+        from ragbot.rag.exceptions import VectorStoreError
+
         store_type = store_type.lower().strip()
         aliases = {
             "chromadb": "chroma",
@@ -150,6 +161,12 @@ class VectorStoreFactory:
 
         # Check dependencies
         if not cls._check_dependencies(store_info["dependencies"]):
+            if not allow_fallback:
+                raise VectorStoreError(
+                    f"Dependencies for vector store '{store_type}' are not available",
+                    operation="create",
+                    store_type=store_type,
+                )
             logger.warning(
                 f"Dependencies for {store_type} not available, attempting fallback",
                 store_type=store_type,
@@ -184,6 +201,13 @@ class VectorStoreFactory:
                 store_type=store_type,
                 error=str(e),
             )
+            if not allow_fallback:
+                raise VectorStoreError(
+                    f"Failed to import vector store '{store_type}'",
+                    operation="create",
+                    store_type=store_type,
+                    details=str(e),
+                ) from e
             return cls._create_fallback_store(**kwargs)
 
         except Exception as e:
@@ -192,6 +216,13 @@ class VectorStoreFactory:
                 store_type=store_type,
                 error=str(e),
             )
+            if not allow_fallback:
+                raise VectorStoreError(
+                    f"Failed to create vector store '{store_type}'",
+                    operation="create",
+                    store_type=store_type,
+                    details=str(e),
+                ) from e
             return cls._create_fallback_store(**kwargs)
 
     @classmethod

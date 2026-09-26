@@ -4,7 +4,15 @@ from unittest.mock import MagicMock
 
 from fastapi import Depends, Header, HTTPException, Request, status
 
+from ragbot.api.access_mode import ANONYMOUS_DISABLED_DETAIL, anonymous_access_allowed
 from ragbot.configs.settings import settings
+from ragbot.multi_tenant.api_key_hashing import LEGACY_API_KEY_ERROR
+from ragbot.multi_tenant.authorization import (
+    can_access_tenant,
+    can_manage_tenant,
+    can_reset_tenant_store,
+    is_system_admin,
+)
 from ragbot.multi_tenant.models import AuthenticatedPrincipal, TenantStatus
 from ragbot.multi_tenant.tenant_auth import TenantAuth, UserRole
 from ragbot.outputs.logger import logger
@@ -38,6 +46,11 @@ async def get_rag_service_dep(
     return rag_service
 
 
+def _multi_tenant_enabled() -> bool:
+    """Return True when multi-tenant authentication is enabled."""
+    return bool(getattr(getattr(settings, "multi_tenant", object()), "enabled", False))
+
+
 async def get_current_principal(
     request: Request,
     rag_service: RAGService = Depends(get_rag_service_dep),
@@ -45,13 +58,21 @@ async def get_current_principal(
     """
     Extract and authenticate the calling principal from request headers.
 
-    When multi-tenancy is disabled, returns None.
-    When multi-tenancy is enabled, extracts credentials from 'X-API-Key' or 'Authorization: Bearer <token>',
-    authenticates via TenantAuth, and returns the AuthenticatedPrincipal.
-    Raises HTTP 401 if credentials are missing, malformed, invalid, expired, or revoked.
+    - Multi-tenant mode: the credential comes from 'X-API-Key' or
+      'Authorization: Bearer <token>' and is verified by TenantAuth. Missing,
+      malformed, invalid, expired, revoked or legacy credentials return 401.
+    - Single-tenant mode has no credential store. Security (C5): anonymous
+      access is allowed only when ENVIRONMENT=development and
+      ALLOW_ANONYMOUS=true. Otherwise the request is rejected with 401.
     """
-    if not getattr(getattr(settings, "multi_tenant", object()), "enabled", False):
-        return None
+    if not _multi_tenant_enabled():
+        if anonymous_access_allowed():
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ANONYMOUS_DISABLED_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # Extract credential from headers
     credential = request.headers.get("X-API-Key")
@@ -85,9 +106,16 @@ async def get_current_principal(
         auth_ok, principal, error_msg = auth_res
 
     if not auth_ok or principal is None:
+        # Security (C3): legacy SHA-256 keys get an explicit migration message.
+        # Every other failure keeps the generic message.
+        detail = (
+            LEGACY_API_KEY_ERROR
+            if error_msg == LEGACY_API_KEY_ERROR
+            else "Invalid, expired, or revoked authentication credentials"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid, expired, or revoked authentication credentials",
+            detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -106,12 +134,13 @@ async def get_authorized_tenant_context(
     - In single-tenant mode (multi_tenant.enabled=False): returns None.
     - In multi-tenant mode:
       - Validates principal is authenticated.
-      - Enforces tenant isolation: requested X-Tenant-ID must match principal.tenant_id
-        unless principal is super_admin.
+      - Security (C4): the requested X-Tenant-ID must match the principal's
+        tenant unless the principal is a system_admin (role super_admin).
+        Key permissions such as manage_tenant never grant cross-tenant access.
       - If X-Tenant-ID is omitted, defaults to principal.tenant_id.
       - Verifies target tenant exists and is active.
     """
-    if not getattr(getattr(settings, "multi_tenant", object()), "enabled", False):
+    if not _multi_tenant_enabled():
         return None
 
     if principal is None:
@@ -129,7 +158,7 @@ async def get_authorized_tenant_context(
     )
 
     # Check tenant authorization boundary
-    if not principal.is_super_admin and principal.tenant_id != target_tenant:
+    if not can_access_tenant(principal, target_tenant):
         logger.warning(
             f"Tenant authorization failure: Principal '{principal.principal_id}' of tenant "
             f"'{principal.tenant_id}' denied access to tenant '{target_tenant}'"
@@ -179,8 +208,17 @@ async def verify_reset_authorization(
     principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
     tenant_id: Optional[str] = Depends(get_authorized_tenant_context),
 ) -> None:
-    """Verify principal is authorized to perform store reset."""
-    if not getattr(getattr(settings, "multi_tenant", object()), "enabled", False):
+    """Verify the principal may reset the target tenant store.
+
+    Security (C4):
+    - system_admin (role super_admin): any tenant, and the global store.
+    - tenant_admin (role admin): its own tenant only.
+    - other principals: only with the explicit ``delete_documents``
+      permission, and only on their own tenant.
+    The ``manager`` role and the ``manage_tenant`` key permission no longer
+    grant reset rights.
+    """
+    if not _multi_tenant_enabled():
         return
 
     if principal is None:
@@ -189,23 +227,43 @@ async def verify_reset_authorization(
             detail="Authentication credentials required",
         )
 
-    allowed_roles = {"admin", "super_admin", "manager"}
-    has_perm = (
-        "delete_documents" in principal.permissions
-        or "manage_tenant" in principal.permissions
-    )
-    if (
-        principal.role not in allowed_roles
-        and not has_perm
-        and not principal.is_super_admin
-    ):
+    if not tenant_id:
+        if is_system_admin(principal):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Tenant administrators can only reset their own tenant store",
+        )
+
+    if not can_reset_tenant_store(principal, tenant_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Insufficient permissions to perform store reset",
         )
 
-    if not tenant_id and not principal.is_super_admin:
+
+async def require_tenant_admin(
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
+    tenant_id: Optional[str] = Depends(get_authorized_tenant_context),
+) -> Optional[AuthenticatedPrincipal]:
+    """Require tenant management rights on the target tenant.
+
+    Security (C4): use this dependency for every tenant management route.
+    tenant_admin may manage only its own tenant; system_admin may manage any
+    tenant; every other principal gets HTTP 403.
+    """
+    if not _multi_tenant_enabled():
+        return principal
+
+    if principal is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials required",
+        )
+
+    if not tenant_id or not can_manage_tenant(principal, tenant_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Tenant administrators can only reset their own tenant store",
+            detail="Forbidden: Tenant management requires tenant_admin on the target tenant or system_admin",
         )
+    return principal
