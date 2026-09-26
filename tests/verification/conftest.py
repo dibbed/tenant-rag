@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -46,5 +47,5 @@ def verification_script() -> Callable[[str], ModuleType]:
 @pytest.fixture
 def clean_coverage_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep a nested pytest run from writing coverage data of the outer run."""
-    for name in [name for name in list(__import__("os").environ) if name.startswith("COV_CORE_")]:
+    for name in [name for name in os.environ if name.startswith("COV_CORE_")]:
         monkeypatch.delenv(name)
