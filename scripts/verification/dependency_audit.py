@@ -214,6 +214,15 @@ def fetch_osv_record(identifier: str, attempts: int = 4, timeout: float = 30.0) 
     return {"_error": last_error}
 
 
+def offline_fetch(records: dict[str, Any]) -> Callable[[str], dict[str, Any]]:
+    """Fetch function that reads OSV records from a local JSON object instead of the network."""
+
+    def fetch(identifier: str) -> dict[str, Any]:
+        return records.get(identifier, {"_missing": True})
+
+    return fetch
+
+
 def fetch_records(
     ids: set[str], fetch: Callable[[str], dict[str, Any]], workers: int = 8
 ) -> dict[str, dict[str, Any]]:
@@ -653,8 +662,7 @@ def main(argv: list[str] | None = None) -> int:
     entries, file_problems = load_exceptions(exceptions_path)
 
     if args.command == "validate-exceptions":
-        _, _, valid = match_exceptions([], entries, today)
-        invalid, _, _ = match_exceptions([], entries, today)
+        invalid, _, valid = match_exceptions([], entries, today)
         for problem in file_problems:
             print(f"error: {problem}")
         for item in invalid:
@@ -663,7 +671,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if file_problems or invalid else 0
 
     python_version = None
-    fetch: Callable[[str], dict[str, Any]] = fetch_osv_record
+    fetch = fetch_osv_record
     tool = "pip-audit (OSV)"
     if args.command == "run":
         try:
@@ -688,13 +696,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         try:
             data = json.loads(args.input.read_text(encoding="utf-8"))
+            if args.osv_records is not None:
+                fetch = offline_fetch(json.loads(args.osv_records.read_text(encoding="utf-8")))
         except (OSError, ValueError) as exc:
-            return _error(f"cannot read {args.input}: {exc}", args.report)
-        if args.osv_records is not None:
-            offline = json.loads(args.osv_records.read_text(encoding="utf-8"))
-
-            def fetch(identifier: str) -> dict[str, Any]:
-                return offline.get(identifier, {"_missing": True})
+            return _error(f"cannot read the input files: {exc}", args.report)
 
     report = audit(
         data,
