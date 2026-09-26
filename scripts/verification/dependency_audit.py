@@ -98,10 +98,7 @@ def cvss3_base_score(vector: str) -> float:
     changed = metrics["S"] == "C"
     privileges = {"N": 0.85, "L": 0.68 if changed else 0.62, "H": 0.5 if changed else 0.27}[metrics["PR"]]
     iss = 1 - (1 - CIA[metrics["C"]]) * (1 - CIA[metrics["I"]]) * (1 - CIA[metrics["A"]])
-    if changed:
-        impact = 7.52 * (iss - 0.029) - 3.25 * (iss - 0.02) ** 15
-    else:
-        impact = 6.42 * iss
+    impact = 7.52 * (iss - 0.029) - 3.25 * (iss - 0.02) ** 15 if changed else 6.42 * iss
     exploitability = (
         8.22
         * ATTACK_VECTOR[metrics["AV"]]

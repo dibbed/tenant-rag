@@ -6,6 +6,7 @@ like embeddings, chunkers, loaders, and QA systems.
 """
 
 import asyncio
+import importlib.util
 from typing import List
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -14,6 +15,16 @@ import pytest
 from ragbot.configs.settings import VectorStoreConfig
 from ragbot.rag.store.base import VectorDocument
 from ragbot.rag.store.factory import VectorStoreFactory
+
+
+# These tests create a "chroma" store through VectorStoreFactory with a mocked
+# ChromaVectorStore class. The factory uses the class only when chromadb can be
+# imported, so the tests need the optional chromadb package
+# (pip install -e ".[vectorstores]").
+requires_chromadb = pytest.mark.skipif(
+    importlib.util.find_spec("chromadb") is None,
+    reason="chromadb is optional (vectorstores extra) and not installed",
+)
 
 
 class TestVectorStoreRAGIntegration:
@@ -106,6 +117,7 @@ class TestVectorStoreEmbeddingIntegration(TestVectorStoreRAGIntegration):
             assert search_results[0].id == "doc1"
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_chroma_with_embeddings(self, sample_config, sample_documents):
         """Test Chroma store with embedding generation."""
         with patch(
@@ -330,6 +342,7 @@ class TestVectorStoreLoaderIntegration(TestVectorStoreRAGIntegration):
                 assert result == ["pdf_doc1"]
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_store_with_url_loader(self, sample_config):
         """Test vector store with URL loader."""
         with patch("ragbot.rag.loaders.URLLoader") as mock_loader_class:
@@ -427,6 +440,7 @@ class TestVectorStoreQAIntegration(TestVectorStoreRAGIntegration):
     """Test vector store integration with QA systems."""
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_store_with_qa_generator(self, sample_config, sample_documents):
         """Test vector store with QA generator."""
         with patch("ragbot.rag.qa.QAGenerator") as mock_qa_class:
@@ -559,6 +573,7 @@ class TestVectorStorePerformanceIntegration(TestVectorStoreRAGIntegration):
             assert stats["total_documents"] == 100
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_concurrent_operations(self, sample_config):
         """Test concurrent operations for performance."""
         with patch(

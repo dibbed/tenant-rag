@@ -160,7 +160,10 @@ def tool_version(tool: str, runner: Callable[..., Any], root: Path) -> str:
         [sys.executable, "-m", tool, "--version"], cwd=root, capture_output=True, text=True, check=False
     )
     lines = (proc.stdout or proc.stderr or "").strip().splitlines()
-    return lines[0] if lines else "unknown"
+    if not lines:
+        return "unknown"
+    # "python -m bandit --version" prints "__main__.py 1.7.9".
+    return lines[0].replace("__main__.py", tool, 1)
 
 
 def run_check(

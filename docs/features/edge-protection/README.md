@@ -144,6 +144,8 @@ curl -si -X POST https://api.example.com/api/v1/documents/upload -F "file=@big.b
 
 Run them with `pytest tests/security tests/unit/test_edge_*.py tests/integration/test_edge_*.py`. For the Redis tests, start Redis and set `TEST_REDIS_URL=redis://localhost:6379/15`.
 
+In CI these tests are part of the Security Regression Suite of the Verification Pipeline (`docs/features/security-verification-pipeline/README.md`). There a skipped test fails the check, and CI provides Redis. Run the suite locally with `make verify-security`.
+
 ## Implementation notes
 
 - The new settings are environment variables read in `ragbot/api/edge/config.py` when the application is created, like the Phase 2 authentication mode settings, so `ragbot/configs/settings.py` does not change.

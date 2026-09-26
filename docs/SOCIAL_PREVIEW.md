@@ -28,7 +28,7 @@ This specification defines the visual assets, layout, typography, and content fo
 - **Color:** Teal `#2DD4BF`
 
 ### Description Line
-- **Text:** `Isolated Vector Stores • Tenant Semantic Cache • SHA-256 Auth`
+- **Text:** `Isolated Vector Stores • Tenant Semantic Cache • Salted scrypt API Keys`
 - **Font:** Inter / System Sans-serif, Regular (400 weight)
 - **Size:** 22 px
 - **Color:** Muted slate `#94A3B8`

@@ -57,6 +57,8 @@ tests/
     └── test_security_workflows.py         # End-to-end security and rate limit validation
 ```
 
+The Security Regression Suite (section 5) is `tests/security` together with the edge protection and tenant isolation tests that `tests/security/suite_manifest.json` lists. `tests/verification` tests the tools of the Verification Pipeline.
+
 ---
 
 ## 3. Targeted Test Execution Commands
@@ -65,7 +67,7 @@ tests/
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = ""; $env:TORCH_DEVICE = "cpu"; .\venv\Scripts\pytest.exe -o addopts='' -q
 ```
-*Current benchmark*: **627 passed, 1 skipped, 0 failed in ~110 seconds**.
+*Current result* (Verification Pipeline, Python 3.10, 3.11 and 3.12): **1005 passed, 11 skipped, 0 failed**.
 
 ### Run Security & Multi-Tenant Authorization Tests
 ```powershell
@@ -97,3 +99,23 @@ $env:CUDA_VISIBLE_DEVICES = ""; $env:TORCH_DEVICE = "cpu"; .\venv\Scripts\pytest
    External API calls (e.g. OpenAI, Anthropic, OpenRouter) are patched with `unittest.mock.AsyncMock` in unit and API test suites to ensure offline repeatability and eliminate external latency.
 3. **Temporary Filesystem Cleanup**:
    All upload and vector store disk operations utilize `pytest`'s `tmp_path` fixture or automated cleanup context managers to prevent leaving leftover test files in `./data/`.
+
+---
+
+## 5. Verification Pipeline
+
+CI runs the Verification Pipeline (`.github/workflows/ci.yml`) on every pull request to `main` and every push to `main`. Details: `docs/features/security-verification-pipeline/README.md`. Run the same checks locally:
+
+```bash
+make verify            # every check; the container check needs Docker
+make verify-tests      # full test suite
+make verify-security   # Security Regression Suite
+make verify-static     # Ruff, MyPy and Bandit (report-only)
+make verify-deps       # Dependency Vulnerability Check
+make verify-container  # Container Build Check
+```
+
+Rules of the Security Regression Suite:
+
+1. No security test may be skipped. Start Redis and set `TEST_REDIS_URL=redis://localhost:6379/15` for the Redis rate limit tests.
+2. The collected tests must match `tests/security/suite_manifest.json`. After you add, rename or remove a security test, run `make security-manifest` and commit the manifest with the change.

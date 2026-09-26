@@ -6,6 +6,8 @@ This document defines the security model, tenant boundaries, credential storage,
 
 > **Phase 3 edge protection** (findings C9 to C11) changed how callers are identified for rate limiting, which browser origins may call the API, and how request sizes are checked. Read section 6, "Edge Protection", and the migration notes in `docs/features/edge-protection/README.md` before you upgrade.
 
+> **Security Verification Pipeline** (REQ-MTS-CI-001 to REQ-MTS-CI-005): every pull request to `main` and every push to `main` must pass the Blocking Checks of the Verification Pipeline. Read section 9 and `docs/features/security-verification-pipeline/README.md`.
+
 ---
 
 ## 1. Security Architecture Principles
@@ -20,6 +22,7 @@ This document defines the security model, tenant boundaries, credential storage,
 | Browser access (CORS) | No origin allowed by default. Explicit allowlist; `*` only in development and without credentials. |
 | Request size | Bodies above `SECURITY_MAX_FILE_SIZE_MB` are refused before or while they are read; uploads are copied to disk in chunks. |
 | Encryption at rest | Host-level responsibility. Vector stores are not encrypted per tenant on disk. |
+| Verification | Every change to `main` runs the Verification Pipeline: the full test suite, a Security Regression Suite that allows no skipped test, a dependency vulnerability gate and a container check (section 9). |
 
 ---
 
@@ -187,7 +190,7 @@ Phase 3 hardening for audit findings C9, C10 and C11. Configuration, migration n
 1. **Single-node focus:** SQLite and FAISS are designed for single-node deployments. For scale-out, use a centralized vector store (Qdrant) and external database configuration.
 2. **In-process state:** user sessions and the key verification cache are per process. Sessions do not survive restarts and are not shared between workers.
 3. **Rate limiting:** without `SECURITY_RATE_LIMIT_STORAGE_URL`, each instance and worker process counts on its own, and during a shared store outage the effective limit is multiplied by the number of instances. A request with a credential is counted only after its body has been received (bounded by the request size limit). A failed credential check runs scrypt before it is counted.
-4. **Request parsing:** the pinned Starlette version (0.37.2, through FastAPI 0.111.0) keeps multipart form fields without a file name in memory and joins their parts with repeated copies (CVE-2024-47874, fixed in Starlette 0.40.0). The request size limit caps one such field at the upload limit, but not its memory or CPU cost: in the Phase 3 verification review, a 40 MiB field took 2.2 seconds and raised peak memory by 79 MiB, while the same data sent as a file part used no extra memory. Parallel requests multiply this cost. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is not bounded by the upload limit.
+4. **Request parsing:** FastAPI 0.141.1 and Starlette 1.7.0 are pinned. Starlette 0.40.0 fixed CVE-2024-47874: a multipart form field without a file name is limited by `max_part_size` (1 MiB by default) and is no longer kept in memory without a limit. The Phase 3 measurement (a 40 MiB field took 2.2 seconds and raised peak memory by 79 MiB) was made with Starlette 0.37.2 and was not repeated with Starlette 1.7.0. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is still not bounded by the upload limit.
 5. **In-process plugins:** plugins run in-process. Exceptions are contained, but a faulty plugin can block the event loop or use too much CPU or memory. Do not install untrusted plugins.
 6. **Encryption at rest:** documents and embeddings are stored on disk in plaintext or pickle format. Production deployments must use full-disk or volume encryption (for example LUKS, BitLocker, or cloud volume encryption).
 7. **Open findings:** the risks found in the Phase 3 verification review, with their severity and the recommended actions, are listed in `docs/security/PHASE3_EDGE_SECURITY_REVIEW.md`.
@@ -204,3 +207,17 @@ If you discover a potential security vulnerability in TenantRAG:
    - A description of the vulnerability and attack vector.
    - Minimal reproduction steps or cURL commands.
    - The affected versions or environment details.
+
+---
+
+## 9. Security Verification Pipeline
+
+Every pull request to `main` and every push to `main` runs the Verification Pipeline (`.github/workflows/ci.yml`). Details: `docs/features/security-verification-pipeline/README.md`.
+
+- **Security Regression Suite:** the security tests (authentication, authorization, tenant isolation, SSRF, edge protection) run in their own job on Python 3.10, 3.11 and 3.12, with Redis. A skipped security test fails the check. `tests/security/suite_manifest.json` lists the tests: a removed or renamed security test fails the check until the manifest is updated, and the Verification Summary lists the security tests that a change removes.
+- **Dependency Vulnerability Check:** pip-audit with the OSV database audits the default installation (`requirements.txt` and the `dev` extra). An advisory of severity HIGH or CRITICAL, or of unknown severity, fails the check unless an accepted exception with an owner and a review date is recorded in `.github/dependency-audit-exceptions.json`. There are no accepted exceptions.
+- **Container Build Check:** the Docker image is built and started with its default settings. The check needs a healthy HEALTHCHECK, HTTP 200 from `/health` and `/api/v1/health`, HTTP 401 for requests without credentials, and no process that runs as root.
+- **Static analysis:** Ruff, MyPy and Bandit run as Report-Only Checks. Every run shows their findings. They do not block a merge.
+- **Required checks:** branch protection of `main` requires the Blocking Checks. The list is in the feature documentation.
+
+chromadb is no longer installed by default. chromadb 1.5.9, the latest release, has two CRITICAL and two HIGH advisories without a fix (GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-2wm9-hf6c-p5cr, GHSA-xph7-9rjv-w5fr). They affect the Chroma server HTTP API. TenantRAG uses only the embedded client. A deployment that installs the `vectorstores` extra accepts this risk.

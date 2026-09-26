@@ -28,6 +28,8 @@ RAGBot supports multiple vector databases for different use cases, offering flex
 - **Strengths**: Metadata filtering, easy setup, built-in embedding support
 - **Configuration**: `VECTOR_STORE_DEFAULT_STORE=chroma`
 - **Dependencies**: `chromadb`
+- **Installation**: optional. `requirements.txt` and the Docker image do not include chromadb. Install it with `pip install -e ".[vectorstores]"`.
+- **Security**: chromadb 1.5.9, the latest release, has two CRITICAL and two HIGH advisories without a fix (GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-2wm9-hf6c-p5cr, GHSA-xph7-9rjv-w5fr). They affect the Chroma server HTTP API. TenantRAG uses the embedded `PersistentClient` and does not start a Chroma server. See `docs/features/security-verification-pipeline/README.md`.
 
 #### Chroma Features:
 
@@ -163,7 +165,7 @@ pip install -e ".[vectorstores]"
 # FAISS (included by default)
 pip install faiss-cpu
 
-# Chroma
+# Chroma (optional; read the security note in the Chroma section)
 pip install chromadb
 
 # Qdrant

@@ -157,7 +157,8 @@ def test_the_checked_in_manifest_is_sorted_and_inside_its_paths(run_suite, repo_
         ), nodeid
 
 
-def test_the_security_suite_collects_on_its_own_and_matches_the_manifest(run_suite, clean_coverage_env):
+@pytest.mark.usefixtures("clean_coverage_env")
+def test_the_security_suite_collects_on_its_own_and_matches_the_manifest(run_suite):
     assert run_suite.main(["security", "--check-manifest"]) == 0
 
 
@@ -170,7 +171,8 @@ def _project(root: Path, body: str, tests: list[str]) -> Path:
     return manifest
 
 
-def test_the_runner_fails_on_a_real_skipped_test(run_suite, tmp_path, clean_coverage_env):
+@pytest.mark.usefixtures("clean_coverage_env")
+def test_the_runner_fails_on_a_real_skipped_test(run_suite, tmp_path):
     manifest = _project(
         tmp_path, SAMPLE_WITH_SKIP, ["tests/test_sample.py::test_ok", "tests/test_sample.py::test_skipped"]
     )
@@ -185,7 +187,8 @@ def test_the_runner_fails_on_a_real_skipped_test(run_suite, tmp_path, clean_cove
     assert "not ready" in report["skipped_tests"][0]["reason"]
 
 
-def test_the_runner_detects_a_removed_test(run_suite, tmp_path, clean_coverage_env):
+@pytest.mark.usefixtures("clean_coverage_env")
+def test_the_runner_detects_a_removed_test(run_suite, tmp_path):
     manifest = _project(
         tmp_path, "def test_ok():\n    assert True\n", ["tests/test_sample.py::test_ok", "tests/test_sample.py::test_removed"]
     )
@@ -198,7 +201,8 @@ def test_the_runner_detects_a_removed_test(run_suite, tmp_path, clean_coverage_e
     assert report["manifest"]["missing"] == ["tests/test_sample.py::test_removed"]
 
 
-def test_update_manifest_writes_the_sorted_node_ids(run_suite, tmp_path, clean_coverage_env):
+@pytest.mark.usefixtures("clean_coverage_env")
+def test_update_manifest_writes_the_sorted_node_ids(run_suite, tmp_path):
     manifest = _project(tmp_path, "def test_b():\n    pass\n\n\ndef test_a():\n    pass\n", [])
     code = run_suite.main(["security", "--root", str(tmp_path), "--manifest", str(manifest), "--update-manifest"])
     assert code == 0

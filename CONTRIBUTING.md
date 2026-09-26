@@ -50,6 +50,15 @@ pytest -v
 pytest tests/security/test_tenant_auth_security.py
 ```
 
+Before you open a pull request, run the checks of the Verification Pipeline:
+
+```bash
+make verify            # every check; the container check needs Docker
+make verify-security   # Security Regression Suite; needs Redis and TEST_REDIS_URL=redis://localhost:6379/15
+```
+
+If you add, rename or remove a security test, run `make security-manifest` and commit `tests/security/suite_manifest.json` with the change. A pull request that removes a security test must explain why. Details: `docs/features/security-verification-pipeline/README.md`.
+
 ---
 
 ## 3. Code Conventions & Standards
@@ -89,5 +98,6 @@ pytest tests/security/test_tenant_auth_security.py
 ## 5. Pull Request Expectations
 
 - **Test Coverage:** All new features or bug fixes must include corresponding tests in `tests/`.
+- **Verification Pipeline:** All Blocking Checks must pass: Tests and Security Regression Suite on Python 3.10, 3.11 and 3.12, Dependency Vulnerability Check, Container Build Check and Verification Summary. Do not skip security tests. A new HIGH or CRITICAL dependency advisory must be fixed, or the dependency must leave the default installation.
 - **Clean Git History:** Write descriptive, imperative commit messages (`feat: ...`, `fix: ...`, `docs: ...`).
 - **No Performance Hype:** Do not add unverified performance assertions or quantitative benchmark claims to documentation without reproducible scripts in `benchmarks/`.

@@ -149,7 +149,7 @@ docker run -p 6333:6333 qdrant/qdrant
 
 ```bash
 # Install specific dependencies
-pip install chromadb          # For Chroma
+pip install chromadb          # For Chroma (optional, has open advisories: see docs/VECTOR_STORES.md)
 pip install qdrant-client     # For Qdrant
 
 # Or install all at once
