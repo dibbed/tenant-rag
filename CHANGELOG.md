@@ -2,6 +2,14 @@
 
 All notable changes to the RAGBot project are documented in this file.
 
+## 2026-09-26: Security Verification Pipeline
+
+- **Verification Pipeline**: `.github/workflows/ci.yml` runs the full test suite and a separate Security Regression Suite on Python 3.10, 3.11 and 3.12, a Dependency Vulnerability Check (pip-audit with the OSV database), a Container Build Check and report-only Ruff, MyPy and Bandit checks, and writes a Verification Summary for every run. Details: `docs/features/security-verification-pipeline/README.md`.
+- **Security Regression Suite**: a failed, skipped, removed or unlisted security test fails the check. The test list is `tests/security/suite_manifest.json`.
+- **Dependency remediation**: removed the unused langchain, langchain-openai, langchain-community and nltk; moved chromadb to the optional `vectorstores` extra; upgraded fastapi to 0.141.1 (starlette 1.7.0), aiohttp to 3.14.3, cryptography to 50.0.1, pyjwt to 2.15.0, orjson to 3.12.0, Pillow to 12.3.0, pypdf to 6.19.0, requests to 2.34.2, torch to 2.14.0, transformers to 5.17.0, sentence-transformers to 6.1.0 and mkdocs-material to 9.7.7. The dependency check has no accepted exceptions.
+- **Local checks**: `make verify` and `scripts/verify_pipeline.sh` run the same checks.
+- **Test Suite Pass**: 1005 passed, 11 skipped, 0 failed; Security Regression Suite 322 passed, 0 skipped.
+
 ## 2026-09-24 — Tenant Authentication, Authorization & API Security Hardening
 
 - **Decoupled Identity & Routing**: Enforced zero-trust separation between identity authentication (`X-API-Key: rgb_<token>` or `Authorization: Bearer <token>`) and routing headers (`X-Tenant-ID`). Requests attempting cross-tenant access are strictly blocked with `HTTP 403 Forbidden`. Requests lacking credentials in multi-tenant mode return `HTTP 401 Unauthorized`.

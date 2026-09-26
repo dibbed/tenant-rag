@@ -1,0 +1,4 @@
+# pip-audit for the Dependency Vulnerability Check (scripts/verification/dependency_audit.py).
+# It is installed in its own virtual environment, so pip-audit and its
+# dependencies are not part of the audited project environment.
+pip-audit==2.10.1

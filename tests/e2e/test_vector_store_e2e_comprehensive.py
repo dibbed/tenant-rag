@@ -6,6 +6,7 @@ real-world usage of the vector store system with all RAG components.
 """
 
 import asyncio
+import importlib.util
 import os
 import shutil
 import tempfile
@@ -17,6 +18,16 @@ import pytest
 from ragbot.configs.settings import VectorStoreConfig
 from ragbot.rag.store.base import VectorDocument
 from ragbot.rag.store.factory import VectorStoreFactory
+
+
+# These tests create a "chroma" store through VectorStoreFactory with a mocked
+# ChromaVectorStore class. The factory uses the class only when chromadb can be
+# imported, so the tests need the optional chromadb package
+# (pip install -e ".[vectorstores]").
+requires_chromadb = pytest.mark.skipif(
+    importlib.util.find_spec("chromadb") is None,
+    reason="chromadb is optional (vectorstores extra) and not installed",
+)
 import ragbot.services.rag_service as _rag_service_mod
 RAGService = lambda *args, **kwargs: _rag_service_mod.RAGService(*args, **kwargs)
 
@@ -207,6 +218,7 @@ class TestCompleteWorkflowE2E(TestVectorStoreE2E):
             assert stats["store_type"] == "faiss"
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_chroma_complete_workflow(
         self, sample_config, sample_documents, temp_dir
     ):
@@ -505,6 +517,7 @@ class TestPerformanceE2E(TestVectorStoreE2E):
             assert "memory_usage" in stats
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_concurrent_operations_performance(
         self, sample_config, sample_documents
     ):
@@ -597,6 +610,7 @@ class TestErrorHandlingE2E(TestVectorStoreE2E):
                 await store.add_documents(sample_documents)
 
     @pytest.mark.asyncio
+    @requires_chromadb
     async def test_search_failure_recovery(self, sample_config, sample_documents):
         """Test search failure and recovery."""
         with patch(
