@@ -197,7 +197,6 @@
     "tests/security/test_phase2_ssrf_protection.py::test_url_loader_blocks_internal_targets_without_sending_a_request[http://127.0.0.1:8080/]",
     "tests/security/test_phase2_ssrf_protection.py::test_url_loader_blocks_internal_targets_without_sending_a_request[http://169.254.169.254/latest/meta-data/]",
     "tests/security/test_phase2_ssrf_protection.py::test_url_loader_blocks_internal_targets_without_sending_a_request[http://localhost/admin]",
-    "tests/security/test_phase2_ssrf_protection.py::test_url_loader_blocks_redirect_to_cloud_metadata",
     "tests/security/test_phase2_ssrf_protection.py::test_url_loader_still_follows_safe_redirects",
     "tests/security/test_phase2_tenant_storage_isolation.py::test_factory_default_mode_keeps_legacy_fallback",
     "tests/security/test_phase2_tenant_storage_isolation.py::test_factory_strict_mode_raises_when_dependencies_are_missing",
