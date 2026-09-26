@@ -15,8 +15,8 @@ TenantRAG exposes a high-performance RESTful HTTP API built on **FastAPI**. It a
 ## 2. Global Request Handling & Middleware
 
 ### Rate Limiting
-All requests (except health check and documentation endpoints) pass through an in-memory sliding-window rate limiter per client IP address.
-- **Default Limit**: 60 requests per 60 seconds (configurable via `SECURITY_RATE_LIMIT_REQUESTS` and `SECURITY_RATE_LIMIT_WINDOW`).
+All requests except health check and documentation endpoints are rate limited with a sliding window. Authenticated requests count against the principal (API key or session); other requests, failed authentication attempts included, count against the client address. The client address is the TCP peer, unless the request comes through a proxy listed in `SECURITY_TRUSTED_PROXIES`.
+- **Default Limit**: 10 requests per 60 seconds for each principal or client address (configurable via `SECURITY_RATE_LIMIT_REQUESTS` and `SECURITY_RATE_LIMIT_WINDOW`).
 - **Response Headers**:
   - `X-RateLimit-Limit`: Maximum requests permitted per window.
   - `X-RateLimit-Remaining`: Requests remaining in current window.
@@ -24,7 +24,10 @@ All requests (except health check and documentation endpoints) pass through an i
 - **Rate Limit Exceeded**: Returns `HTTP 429 Too Many Requests` with a `Retry-After: <seconds>` header.
 
 ### CORS
-CORS is preconfigured with permissive defaults (`*`) for cross-origin web client integration. Allowed origins can be customized in `ragbot/api/app.py`.
+No browser origin is allowed by default. List the allowed origins in `SECURITY_CORS_ALLOWED_ORIGINS`, for example `https://app.example.com`. `*` allows every origin without credentials and is accepted only with `ENVIRONMENT=development`. Browser code can read `Retry-After` and the `X-RateLimit-*` headers.
+
+### Request Size
+Request bodies above `SECURITY_MAX_FILE_SIZE_MB` (default 50 MB) are refused with `HTTP 413 Request Entity Too Large` before or while they are read. The response states the limit, for example `{"detail": "Request body exceeds maximum allowed size of 50MB", "max_size_mb": 50, "max_size_bytes": 52428800}`.
 
 ### Tenant Authentication & Authorization Model
 

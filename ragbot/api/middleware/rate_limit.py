@@ -1,135 +1,140 @@
-"""
-In-memory sliding-window rate limiting middleware for FastAPI.
+"""Rate limit middleware: stage 1 of edge rate limiting.
 
-Scope:
-- single-process protection implemented
-- distributed protection deferred (future Redis cluster limiter)
+Security fix C9 (Phase 3, see docs/BASELINE_AUDIT.md). This pure ASGI
+middleware:
+
+- counts every request without a credential header against its Client
+  Address before the request body is read, and answers HTTP 429 when the
+  address is over its limit;
+- attaches the limiter to the request, so that ``enforce_rate_limit`` and
+  ``get_current_principal`` count requests with a credential after
+  authentication (see ``ragbot/api/edge/rate_limiter.py``);
+- adds the ``X-RateLimit-*`` headers to every counted response.
+
+The Client Address comes from ``scope["client"]``, which
+``TrustedProxyMiddleware`` sets. Forwarded headers are never read here.
+Health checks and documentation are never counted.
 """
 
 from __future__ import annotations
 
-import threading
-import time
-from collections import defaultdict
-from typing import Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from fastapi import Request, Response, status
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers, MutableHeaders
 
+from ragbot.api.edge.rate_limit_store import MemoryRateLimitStore
+from ragbot.api.edge.rate_limiter import (
+    COUNTED_STATE_KEY,
+    CREDENTIAL_HEADERS,
+    DECISION_STATE_KEY,
+    DEFAULT_EXEMPT_PATHS,
+    LIMITER_STATE_KEY,
+    RateLimiter,
+    address_subject,
+    rate_limit_headers,
+    rate_limit_response,
+)
 from ragbot.configs.settings import settings
-from ragbot.outputs.logger import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
+class RateLimitMiddleware:
+    """Sliding-window rate limiting per Rate Limit Subject (pure ASGI).
+
+    Protects the expensive routes (question answering and document ingestion)
+    from abuse. ``limiter`` is shared with the application (``app.state``);
+    without it, the middleware builds a per-instance limiter from the
+    arguments or the security settings.
     """
-    Sliding-window in-memory rate limiter middleware.
 
-    Protects API endpoints (especially expensive LLM query and document ingestion)
-    from abuse and denial-of-service without external infrastructure dependencies.
-    """
-
-    DEFAULT_EXEMPT_PATHS: Set[str] = {
-        "/health",
-        "/api/v1/health",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-        "/favicon.ico",
-    }
+    DEFAULT_EXEMPT_PATHS: ClassVar[set[str]] = set(DEFAULT_EXEMPT_PATHS)
 
     def __init__(
         self,
-        app,
-        max_requests: Optional[int] = None,
-        window_seconds: Optional[int] = None,
-        exempt_paths: Optional[Set[str]] = None,
-        enabled: Optional[bool] = None,
+        app: ASGIApp,
+        max_requests: int | None = None,
+        window_seconds: int | None = None,
+        exempt_paths: Iterable[str] | None = None,
+        enabled: bool | None = None,
+        limiter: RateLimiter | None = None,
     ) -> None:
-        super().__init__(app)
-        # Read from settings by default, allowing constructor overrides for tests
-        sec_cfg = getattr(settings, "security", None)
-        self.enabled = (
-            enabled
-            if enabled is not None
-            else getattr(sec_cfg, "enable_rate_limiting", True)
-        )
-        self.max_requests = (
-            max_requests
-            if max_requests is not None
-            else getattr(sec_cfg, "rate_limit_requests", 60)
-        )
-        self.window_seconds = (
-            window_seconds
-            if window_seconds is not None
-            else getattr(sec_cfg, "rate_limit_window", 60)
-        )
-        self.exempt_paths = exempt_paths or self.DEFAULT_EXEMPT_PATHS
-        self._client_records: Dict[str, List[float]] = defaultdict(list)
-        self._lock = threading.Lock()
+        self.app = app
+        if limiter is None:
+            # Read from settings by default, allowing constructor overrides for tests
+            sec_cfg = getattr(settings, "security", None)
+            limiter = RateLimiter(
+                MemoryRateLimitStore(),
+                max_requests=(
+                    max_requests
+                    if max_requests is not None
+                    else getattr(sec_cfg, "rate_limit_requests", 60)
+                ),
+                window_seconds=(
+                    window_seconds
+                    if window_seconds is not None
+                    else getattr(sec_cfg, "rate_limit_window", 60)
+                ),
+                enabled=(
+                    enabled
+                    if enabled is not None
+                    else getattr(sec_cfg, "enable_rate_limiting", True)
+                ),
+                exempt_paths=exempt_paths or self.DEFAULT_EXEMPT_PATHS,
+            )
+        self.limiter = limiter
 
-    def _get_client_id(self, request: Request) -> str:
-        """Extract client identifier from request headers or remote host."""
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        client = request.client
-        return client.host if client else "unknown"
+    @property
+    def enabled(self) -> bool:
+        return self.limiter.enabled
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        if not self.enabled:
-            return await call_next(request)
+    @property
+    def max_requests(self) -> int:
+        return self.limiter.max_requests
 
-        # Bypass rate limits for health checks and documentation endpoints
-        path = request.url.path.rstrip("/") or "/"
-        if path in self.exempt_paths:
-            return await call_next(request)
+    @property
+    def window_seconds(self) -> int:
+        return self.limiter.window_seconds
 
-        now = time.time()
-        client_id = self._get_client_id(request)
-        cutoff = now - self.window_seconds
+    @property
+    def exempt_paths(self) -> frozenset[str]:
+        return self.limiter.exempt_paths
 
-        with self._lock:
-            # Prune expired timestamps
-            timestamps = self._client_records[client_id]
-            self._client_records[client_id] = [t for t in timestamps if t > cutoff]
-            timestamps = self._client_records[client_id]
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        limiter = self.limiter
+        if (
+            scope["type"] != "http"
+            or not limiter.enabled
+            or limiter.is_exempt(scope.get("path", ""))
+        ):
+            await self.app(scope, receive, send)
+            return
 
-            if len(timestamps) >= self.max_requests:
-                earliest = timestamps[0]
-                retry_after = max(1, int(self.window_seconds - (now - earliest)))
-                logger.warning(
-                    f"Rate limit exceeded for client {client_id} on {request.url.path}. "
-                    f"Limit: {self.max_requests} req / {self.window_seconds}s. Retry after: {retry_after}s"
-                )
-                # Best-effort metric recording
-                try:
-                    from ragbot.outputs.metrics import metrics_manager
-                    metrics_manager.record_rate_limit_hit(user_id=hash(client_id) % 100000)
-                except Exception:
-                    pass
+        state: dict[str, Any] = scope.setdefault("state", {})
+        state[LIMITER_STATE_KEY] = limiter
+        request_headers = Headers(scope=scope)
+        if not any(request_headers.get(name) for name in CREDENTIAL_HEADERS):
+            client = scope.get("client")
+            decision = await limiter.hit(address_subject(client[0] if client else None))
+            state[COUNTED_STATE_KEY] = True
+            state[DECISION_STATE_KEY] = decision
+            if not decision.allowed:
+                await rate_limit_response(decision)(scope, receive, send)
+                return
 
-                return JSONResponse(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    content={
-                        "detail": "Rate limit exceeded. Please retry later.",
-                        "retry_after": retry_after,
-                    },
-                    headers={
-                        "Retry-After": str(retry_after),
-                        "X-RateLimit-Limit": str(self.max_requests),
-                        "X-RateLimit-Remaining": "0",
-                        "X-RateLimit-Reset": str(int(earliest + self.window_seconds)),
-                    },
-                )
+        async def send_with_rate_limit_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                decision = state.get(DECISION_STATE_KEY)
+                if decision is not None:
+                    message.setdefault("headers", [])
+                    headers = MutableHeaders(scope=message)
+                    if "x-ratelimit-limit" not in headers:
+                        for name, value in rate_limit_headers(decision).items():
+                            if name.lower() not in headers:
+                                headers[name] = value
+            await send(message)
 
-            # Record this request
-            timestamps.append(now)
-            remaining = max(0, self.max_requests - len(timestamps))
-            reset_time = int(now + self.window_seconds)
-
-        response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(self.max_requests)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset"] = str(reset_time)
-        return response
+        await self.app(scope, receive, send_with_rate_limit_headers)

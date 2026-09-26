@@ -37,6 +37,7 @@ class TestApplicationEntrypoints:
             port=8000,
             reload=False,
             workers=1,
+            proxy_headers=False,
         )
 
     @patch("uvicorn.run")
@@ -55,6 +56,7 @@ class TestApplicationEntrypoints:
             port=9090,
             reload=False,
             workers=4,
+            proxy_headers=False,
         )
 
     @patch("uvicorn.run")
@@ -71,6 +73,7 @@ class TestApplicationEntrypoints:
             port=8000,
             reload=True,
             workers=1,
+            proxy_headers=False,
         )
 
     @patch("uvicorn.run", side_effect=KeyboardInterrupt)

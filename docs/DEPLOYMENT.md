@@ -17,7 +17,8 @@ This guide covers deploying the RAGBot API backend across development, staging, 
          ASGI Application Server (Uvicorn)
          - Process Manager / Multiple Workers
          - FastAPI Application Instance
-         - In-Memory Sliding-Window Rate Limiting
+         - Edge protection: trusted proxies, CORS allowlist,
+           rate limits, request size limit
                        ↓
          Persistent Storage & Databases
          - ./data/vector_store (FAISS index files)
@@ -67,6 +68,10 @@ VECTOR_STORE_PERSIST_PATH=./data/vector_store
 SECURITY_RATE_LIMIT_REQUESTS=60
 SECURITY_RATE_LIMIT_WINDOW=60
 SECURITY_MAX_FILE_SIZE_MB=50
+# Edge protection (docs/features/edge-protection/README.md)
+SECURITY_TRUSTED_PROXIES=127.0.0.1
+SECURITY_RATE_LIMIT_STORAGE_URL=redis://localhost:6379/1
+SECURITY_CORS_ALLOWED_ORIGINS=https://app.example.com
 
 # Caching & Redis (Optional)
 ENABLE_REDIS=false
@@ -93,9 +98,10 @@ uvicorn ragbot.api.app:app \
   --port 8000 \
   --workers 4 \
   --access-log \
-  --proxy-headers \
-  --forwarded-allow-ips='*'
+  --no-proxy-headers
 ```
+
+> **Edge protection:** the application trusts forwarded headers only from the proxies listed in `SECURITY_TRUSTED_PROXIES` (for Nginx on the same host, `127.0.0.1`). Always start uvicorn with `--no-proxy-headers`, and never use `--forwarded-allow-ips='*'`: it lets every client choose its own address. `python main.py` and the Docker image already turn off uvicorn proxy headers.
 
 ### Systemd Service Configuration (`ragbot.service`)
 
@@ -111,7 +117,7 @@ User=ragbot
 Group=ragbot
 WorkingDirectory=/opt/ragbot
 EnvironmentFile=/opt/ragbot/.env
-ExecStart=/opt/ragbot/venv/bin/uvicorn ragbot.api.app:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
+ExecStart=/opt/ragbot/venv/bin/uvicorn ragbot.api.app:app --host 0.0.0.0 --port 8000 --workers 4 --no-proxy-headers
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
@@ -173,6 +179,8 @@ server {
     }
 }
 ```
+
+With this Nginx setup, set `SECURITY_TRUSTED_PROXIES=127.0.0.1` so that the service uses the client address that Nginx reports. Keep `client_max_body_size` a little above `SECURITY_MAX_FILE_SIZE_MB` (60M for 50 MB). If the service runs in a container behind a proxy container, trust only the proxy container's own address, and do not publish port 8000 on the host.
 
 ---
 
@@ -236,9 +244,8 @@ services:
 
 ## 6. Known Production Boundaries & Limitations
 
-1. **Process-Local Rate Limiting**:
-   The built-in sliding-window rate limiter tracks requests in memory within each Uvicorn process. When running multiple worker processes (e.g. `--workers 4`), the effective request quota is applied per worker rather than globally across all workers.
-   - *Mitigation for large-scale distributed deployments*: Implement rate limiting at the API gateway / Nginx layer or activate distributed Redis rate limiting.
+1. **Rate Limiting Across Workers and Instances**:
+   Without `SECURITY_RATE_LIMIT_STORAGE_URL`, each Uvicorn worker process counts requests on its own, so `--workers 4` allows four times the configured limit. Set `SECURITY_RATE_LIMIT_STORAGE_URL=redis://...` to share one count across all workers and instances. If Redis is unavailable, each instance counts on its own until Redis recovers, and a warning is logged.
 2. **FAISS Concurrency Model**:
    `FAISSVectorStore` handles thread-safe and async-safe concurrent access via an in-process class-level `async_lock`. It is ideal for single-node deployments. If horizontal multi-server autoscaling is needed, use a dedicated vector database server such as **Qdrant**.
 3. **Hardware Isolation in CI/CD**:

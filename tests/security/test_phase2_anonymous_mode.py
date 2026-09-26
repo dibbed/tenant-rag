@@ -15,6 +15,7 @@ mode.
 from __future__ import annotations
 
 import io
+import sys
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -194,6 +195,8 @@ def test_multi_tenant_mode_is_reported_as_authenticated(production_defaults):
 
 
 def test_create_app_reports_access_mode_at_startup():
-    with patch("ragbot.api.app.log_access_mode_warnings") as reporter:
+    # On Python 3.10, patch("ragbot.api.app.<name>") resolves ragbot.api.app to
+    # the FastAPI instance that ragbot.api exports, so patch the module itself.
+    with patch.object(sys.modules["ragbot.api.app"], "log_access_mode_warnings") as reporter:
         create_app(lifespan_context=None)
     reporter.assert_called_once()

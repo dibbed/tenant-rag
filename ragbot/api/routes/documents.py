@@ -29,6 +29,10 @@ from ragbot.services.rag_service import IngestResult, RAGService
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Documents"])
 
+# Security (C11): uploads are copied to disk in chunks of this size, so an
+# upload is never held in memory as a whole.
+UPLOAD_CHUNK_SIZE = 1024 * 1024
+
 
 @router.post("/upload", response_model=IngestResponse)
 async def upload_document(
@@ -60,29 +64,44 @@ async def upload_document(
             detail=f"Unsupported file format '{ext}'. Allowed: {', '.join(allowed_types)}",
         )
 
-    # Read content with size and empty checks
+    # Security (C11): the upload is never read into memory as a whole.
+    # BodySizeLimitMiddleware has already refused request bodies above the
+    # Upload Size Limit. Here the file is copied to disk in bounded chunks and
+    # the exact file size limit is applied.
     max_mb = getattr(settings.security, "max_file_size_mb", 50)
     max_bytes = max_mb * 1024 * 1024
+    too_large_detail = f"File exceeds maximum allowed size of {max_mb}MB"
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file is empty",
-        )
-
-    if len(content) > max_bytes:
+    declared_size = getattr(file, "size", None)
+    if isinstance(declared_size, int) and declared_size > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds maximum allowed size of {max_mb}MB",
+            detail=too_large_detail,
         )
 
     # Write to temporary file with appropriate suffix
     temp_path: Path | None = None
     try:
+        file_size = 0
         with tempfile.NamedTemporaryFile(suffix=suffix or ".pdf", delete=False) as tmp:
-            tmp.write(content)
             temp_path = Path(tmp.name)
+            while True:
+                chunk = await file.read(UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > max_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=too_large_detail,
+                    )
+                tmp.write(chunk)
+
+        if file_size == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
 
         result: IngestResult = await rag_service.ingest_document(
             source=str(temp_path),
@@ -91,7 +110,7 @@ async def upload_document(
                 "source": filename,
                 "file_name": filename,
                 "original_filename": filename,
-                "file_size": len(content),
+                "file_size": file_size,
             },
             tenant_id=tenant_id,
         )
@@ -177,10 +196,12 @@ async def ingest_text(
             detail="Text content cannot be empty",
         )
 
-    # Validate maximum text payload size to prevent memory exhaustion DoS
+    # Validate maximum text payload size to prevent memory exhaustion DoS.
+    # Security (C11): the limit counts UTF-8 bytes, not characters.
+    # BodySizeLimitMiddleware has already applied it to the request body.
     max_mb = getattr(settings.security, "max_file_size_mb", 50)
-    max_chars = max_mb * 1024 * 1024
-    if len(text) > max_chars:
+    max_bytes = max_mb * 1024 * 1024
+    if len(text.encode("utf-8")) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Text content exceeds maximum allowed size of {max_mb}MB",

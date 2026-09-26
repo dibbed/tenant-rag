@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from ragbot.api.access_mode import ANONYMOUS_DISABLED_DETAIL, anonymous_access_allowed
+from ragbot.api.edge.rate_limiter import count_request, count_unauthenticated_request
 from ragbot.configs.settings import settings
 from ragbot.multi_tenant.api_key_hashing import LEGACY_API_KEY_ERROR
 from ragbot.multi_tenant.authorization import (
@@ -68,6 +69,9 @@ async def get_current_principal(
     if not _multi_tenant_enabled():
         if anonymous_access_allowed():
             return None
+        # Security (C9): a rejected request still counts against the Client
+        # Address. Over the limit, the caller gets 429 instead of 401.
+        await count_unauthenticated_request(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ANONYMOUS_DISABLED_DETAIL,
@@ -86,6 +90,7 @@ async def get_current_principal(
                 credential = parts[0].strip()
 
     if not credential:
+        await count_unauthenticated_request(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication credentials required",
@@ -113,6 +118,8 @@ async def get_current_principal(
             if error_msg == LEGACY_API_KEY_ERROR
             else "Invalid, expired, or revoked authentication credentials"
         )
+        # Security (C9): failed attempts count against the Client Address.
+        await count_unauthenticated_request(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=detail,
@@ -120,6 +127,22 @@ async def get_current_principal(
         )
 
     return principal
+
+
+async def enforce_rate_limit(
+    request: Request,
+    principal: AuthenticatedPrincipal | None = Depends(get_current_principal),
+) -> None:
+    """Count the request against its Rate Limit Subject (Security C9).
+
+    Router dependency of every API router except health. It runs after
+    authentication: an authenticated request counts against its Principal,
+    and a request without a Principal (anonymous development mode) counts
+    against its Client Address. A request that RateLimitMiddleware already
+    counted before the body was read is not counted again. Over the limit,
+    the request is refused with HTTP 429.
+    """
+    await count_request(request, principal)
 
 
 async def get_authorized_tenant_context(

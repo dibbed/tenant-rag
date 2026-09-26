@@ -10,8 +10,16 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from ragbot.api.middleware.rate_limit import RateLimitMiddleware
 from ragbot.api.access_mode import log_access_mode_warnings
+from ragbot.api.edge.config import (
+    build_rate_limiter,
+    load_edge_config,
+    log_edge_protection_mode,
+)
+from ragbot.api.edge.rate_limiter import RateLimitExceeded, rate_limit_exceeded_handler
+from ragbot.api.middleware.body_size_limit import BodySizeLimitMiddleware
+from ragbot.api.middleware.rate_limit import RateLimitMiddleware
+from ragbot.api.middleware.trusted_proxy import TrustedProxyMiddleware
 from ragbot.api.routes import router as api_router
 from ragbot.outputs.logger import logger
 from ragbot.services.integration_service import (
@@ -57,9 +65,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.integration_service = None
         app.state.rag_service = None
 
+    # Security (C9): delete expired rate limit records even when no request
+    # arrives, and release the shared rate limit store on shutdown.
+    rate_limiter = getattr(app.state, "rate_limiter", None)
+    if rate_limiter is not None:
+        rate_limiter.start_background_sweep()
+
     yield
 
     logger.info("Shutting down RAGBot API application services...")
+    if rate_limiter is not None:
+        await rate_limiter.aclose()
     try:
         # Gracefully stop active plugins
         if app.state.rag_service and getattr(
@@ -94,17 +110,28 @@ def create_app(lifespan_context: Any = lifespan) -> FastAPI:
         lifespan=lifespan_context,
     )
 
-    # CORS configuration for web frontend clients
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Security (C9, C10, C11): edge protection settings. An invalid trusted
+    # proxy entry, an invalid origin, or SECURITY_CORS_ALLOWED_ORIGINS='*'
+    # outside ENVIRONMENT=development stops startup here.
+    edge_config = load_edge_config()
+    rate_limiter = build_rate_limiter(edge_config)
+    app.state.edge_config = edge_config
+    app.state.rate_limiter = rate_limiter
 
-    # In-memory sliding-window rate limiting for abuse prevention
-    app.add_middleware(RateLimitMiddleware)
+    # Middleware, outermost first:
+    #   TrustedProxyMiddleware   sets the Client Address (SECURITY_TRUSTED_PROXIES)
+    #   CORSMiddleware           answers preflights; CORS headers on every response
+    #   RateLimitMiddleware      counts requests without credentials before the body
+    #   BodySizeLimitMiddleware  rejects oversized bodies before and while reading
+    # Starlette runs the middleware added last first, so they are added in
+    # reverse order.
+    app.add_middleware(BodySizeLimitMiddleware)
+    app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
+    app.add_middleware(CORSMiddleware, **edge_config.cors.middleware_options())
+    app.add_middleware(TrustedProxyMiddleware, trusted_proxies=edge_config.trusted_proxies)
+
+    # Requests refused after authentication get the same 429 body as the others
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
     # Global unhandled exception handler to prevent leaking internal tracebacks
     @app.exception_handler(Exception)
@@ -122,6 +149,9 @@ def create_app(lifespan_context: Any = lifespan) -> FastAPI:
 
     # Security (C5): report the effective authentication mode at startup.
     log_access_mode_warnings()
+
+    # Security (C9, C10, C11): report the effective edge protection settings.
+    log_edge_protection_mode(edge_config)
 
     # Include API routes
     app.include_router(api_router)

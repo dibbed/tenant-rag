@@ -4,6 +4,8 @@ This document defines the security model, tenant boundaries, credential storage,
 
 > **Phase 2 security hardening** (findings C1 to C6 in `docs/BASELINE_AUDIT.md`) changed the API key format, the authorization levels, the default authentication mode, the handling of tenant storage failures, and URL ingestion. Read section 2.4, "API key migration", before you upgrade.
 
+> **Phase 3 edge protection** (findings C9 to C11) changed how callers are identified for rate limiting, which browser origins may call the API, and how request sizes are checked. Read section 6, "Edge Protection", and the migration notes in `docs/features/edge-protection/README.md` before you upgrade.
+
 ---
 
 ## 1. Security Architecture Principles
@@ -14,6 +16,9 @@ This document defines the security model, tenant boundaries, credential storage,
 | Authorization | Levels come from the user role: `system_admin`, `tenant_admin`, user. Requests cannot access or change tenants they do not own. |
 | Storage isolation | One vector store partition per tenant (directory or collection). A partition that cannot be opened fails closed; there is no fallback to a shared store. |
 | Outbound requests | URL ingestion blocks internal, private, link-local and cloud metadata targets, on every redirect hop and at DNS resolution time. |
+| Rate limiting | Counted per Principal after authentication, otherwise per Client Address. Forwarded headers count only from configured trusted proxies. Optional shared Redis store with an explicit per-instance fallback. |
+| Browser access (CORS) | No origin allowed by default. Explicit allowlist; `*` only in development and without credentials. |
+| Request size | Bodies above `SECURITY_MAX_FILE_SIZE_MB` are refused before or while they are read; uploads are copied to disk in chunks. |
 | Encryption at rest | Host-level responsibility. Vector stores are not encrypted per tenant on disk. |
 
 ---
@@ -140,18 +145,55 @@ Other outbound requests were audited and are not client-controlled: provider hea
 
 ---
 
-## 6. Known Security & Architectural Limitations
+## 6. Edge Protection (Rate Limiting, CORS, Request Size)
+
+Phase 3 hardening for audit findings C9, C10 and C11. Configuration, migration notes and deployment requirements: `docs/features/edge-protection/README.md`.
+
+### 6.1 Client address and trusted proxies
+
+- The Client Address is the TCP peer of the connection. `X-Forwarded-For`, `X-Real-IP`, `Forwarded`, `CF-Connecting-IP`, `True-Client-IP` and similar headers are ignored.
+- `SECURITY_TRUSTED_PROXIES` lists reverse proxies (IP addresses or CIDR networks). It is empty by default. Only when the TCP peer is listed does the service read `X-Forwarded-For`, from right to left, and use the first address that is not a listed proxy. Entries that are not IP addresses are never used.
+- An invalid entry or a catch-all entry (`*`, `0.0.0.0/0`, `::/0`) stops startup. Networks wider than /16 (IPv4) or /48 (IPv6) log a warning.
+- `python main.py` and the Docker image start uvicorn with `proxy_headers=False`, so uvicorn does not rewrite the client address. Start uvicorn directly only with `--no-proxy-headers`, and never with `--forwarded-allow-ips='*'`.
+
+### 6.2 Rate limiting
+
+- A request without credentials counts against its Client Address before its body is read. A request with a credential counts after authentication: against its Principal (`principal:<tenant_id>:<principal_id>`) when the credential is valid, and against its Client Address when it is not. Each request counts once.
+- IPv6 Client Addresses share one counter per /64 network.
+- Over the limit, the service answers `HTTP 429` with `Retry-After`, `retry_after` in the body and the `X-RateLimit-*` headers. Health checks and documentation are never counted.
+- Limits: `SECURITY_RATE_LIMIT_REQUESTS` (default 10) requests per `SECURITY_RATE_LIMIT_WINDOW` (default 60) seconds.
+- Without `SECURITY_RATE_LIMIT_STORAGE_URL`, each instance and each worker process counts on its own, and the startup log says so. With a `redis://` or `rediss://` URL, all instances share one count. If Redis fails or is slow, requests are counted per instance (never allowed without counting), one warning is logged per outage, and Redis is tried again after 30 seconds.
+- Records are deleted when their window has passed. Redis keys hold a SHA-256 digest of the subject, not the address or the principal id.
+
+### 6.3 Browser access (CORS)
+
+- `SECURITY_CORS_ALLOWED_ORIGINS` is empty by default: no origin may call the API from a browser.
+- Each entry must be an origin, for example `https://app.example.com` or `http://localhost:3000`. Entries with a path, user information or wildcard, and `null`, stop startup.
+- `*` allows every origin without credentials and is accepted only with `ENVIRONMENT=development`. With any other `ENVIRONMENT` value, or none, it stops startup, so production must list its origins.
+- Listed origins may send credentials. Allowed methods: `GET`, `POST`. Allowed request headers: `Authorization`, `Content-Type`, `X-API-Key`, `X-Tenant-ID`. Browser code can read `Retry-After` and `X-RateLimit-*`.
+- CORS limits what a browser may read. It does not replace authentication.
+
+### 6.4 Request size
+
+- Every request body is limited to `SECURITY_MAX_FILE_SIZE_MB` (default 50) plus 64 KiB for multipart framing.
+- A declared `Content-Length` above the limit is refused with `HTTP 413` before the body is read. A body that passes the limit while it is received is cut off and refused with `HTTP 413`. An invalid `Content-Length` gets `HTTP 400`.
+- The upload route copies the file to disk in 1 MiB chunks and applies the exact file limit. The text route counts UTF-8 bytes.
+- Every 413 states the limit. A refused upload keeps nothing: ingestion does not run and temporary files are removed.
+
+---
+
+## 7. Known Security & Architectural Limitations
 
 1. **Single-node focus:** SQLite and FAISS are designed for single-node deployments. For scale-out, use a centralized vector store (Qdrant) and external database configuration.
 2. **In-process state:** user sessions and the key verification cache are per process. Sessions do not survive restarts and are not shared between workers.
-3. **Rate limiting:** the rate limiter is in memory and per process, and it trusts the `X-Forwarded-For` header. Run the service behind a proxy that overwrites this header. (Audit finding C9, not yet fixed.)
-4. **CORS:** the API allows all origins with credentials. Restrict origins at the proxy until this is configurable. (Audit finding C10, not yet fixed.)
+3. **Rate limiting:** without `SECURITY_RATE_LIMIT_STORAGE_URL`, each instance and worker process counts on its own, and during a shared store outage the effective limit is multiplied by the number of instances. A request with a credential is counted only after its body has been received (bounded by the request size limit). A failed credential check runs scrypt before it is counted.
+4. **Request parsing:** the pinned Starlette version keeps multipart fields without a file name in memory (CVE-2024-47874); the request size limit bounds this. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is not bounded by the upload limit.
 5. **In-process plugins:** plugins run in-process. Exceptions are contained, but a faulty plugin can block the event loop or use too much CPU or memory. Do not install untrusted plugins.
 6. **Encryption at rest:** documents and embeddings are stored on disk in plaintext or pickle format. Production deployments must use full-disk or volume encryption (for example LUKS, BitLocker, or cloud volume encryption).
 
 ---
 
-## 7. Security Reporting & Vulnerability Disclosure
+## 8. Security Reporting & Vulnerability Disclosure
 
 If you discover a potential security vulnerability in TenantRAG:
 

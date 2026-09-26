@@ -77,9 +77,12 @@ TenantRAG implements a multi-tier cache to avoid redundant embedding generation 
 
 | Environment Variable | Type | Default | Description |
 |:---|:---|:---|:---|
-| `SECURITY_RATE_LIMIT_REQUESTS` | `integer` | `60` | Maximum requests permitted within the sliding window per IP. |
+| `SECURITY_RATE_LIMIT_REQUESTS` | `integer` | `10` | Maximum requests per Rate Limit Subject (authenticated principal, otherwise client address) within the sliding window. |
 | `SECURITY_RATE_LIMIT_WINDOW` | `integer` | `60` | Duration of the sliding window (in seconds). |
-| `SECURITY_MAX_FILE_SIZE_MB` | `integer` | `50` | Maximum permitted file upload and text ingest size (in MB). |
+| `SECURITY_RATE_LIMIT_STORAGE_URL` | `string` | `""` | `redis://` or `rediss://` URL of a shared rate limit store. Empty: each instance and worker process counts on its own. |
+| `SECURITY_TRUSTED_PROXIES` | `string` | `""` | Comma-separated IP addresses or CIDR networks of reverse proxies whose `X-Forwarded-For` header is trusted. Empty: forwarded headers are ignored. |
+| `SECURITY_CORS_ALLOWED_ORIGINS` | `string` | `""` | Comma-separated browser origins allowed to call the API. Empty: none. `*` only with `ENVIRONMENT=development`. |
+| `SECURITY_MAX_FILE_SIZE_MB` | `integer` | `50` | Maximum upload and text size (in MB). Every request body is limited to this size plus 64 KiB. |
 | `SECURITY_ALLOWED_FILE_TYPES` | `list` | `["pdf","docx","txt","html","md","pptx","xlsx","png","jpg","jpeg","tiff","bmp"]` | Allowed document file extensions. |
 
 ---

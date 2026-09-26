@@ -62,6 +62,9 @@ def main() -> None:
             port=args.port,
             reload=args.reload,
             workers=args.workers if not args.reload else 1,
+            # Security (C9): only TrustedProxyMiddleware (SECURITY_TRUSTED_PROXIES)
+            # may trust forwarded headers, so uvicorn must not rewrite the client.
+            proxy_headers=False,
         )
     except KeyboardInterrupt:
         logger.info("RAGBot API server stopped by user")
