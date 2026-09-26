@@ -1,0 +1,66 @@
+# Temporary workspace for Phase 3.5 (security hardening cleanup).
+# It exists only on the tmp/p35-workspace branch and is deleted at the end of the phase.
+name: P35 workspace (temporary)
+
+on:
+  push:
+    branches: [tmp/p35-workspace]
+
+permissions:
+  contents: write
+  actions: read
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: p35-workspace
+  cancel-in-progress: false
+
+env:
+  CUDA_VISIBLE_DEVICES: ""
+  TORCH_DEVICE: "cpu"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  task:
+    name: Workspace task
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Check out the workspace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: ws
+          persist-credentials: false
+      - name: Set up Python 3.10, 3.11 and 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: |
+            3.10
+            3.11
+            3.12
+      - name: Run the task
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_REDIS_URL: redis://localhost:6379/15
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/results"
+          rc=0
+          bash ws/.p35/task.sh > "$GITHUB_WORKSPACE/results/task.log" 2>&1 || rc=$?
+          echo "task_exit=$rc" >> "$GITHUB_WORKSPACE/results/task.log"
+      - name: Publish the results
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ws/.p35/publish.sh "$GITHUB_WORKSPACE/results"
