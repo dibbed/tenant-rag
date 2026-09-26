@@ -1,0 +1,73 @@
+   123	| aiohttp | 3.9.5 | 3.14.3 | GHSA-6mq8-rvhq-8wgg, GHSA-cq5v-8q36-5273 |
+   124	| cryptography | 42.0.8 | 50.0.1 | GHSA-537c-gmf6-5ccf, GHSA-r6ph-v2qm-q3c2, GHSA-jwv3-5hgf-82ww |
+   125	| pyjwt | 2.8.0 | 2.15.0 | GHSA-752w-5fwx-jx9f, GHSA-xgmm-8j9v-c9wx, PYSEC-2025-183 |
+   126	| orjson | 3.10.5 | 3.12.0 | GHSA-hx9q-6w63-j58v |
+   127	| Pillow | 10.4.0 | 12.3.0 | 13 HIGH advisories |
+   128	| pypdf | 4.2.0 | 6.19.0 | GHSA-5xf7-4p34-54qr, GHSA-g867-7843-wf8q |
+   129	| torch | 2.8.0 | 2.14.0 | PYSEC-2025-203, PYSEC-2025-204, PYSEC-2026-139, GHSA-63cw-57p8-fm3p |
+   130	| transformers, sentence-transformers, huggingface_hub, tokenizers | 4.56.2, 5.1.1, <1.0, <=0.23.0 | 5.17.0, 6.1.0, >=1.5,<2.0, >=0.23.1,<0.24 | 8 HIGH advisories in transformers 4.x, 5 of them without a fix in 4.x. The other packages follow the transformers 5 requirements. |
+   131	| mkdocs-material | 9.5.27 | 9.7.7 | Allows pymdown-extensions with the fix for GHSA-gm37-52c6-37mw |
+   132	| requests, accelerate | 2.32.3, 1.10.1 | 2.34.2, 1.15.0 | MODERATE advisories |
+   133	
+   134	Test changes that the remediation needed:
+   135	
+   136	- aioresponses 0.7.9, the latest release, builds aiohttp responses without the `stream_writer` argument that aiohttp 3.14 requires (aio-libs/aiohttp#12815). `tests/conftest.py` gives this argument a default for the responses that aioresponses creates. Application code is not changed.
+   137	- Seven tests create a `chroma` store through `VectorStoreFactory` with a mocked Chroma class. The factory uses the class only when chromadb can be imported, so these tests now skip when chromadb is not installed. Install the `vectorstores` extra to run them.
+   138	
+   139	## Container Build Check
+   140	
+   141	`scripts/verification/container_check.py --build` does these steps:
+   142	
+   143	1. **build:** `docker build` of the repository `Dockerfile`.
+   144	2. **start:** `docker run` with no environment variables, so the image defaults apply: production mode, no credentials, no LLM key. The port is published only on `127.0.0.1:18000`.
+   145	3. **ready:** poll `GET /health` until HTTP 200, for at most 300 seconds. The check stops at once when the container exits.
+   146	4. **health:** `GET /health` and `GET /api/v1/health` answer HTTP 200 with a `status` field, and the image HEALTHCHECK reports `healthy` within 180 seconds. An image without a HEALTHCHECK fails.
+   147	5. **auth:** `POST /api/v1/query` and `POST /api/v1/documents/reset` without credentials must answer HTTP 401.
+   148	6. **user:** the effective UID of process 1 and of every other process in the container must not be 0. The image runs as `appuser` (UID 10001).
+   149	
+   150	The container is removed at the end, also after a failure. A second workflow step with `if: always()` removes every container with the label `tenant-rag-verification`. A failed check shows the failed step, the reason and the last 150 lines of the container log.
+   151	
+   152	## Verification Summary
+   153	
+   154	The `Verification Summary` job runs after all other checks, also when one of them fails. It writes a table (Check, Mode, Result, Findings/Details) to the job summary of the workflow run. Sections follow for failed Blocking Checks, the Security Regression Suite (manifest changes, failed and skipped tests), the Dependency Vulnerability Check (blocking advisories, accepted exceptions, non-blocking advisories), the Container Build Check (step results, runtime user, container log on failure) and the static analysis. A notice annotation gives the overall result.
+   155	
+   156	Each check also uploads its JSON report as an artifact named `verification-*`. GitHub keeps the artifacts for 14 days.
+   157	
+   158	## Run the checks locally
+   159	
+   160	```bash
+   161	make verify             # every check; the container check needs Docker
+   162	make verify-tests       # full test suite
+   163	make verify-security    # Security Regression Suite
+   164	make verify-static      # Ruff, MyPy and Bandit (report-only)
+   165	make verify-deps        # Dependency Vulnerability Check
+   166	make verify-container   # Container Build Check
+   167	make security-manifest  # update the manifest after a security test change
+   168	```
+   169	
+   170	The targets call `bash scripts/verify_pipeline.sh CHECK ...`, which uses the same tools and policies as CI. The Redis tests of the Security Regression Suite need a Redis server and `TEST_REDIS_URL=redis://localhost:6379/15`; without them these tests are skipped, and the suite fails. The reports and the summary go to `$TMPDIR/tenant-rag-verification-<timestamp>` (set `VERIFY_OUT_DIR` to change it). Set `PYTHON` to choose the interpreter.
+   171	
+   172	## Troubleshooting
+   173	
+   174	| Result | What to do |
+   175	|---|---|
+   176	| Security Regression Suite: security test(s) skipped | Find the skip reason in the job log or the Verification Summary. Provide the missing service or setting. Do not add `skip` or `xfail` to a security test. |
+   177	| Security Regression Suite: tests not in the manifest | Run `make security-manifest` and commit the manifest. |
+   178	| Security Regression Suite: tests missing | A security test was removed or renamed. Restore it, or update the manifest and explain the removal in the pull request. |
+   179	| Dependency Vulnerability Check: blocking advisory | Upgrade the package to a fixed version. If there is no fix, remove the package or move it out of the default installation. An accepted exception is the last option. |
+   180	| Dependency Vulnerability Check: error, OSV lookup failed | A network problem. Run the job again. |
+   181	| Container Build Check: ready or health failed | Read the container log in the job log or the Verification Summary. |
+   182	| Verification Summary: no report | The job of that check did not write a report. Open that job. |
+   183	
+   184	## Files
+   185	
+   186	- `.github/workflows/ci.yml`: the workflow
+   187	- `scripts/verification/run_suite.py` and `scripts/verification/pytest_plugin/verification_outcomes.py`: test suite runner, Security Regression Suite gate and manifest handling
+   188	- `scripts/verification/static_analysis.py`: Ruff, MyPy and Bandit checks
+   189	- `scripts/verification/dependency_audit.py` and `scripts/verification/requirements-audit.txt`: Dependency Vulnerability Check
+   190	- `scripts/verification/container_check.py`: Container Build Check
+   191	- `scripts/verification/summary.py`: Verification Summary
+   192	- `scripts/verify_pipeline.sh` and the `verify*` targets of the `Makefile`: local runs
+   193	- `tests/security/suite_manifest.json`: security test list
+   194	- `.github/dependency-audit-exceptions.json`: accepted exceptions
+   195	- `tests/verification/`: tests of the pipeline tools

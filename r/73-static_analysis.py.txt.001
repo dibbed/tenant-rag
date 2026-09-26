@@ -1,0 +1,74 @@
+   244	    title = f"{report['title']} ({report['mode']})"
+   245	    lines = [report["summary"], *report.get("problems", [])]
+   246	    if report["mode"] == "report-only" and report["status"] != "error":
+   247	        lines.append("Report-Only Check: the findings do not block a merge.")
+   248	    print(f"::{level} title={_escape_property(title)}::{_escape_data(chr(10).join(lines))}", flush=True)
+   249	    for item in report.get("annotations", []):
+   250	        print(
+   251	            f"::{level} file={_escape_property(item['file'])},line={item['line']},"
+   252	            f"title={_escape_property(item['title'])}::{_escape_data(item['message'])}",
+   253	            flush=True,
+   254	        )
+   255	
+   256	
+   257	def print_report(report: dict[str, Any]) -> None:
+   258	    print()
+   259	    print(f"== {report['title']} ({report['mode']}): {report['status'].upper()} ==")
+   260	    print(f"{report.get('tool_version')}: {report['summary']}")
+   261	    for problem in report.get("problems", []):
+   262	        print(f"- {problem}")
+   263	    details = report.get("details") or {}
+   264	    for key in ("by_code", "by_severity", "by_test"):
+   265	        if details.get(key):
+   266	            print(f"{key}:")
+   267	            for name, number in list(details[key].items())[:25]:
+   268	                print(f"  {number:6d}  {name}")
+   269	    for item in details.get("high_and_medium", []):
+   270	        print(f"  {item['severity']:<6} {item['test']} {item['file']}:{item['line']} {item['issue']}")
+   271	    for warning in report.get("warnings", []):
+   272	        print(f"warning: {warning}")
+   273	
+   274	
+   275	def print_pins(tools: list[str], root: Path = ROOT) -> int:
+   276	    """Print the pinned requirement of each tool from the dev extra of pyproject.toml."""
+   277	    if sys.version_info >= (3, 11):
+   278	        import tomllib
+   279	    else:  # Python 3.10: tomli is installed with pytest
+   280	        import tomli as tomllib
+   281	    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+   282	    dev = data.get("project", {}).get("optional-dependencies", {}).get("dev", [])
+   283	    for tool in tools:
+   284	        pattern = re.compile(rf"^{re.escape(tool)}\s*==\s*[\w.]+$", re.IGNORECASE)
+   285	        matches = [requirement.strip() for requirement in dev if pattern.match(requirement.strip())]
+   286	        if len(matches) != 1:
+   287	            print(f"error: the dev extra of pyproject.toml has no exact pin for {tool}", file=sys.stderr)
+   288	            return 2
+   289	        print(matches[0])
+   290	    return 0
+   291	
+   292	
+   293	def main(argv: list[str] | None = None) -> int:
+   294	    parser = argparse.ArgumentParser(
+   295	        description="Run one Static Analysis Check (Ruff, MyPy or Bandit) and write its report."
+   296	    )
+   297	    commands = parser.add_subparsers(dest="command", required=True)
+   298	    for tool, spec in TOOLS.items():
+   299	        command = commands.add_parser(tool, help=spec["title"])
+   300	        command.add_argument("--mode", choices=MODES, default="report-only")
+   301	        command.add_argument("--report", type=Path, help="write the JSON report to this file")
+   302	    pins = commands.add_parser("pins", help="print the pinned tool requirements from pyproject.toml")
+   303	    pins.add_argument("tools", nargs="+", choices=sorted(TOOLS))
+   304	    args = parser.parse_args(argv)
+   305	    if args.command == "pins":
+   306	        return print_pins(args.tools)
+   307	    report = run_check(args.command, args.mode)
+   308	    print_report(report)
+   309	    emit_annotations(report)
+   310	    if args.report is not None:
+   311	        args.report.parent.mkdir(parents=True, exist_ok=True)
+   312	        args.report.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+   313	    return exit_code(report)
+   314	
+   315	
+   316	if __name__ == "__main__":
+   317	    sys.exit(main())

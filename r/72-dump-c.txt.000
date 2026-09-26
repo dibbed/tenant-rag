@@ -1,0 +1,94 @@
+===== lines with trailing whitespace in files to patch (count)
+ragbot/monitoring/alert_manager.py: 0
+ragbot/security/secure_backup.py: 0
+ragbot/rag/store/faiss_store.py: 0
+ragbot/services/document_service.py: 0
+ragbot/caching/base.py: 53
+ragbot/caching/semantic_cache.py: 0
+ragbot/plugins/plugin_marketplace.py: 0
+ragbot/rag/chunkers/semantic_chunker.py: 0
+ragbot/rag/chunkers/token_chunker.py: 0
+ragbot/rag/embeddings/base.py: 0
+ragbot/rag/embeddings/st_embedder.py: 0
+ragbot/main.py: 0
+ragbot/outputs/health_endpoints.py: 0
+scripts/verification/static_analysis.py: 0
+scripts/verification/summary.py: 0
+.github/workflows/ci.yml: 0
+Makefile: 0
+===== paramiko or yaml.load users
+===== docs mentioning requirements files, make lint/security, pip install
+.github/workflows/ci.yml:66:            requirements.txt
+.github/workflows/ci.yml:71:          python -m pip install -r requirements.txt
+.github/workflows/ci.yml:72:          python -m pip install -e ".[dev]"
+.github/workflows/ci.yml:120:            requirements.txt
+.github/workflows/ci.yml:125:          python -m pip install -r requirements.txt
+.github/workflows/ci.yml:126:          python -m pip install -e ".[dev]"
+.github/workflows/ci.yml:180:            requirements.txt
+.github/workflows/ci.yml:186:          python -m pip install -r requirements.txt
+.github/workflows/ci.yml:187:          python -m pip install -e ".[dev]"
+.github/workflows/ci.yml:192:          python scripts/verification/static_analysis.py pins ${{ matrix.tool }} > "$RUNNER_TEMP/tool-requirements.txt"
+.github/workflows/ci.yml:193:          python -m pip install -r "$RUNNER_TEMP/tool-requirements.txt"
+.github/workflows/ci.yml:223:            requirements.txt
+.github/workflows/ci.yml:228:          python -m pip install -r requirements.txt
+.github/workflows/ci.yml:229:          python -m pip install -e ".[dev]"
+.github/workflows/ci.yml:234:          "$RUNNER_TEMP/pip-audit/bin/python" -m pip install -r scripts/verification/requirements-audit.txt
+CHANGELOG.md:44:- **Dependency Decoupling**: Removed `aiogram` dependency from `requirements.txt`, `setup.py`, and `pyproject.toml`. Made `BOT_TOKEN` optional in configuration.
+CONTRIBUTING.md:29:pip install -r requirements.txt
+CONTRIBUTING.md:30:pip install -e ".[dev]"
+CONTRIBUTING.md:60:If you add, rename or remove a security test, run `make security-manifest` and commit `tests/security/suite_manifest.json` with the change. A pull request that removes a security test must explain why. Details: `docs/features/security-verification-pipeline/README.md`.
+Dockerfile:23:COPY requirements.txt ./
+Dockerfile:24:RUN pip install --upgrade pip && pip install -r requirements.txt
+Makefile:15:	@pip install -r requirements.txt
+Makefile:21:	@pip install -r requirements.txt
+Makefile:146:	@pip uninstall -r requirements.txt -y || true
+Makefile:160:	@cat requirements.txt | wc -l
+Makefile:200:	@pip install -r requirements.txt --upgrade
+README.fa.md:35:pip install -r requirements.txt
+README.fa.md:36:pip install -e .
+README.md:30:pip install -r requirements.txt
+README.md:31:pip install -e .
+SECURITY.md:218:- **Dependency Vulnerability Check:** pip-audit with the OSV database audits the default installation (`requirements.txt` and the `dev` extra). An advisory of severity HIGH or CRITICAL, or of unknown severity, fails the check unless an accepted exception with an owner and a review date is recorded in `.github/dependency-audit-exceptions.json`. There are no accepted exceptions.
+docs/BASELINE_AUDIT.md:205:  `pip install -r requirements.txt`, `pip install -e ".[dev]"`, `pytest -v`.
+docs/BASELINE_AUDIT.md:212:  `git`, `curl`, installs `requirements.txt`, copies the repository, runs as
+docs/BASELINE_AUDIT.md:237:| Type checking | Not run | MyPy 1.10.1 with strict options in `pyproject.toml`. Not in CI. `make lint` hides MyPy failures with `|| true`. Error count unknown. |
+docs/BASELINE_AUDIT.md:238:| Security scan | Not run | Bandit 1.7.9 is a dev dependency and in `make security`. Not in CI. |
+docs/BASELINE_AUDIT.md:251:| `pip install -r requirements.txt` | Pass | About 4.07 GB pip cache restored (torch, transformers, chromadb, qdrant-client and others) |
+docs/BASELINE_AUDIT.md:252:| `pip install -e ".[dev]"` | Pass | |
+docs/BASELINE_AUDIT.md:268:| `python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt && python3 -m pip install -e ".[dev]"` | Same install as CI (only with `--install`) |
+docs/BASELINE_AUDIT.md:275:| `python3 -m bandit -q -r ragbot` | Security scan, same scope as `make security` |
+docs/BASELINE_AUDIT.md:317:| C19 | Low | `make lint` hides MyPy failures (`|| true`). `make format` rewrites files; no check-only format target exists. | `Makefile` |
+docs/BASELINE_AUDIT.md:321:| C23 | Medium | Builds are not reproducible. There is no lock file. `requirements.txt` has unpinned `chromadb>=0.5.0`, `qdrant-client>=1.9.0`, and pydantic ranges. `requirements.txt` and `pyproject.toml` list different dependency sets. The run before the baseline failed on dependency resolution (3.12) and tests (3.10). | `requirements.txt`, `pyproject.toml`, CI run 36145575750 |
+docs/BASELINE_AUDIT.md:328:| C25 | Medium | The production image installs dev, test, and docs tools (pytest, mypy, ruff, pre-commit, bandit, mkdocs), because `requirements.txt` contains them. The image is single-stage, so `build-essential` and `git` stay in the runtime image. | `Dockerfile`, `requirements.txt` |
+docs/BASELINE_AUDIT.md:332:| C29 | Low | `SQLAlchemy` and `alembic` are required dependencies but are not imported under `ragbot/`. | `requirements.txt`, `pyproject.toml`, source search |
+docs/DEVELOPMENT.fa.md:21:pip install -e ".[dev]"
+docs/DEVELOPMENT.fa.md:378:          pip install -e ".[dev]"
+docs/INSTALLATION.fa.md:41:pip install -r requirements.txt
+docs/INSTALLATION.fa.md:44:pip install -e ".[dev]"
+docs/QUICK_START.md:13:pip install -e ".[vectorstores]"
+docs/QUICK_START.md:156:pip install -e ".[vectorstores]"
+docs/VECTOR_STORES.md:31:- **Installation**: optional. `requirements.txt` and the Docker image do not include chromadb. Install it with `pip install -e ".[vectorstores]"`.
+docs/VECTOR_STORES.md:159:pip install -e ".[vectorstores]"
+docs/archive/INSTALLATION.md:40:pip install -r requirements-stable.txt
+docs/archive/INSTALLATION.md:46:pip install -r requirements.txt
+docs/archive/INSTALLATION.md:52:pip install -e .
+docs/archive/INSTALLATION.md:101:pip install -r requirements-stable.txt --no-deps
+docs/archive/INSTALLATION.md:137:1. ابتدا `requirements-stable.txt` را امتحان کنید
+docs/archive/Project1-RAG_Telegram_Assistant_Roadmap.md:402:      - run: pip install -e .[dev]
+docs/archive/fullyreadme.md:127:  - Create a virtual environment and install requirements: `pip install -r requirements.txt` (or a stable constraints file if provided).
+docs/archive/new_store_new.md:2650:### **`requirements-optional.txt`**
+docs/archive/readme-complete.md:110:    pip install -r requirements.txt
+docs/archive/readme-full.md:244:   pip install -r requirements.txt
+docs/features/security-verification-pipeline/README.md:61:2. Run `make security-manifest` (or `python scripts/verification/run_suite.py security --update-manifest`).
+docs/features/security-verification-pipeline/README.md:79:- **Scope:** every package that `pip install -r requirements.txt` and `pip install -e ".[dev]"` install on Python 3.11, the Python version of the container image. The project itself is installed in editable mode and is not audited. A package that pip-audit cannot audit fails the check.
+docs/features/security-verification-pipeline/README.md:167:make security-manifest  # update the manifest after a security test change
+docs/features/security-verification-pipeline/README.md:177:| Security Regression Suite: tests not in the manifest | Run `make security-manifest` and commit the manifest. |
+docs/testing.md:121:2. The collected tests must match `tests/security/suite_manifest.json`. After you add, rename or remove a security test, run `make security-manifest` and commit the manifest with the change.
+scripts/backup.sh:99:    if [[ -f "$PROJECT_DIR/requirements.txt" ]]; then
+scripts/backup.sh:100:        cp "$PROJECT_DIR/requirements.txt" "$temp_config_dir/"
+scripts/setup.sh:122:    if [[ -f "requirements.txt" ]]; then
+scripts/setup.sh:124:        pip install -r requirements.txt
+scripts/setup.sh:127:        log_error "requirements.txt not found"
+scripts/verify_baseline.sh:90:    "$PY" -m pip install -r requirements.txt &&
+scripts/verify_baseline.sh:91:    "$PY" -m pip install -e ".[dev]"
+scripts/verify_baseline.sh:174:# 8. Security scan (same scope as `make security`)

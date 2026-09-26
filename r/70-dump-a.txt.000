@@ -1,0 +1,282 @@
+===== ragbot/monitoring/alert_manager.py
+     1	"""
+     2	Alert management utilities.
+     3	
+     4	Persian developer notes:
+     5	- مدیریت قوانین هشدار و ارسال به کانال‌های اطلاع‌رسانی.
+     6	"""
+     7	
+     8	from __future__ import annotations
+     9	
+    10	from dataclasses import dataclass
+    11	from datetime import datetime
+    12	from typing import Any, Dict
+    13	
+    14	
+    15	@dataclass
+    16	class AlertRule:
+    17	    """Alert rule definition."""
+    18	
+    19	    name: str
+    20	    condition: str
+    21	    threshold: float
+    22	    severity: str
+    23	    enabled: bool = True
+    24	
+    25	
+    26	@dataclass
+    27	class NotificationChannel:
+    28	    """Notification channel config."""
+    29	
+    30	    type: str  # email, slack, discord, webhook
+    31	    config: Dict[str, Any]
+    32	    enabled: bool = True
+    33	
+    34	
+    35	class AlertManager:
+    36	    """Manage alert rules and dispatch notifications."""
+    37	
+    38	    def __init__(self) -> None:
+    39	        self.alert_rules: Dict[str, AlertRule] = {}
+    40	        self.notification_channels: Dict[str, NotificationChannel] = {}
+    41	        self.alert_history: list[Dict[str, Any]] = []
+    42	
+    43	        self.default_rules: Dict[str, AlertRule] = {
+    44	            "high_cpu": AlertRule(
+    45	                "High CPU Usage", "cpu_usage > threshold", 80.0, "warning"
+    46	            ),
+    47	            "high_memory": AlertRule(
+    48	                "High Memory Usage", "memory_usage > threshold", 85.0, "critical"
+    49	            ),
+    50	            "high_disk": AlertRule(
+    51	                "High Disk Usage", "disk_usage > threshold", 90.0, "warning"
+    52	            ),
+    53	            "slow_response": AlertRule(
+    54	                "Slow Response Time", "response_time > threshold", 5.0, "warning"
+    55	            ),
+    56	            "high_error_rate": AlertRule(
+    57	                "High Error Rate", "error_rate > threshold", 10.0, "critical"
+    58	            ),
+    59	        }
+    60	        for rule_id, rule in self.default_rules.items():
+    61	            self.alert_rules[rule_id] = rule
+    62	
+    63	    async def add_alert_rule(self, rule_id: str, rule: AlertRule) -> None:
+    64	        self.alert_rules[rule_id] = rule
+    65	
+    66	    async def remove_alert_rule(self, rule_id: str) -> None:
+    67	        if rule_id in self.alert_rules:
+    68	            del self.alert_rules[rule_id]
+    69	
+    70	    async def add_notification_channel(
+    71	        self, channel_id: str, channel: NotificationChannel
+    72	    ) -> None:
+    73	        self.notification_channels[channel_id] = channel
+    74	
+    75	    async def evaluate_metrics(self, metrics: Dict[str, Any]) -> None:
+    76	        triggered: list[tuple[str, AlertRule]] = []
+    77	        for rule_id, rule in self.alert_rules.items():
+    78	            if not rule.enabled:
+    79	                continue
+    80	            if await self._evaluate_condition(rule.condition, rule.threshold, metrics):
+    81	                triggered.append((rule_id, rule))
+    82	        for rule_id, rule in triggered:
+    83	            await self._send_alert(rule_id, rule, metrics)
+    84	
+    85	    async def _evaluate_condition(
+    86	        self, condition: str, threshold: float, metrics: Dict[str, Any]
+    87	    ) -> bool:
+    88	        try:
+    89	            expr = condition
+    90	            for k, v in metrics.items():
+    91	                expr = expr.replace(k, str(v))
+    92	            expr = expr.replace("threshold", str(threshold))
+    93	            return bool(eval(expr))
+    94	        except Exception:
+    95	            return False
+    96	
+    97	    async def _send_alert(
+    98	        self, rule_id: str, rule: AlertRule, metrics: Dict[str, Any]
+    99	    ) -> None:
+   100	        data = {
+   101	            "rule_id": rule_id,
+   102	            "rule_name": rule.name,
+   103	            "severity": rule.severity,
+   104	            "timestamp": datetime.now().isoformat(),
+   105	            "metrics": metrics,
+   106	            "message": f"{rule.name}: {rule.condition.replace('threshold', str(rule.threshold))}",
+   107	        }
+   108	        self.alert_history.append(data)
+   109	        for _, channel in self.notification_channels.items():
+   110	            if channel.enabled:
+   111	                await self._send_to_channel(channel, data)
+   112	
+   113	    async def _send_to_channel(
+   114	        self, channel: NotificationChannel, alert_data: Dict[str, Any]
+   115	    ) -> None:
+   116	        try:
+   117	            if channel.type == "email":
+   118	                await self._send_email(channel.config, alert_data)
+   119	            elif channel.type == "slack":
+   120	                await self._send_slack(channel.config, alert_data)
+   121	            elif channel.type == "discord":
+   122	                await self._send_discord(channel.config, alert_data)
+   123	            elif channel.type == "webhook":
+   124	                await self._send_webhook(channel.config, alert_data)
+   125	        except Exception as exc:
+   126	            print(f"❌ Error sending alert to {channel.type}: {exc}")
+   127	
+   128	    async def _send_email(
+   129	        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+   130	    ) -> None:
+   131	        return None
+   132	
+   133	    async def _send_slack(
+   134	        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+   135	    ) -> None:
+   136	        return None
+   137	
+   138	    async def _send_discord(
+   139	        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+   140	    ) -> None:
+   141	        return None
+   142	
+   143	    async def _send_webhook(
+   144	        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+   145	    ) -> None:
+   146	        return None
+===== ragbot/main.py
+     1	"""
+     2	Package entry point to start the RAGBot HTTP API server.
+     3	"""
+     4	
+     5	from __future__ import annotations
+     6	
+     7	import argparse
+     8	import os
+     9	import sys
+    10	from pathlib import Path
+    11	import uvicorn
+    12	
+    13	# Ensure project root is in sys.path when invoked directly
+    14	project_root = Path(__file__).resolve().parent.parent
+    15	if str(project_root) not in sys.path:
+    16	    sys.path.insert(0, str(project_root))
+    17	
+    18	from ragbot.outputs.logger import logger
+    19	
+    20	
+    21	def main() -> None:
+    22	    """Launch the TenantRAG FastAPI application server using Uvicorn."""
+    23	    parser = argparse.ArgumentParser(
+    24	        prog="tenantrag",
+    25	        description="TenantRAG API Server - Multi-tenant Retrieval-Augmented Generation HTTP API",
+    26	    )
+    27	    parser.add_argument(
+    28	        "--host",
+    29	        type=str,
+    30	        default=os.getenv("HOST", "0.0.0.0"),
+    31	        help="Host IP to bind the HTTP server to (default: 0.0.0.0)",
+    32	    )
+    33	    parser.add_argument(
+    34	        "--port",
+    35	        type=int,
+    36	        default=int(os.getenv("PORT", "8000")),
+    37	        help="Port to bind the HTTP server to (default: 8000)",
+    38	    )
+    39	    parser.add_argument(
+    40	        "--reload",
+    41	        action="store_true",
+    42	        default=os.getenv("RELOAD", "false").lower() == "true",
+    43	        help="Enable auto-reload for local development",
+    44	    )
+    45	    parser.add_argument(
+    46	        "--workers",
+    47	        type=int,
+    48	        default=int(os.getenv("WORKERS", "1")),
+    49	        help="Number of worker processes (default: 1)",
+    50	    )
+    51	
+    52	    args, _ = parser.parse_known_args()
+    53	
+    54	    logger.info(
+    55	        f"Starting RAGBot API server on {args.host}:{args.port} (workers: {args.workers})"
+    56	    )
+    57	
+    58	    try:
+    59	        uvicorn.run(
+    60	            "ragbot.api.app:app",
+    61	            host=args.host,
+    62	            port=args.port,
+    63	            reload=args.reload,
+    64	            workers=args.workers if not args.reload else 1,
+    65	            # Security (C9): only TrustedProxyMiddleware (SECURITY_TRUSTED_PROXIES)
+    66	            # may trust forwarded headers, so uvicorn must not rewrite the client.
+    67	            proxy_headers=False,
+    68	        )
+    69	    except KeyboardInterrupt:
+    70	        logger.info("RAGBot API server stopped by user")
+    71	    except Exception as exc:
+    72	        logger.error(f"Failed to start RAGBot API server: {exc}")
+    73	        sys.exit(1)
+    74	
+    75	
+    76	if __name__ == "__main__":
+    77	    main()
+===== .env.test
+     1	TESTING=true
+     2	ENABLE_REDIS=false
+     3	LOG_LEVEL=WARNING
+     4	BOT_TOKEN=123:test
+     5	OPENROUTER_API_KEY=sk-test-fake-key-not-real
+     6	OPENAI_API_KEY=sk-test-fake-openai-not-real
+     7	ANTHROPIC_API_KEY=sk-test-fake-anthropic-not-real
+     8	ALLOW_USERS=
+     9	DEFAULT_LANG=en
+    10	LLM_PROVIDER=openrouter
+    11	LLM_MODEL=test-model
+    12	EMBED_PROVIDER=sentence_transformers
+    13	EMBED_MODEL=intfloat/e5-small-v2
+    14	VECTOR_DB=faiss
+    15	DATA_DIR=./data/test
+    16	STORE_PATH=./data/test/vector_store
+    17	DATABASE_URL=sqlite:///:memory:
+    18	REDIS_URL=redis://127.0.0.1:6379/0
+===== .github/dependency-audit-exceptions.json
+     1	{
+     2	  "description": "Accepted exceptions of the Dependency Vulnerability Check (REQ-MTS-CI-004). Each entry needs id (advisory id or alias), package, version (the installed version), justification, mitigation, owner and review_by (YYYY-MM-DD, at most 366 days ahead). An entry applies only to that package version and stops applying after review_by. Process: docs/features/security-verification-pipeline/README.md.",
+     3	  "exceptions": []
+     4	}
+===== ragbot/outputs/health_endpoints.py 390-433
+    # Initialize health endpoints
+    HealthEndpoints(app)
+
+    return app
+
+
+def start_health_server(port: int = 8081) -> None:
+    """
+    Start standalone health check server.
+
+    Args:
+        port: Port to run the health server on
+    """
+    if not FASTAPI_AVAILABLE:
+        logger.error("Cannot start health server - FastAPI not available")
+        return
+
+    try:
+        import uvicorn
+
+        app = create_health_app()
+        if app is None:
+            return
+
+        logger.info(f"Starting health server on port {port}")
+
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
+    except ImportError:
+        logger.error("Cannot start health server - uvicorn not available")
+    except Exception as e:
+        logger.error(f"Failed to start health server: {e}")

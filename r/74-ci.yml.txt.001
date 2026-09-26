@@ -1,0 +1,58 @@
+   252	    timeout-minutes: 45
+   253	    steps:
+   254	      - name: Check out the repository
+   255	        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+   256	        with:
+   257	          persist-credentials: false
+   258	      - name: Set up Python
+   259	        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+   260	        with:
+   261	          python-version: "3.12"
+   262	      - name: Build, start and verify the container
+   263	        run: >-
+   264	          python scripts/verification/container_check.py --build
+   265	          --image tenant-rag:verification
+   266	          --report "$REPORTS_DIR/container.json"
+   267	      - name: Remove the verification containers
+   268	        if: always()
+   269	        run: docker ps --all --quiet --filter label=tenant-rag-verification | xargs --no-run-if-empty docker rm --force
+   270	      - name: Upload the report
+   271	        if: always()
+   272	        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+   273	        with:
+   274	          name: verification-container
+   275	          path: ${{ env.REPORTS_DIR }}
+   276	          if-no-files-found: warn
+   277	          retention-days: 14
+   278	
+   279	  summary:
+   280	    name: Verification Summary
+   281	    if: always()
+   282	    needs: [tests, security-suite, static-analysis, dependency-audit, container]
+   283	    runs-on: ubuntu-24.04
+   284	    timeout-minutes: 10
+   285	    steps:
+   286	      - name: Check out the repository
+   287	        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+   288	        with:
+   289	          persist-credentials: false
+   290	      - name: Set up Python
+   291	        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+   292	        with:
+   293	          python-version: "3.12"
+   294	      - name: Download the check reports
+   295	        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+   296	        with:
+   297	          pattern: verification-*
+   298	          path: ${{ env.REPORTS_DIR }}
+   299	          merge-multiple: true
+   300	      - name: Write the Verification Summary
+   301	        if: always()
+   302	        env:
+   303	          NEEDS_JSON: ${{ toJSON(needs) }}
+   304	        run: >-
+   305	          python scripts/verification/summary.py
+   306	          --reports "$REPORTS_DIR"
+   307	          --needs-env NEEDS_JSON
+   308	          --python-versions 3.10,3.11,3.12
+   309	          --output "$RUNNER_TEMP/verification-summary.md"

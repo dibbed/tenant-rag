@@ -1,0 +1,122 @@
+     1	# Security Verification Pipeline
+     2	
+     3	The Verification Pipeline checks every change to `main` for security regressions. It runs on every pull request to `main` and on every push to `main`, on Python 3.10, 3.11 and 3.12. It makes the security controls of Phases 2 and 3 (authentication, authorization, tenant isolation, SSRF protection, edge protection) testable in CI, so that a change cannot remove or weaken them without a failed, visible check.
+     4	
+     5	Requirements: REQ-MTS-CI-001 to REQ-MTS-CI-005 (Multi-Tenant Security, Security Verification Pipeline).
+     6	
+     7	## Checks
+     8	
+     9	The workflow is `.github/workflows/ci.yml` (workflow name "Verification Pipeline").
+    10	
+    11	| Check (status check name) | Mode | What it verifies | It fails when |
+    12	|---|---|---|---|
+    13	| `Tests (Python 3.10)`, `Tests (Python 3.11)`, `Tests (Python 3.12)` | Blocking | The full test suite, with Redis | A test fails or has an error, a test file cannot be collected, or no test runs. Skipped tests are allowed; the report lists each one with its reason. |
+    14	| `Security Regression Suite (Python 3.10)`, `(Python 3.11)`, `(Python 3.12)` | Blocking | The security tests of `tests/security/suite_manifest.json`, in their own job, with Redis | A security test fails, has an error, is skipped or is marked xfail. A security test file is skipped or cannot be collected. A test of the manifest is missing, or a collected test is not in the manifest. |
+    15	| `Static Analysis (ruff, report-only)` | Report-only | The Ruff rules of `pyproject.toml` (Ruff 0.12.12, `ruff check .`) | Ruff reports findings. The run is not blocked. |
+    16	| `Static Analysis (mypy, report-only)` | Report-only | Types in `ragbot` (MyPy 1.10.1, `mypy ragbot --ignore-missing-imports`, as `make type-check`) | MyPy reports errors. The run is not blocked. |
+    17	| `Static Analysis (bandit, report-only)` | Report-only | Insecure code patterns in `ragbot` (Bandit 1.7.9 with the `[tool.bandit]` settings) | Bandit reports findings. The run is not blocked. |
+    18	| `Dependency Vulnerability Check` | Blocking | Known advisories for every installed package (pip-audit 2.10.1 with the OSV database) | An advisory is HIGH, CRITICAL or of unknown severity and has no accepted exception. An exception entry is not valid. A package cannot be audited. |
+    19	| `Container Build Check` | Blocking | The Docker image, started with its default settings | The build fails. The container stops or does not answer `GET /health` with HTTP 200 within 300 seconds. A health endpoint or the image HEALTHCHECK is not healthy. A request without credentials is not refused with HTTP 401. A process runs as UID 0. |
+    20	| `Verification Summary` | Blocking | The results of all checks above | A Blocking Check failed, had an error or has no report. |
+    21	
+    22	The workflow runs on `ubuntu-24.04` with read-only repository permissions. Every action is pinned to a commit SHA, and checkout does not keep the token. Runs of the same pull request cancel older runs. Pushes to `main` are never cancelled.
+    23	
+    24	A Report-Only Check keeps the exit status of its tool: findings mark the check as failed, and `continue-on-error` keeps the workflow result green. So the findings are visible in every run and in the Verification Summary, but they do not block a merge.
+    25	
+    26	## Required status checks
+    27	
+    28	Branch protection of `main` requires these checks, from GitHub Actions:
+    29	
+    30	- `Tests (Python 3.10)`, `Tests (Python 3.11)`, `Tests (Python 3.12)`
+    31	- `Security Regression Suite (Python 3.10)`, `Security Regression Suite (Python 3.11)`, `Security Regression Suite (Python 3.12)`
+    32	- `Dependency Vulnerability Check`
+    33	- `Container Build Check`
+    34	- `Verification Summary`
+    35	
+    36	The branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. The static analysis checks are not required.
+    37	
+    38	If you rename a job or change the Python versions, update the required checks in the branch protection settings in the same change. Otherwise a pull request waits for a check that never reports.
+    39	
+    40	## Security Regression Suite
+    41	
+    42	The suite is the set of tests that verify the security controls:
+    43	
+    44	- `tests/security`: authentication and API keys, authorization boundaries, tenant storage isolation, fail-closed storage, SSRF protection, rate limiting, CORS and request size limits
+    45	- `tests/unit/test_edge_client_address.py`, `tests/unit/test_edge_cors_policy.py`, `tests/unit/test_edge_rate_limit_store.py`
+    46	- `tests/integration/test_edge_rate_limit_redis.py` (real Redis) and `tests/integration/test_edge_uvicorn_server.py`
+    47	- `tests/integration/test_multi_tenant_isolation.py`
+    48	
+    49	`tests/security/suite_manifest.json` lists these paths and the node id of each of the 322 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
+    50	
+    51	Rules:
+    52	
+    53	1. **No skipped security test.** A skipped or xfail test fails the check. The job log, an annotation and the Verification Summary name the test and the skip reason.
+    54	2. **Failed tests are named.** Each failed test is listed with its error message.
+    55	3. **The collected tests must match the manifest.** A test that the manifest lists but the run does not collect (removed or renamed) fails the check as missing. A collected test that the manifest does not list fails the check as not listed.
+    56	4. **Removals are visible.** The check compares the manifest with the manifest of the base commit. The Verification Summary lists every security test that the change removes or adds, and a warning annotation lists the removed tests.
+    57	
+    58	To add, rename or remove a security test:
+    59	
+    60	1. Change the test.
+    61	2. Run `make security-manifest` (or `python scripts/verification/run_suite.py security --update-manifest`).
+    62	3. Commit `tests/security/suite_manifest.json` with the test change.
+    63	
+    64	The manifest diff then shows the change in review. A pull request that removes a security test must explain why.
+    65	
+    66	## Static analysis (Report-Only)
+    67	
+    68	Ruff, MyPy and Bandit use the versions pinned in the `dev` extra of `pyproject.toml` and the settings in `pyproject.toml`. Each run shows the number of findings, the most frequent codes and, for Bandit, file annotations for the HIGH findings.
+    69	
+    70	To promote a check to a Blocking Check:
+    71	
+    72	1. Fix the findings, or suppress each one with a justification.
+    73	2. Set `mode: blocking` for the tool in the `static-analysis` matrix of `.github/workflows/ci.yml`.
+    74	3. Add `Static Analysis (<tool>, blocking)` to the required status checks of `main`.
+    75	
+    76	## Dependency Vulnerability Check
+    77	
+    78	- **Tool:** pip-audit 2.10.1 (`scripts/verification/requirements-audit.txt`) in its own virtual environment, so its own dependencies are not audited. Advisories come from the OSV database.
+    79	- **Scope:** every package that `pip install -r requirements.txt` and `pip install -e ".[dev]"` install on Python 3.11, the Python version of the container image. The project itself is installed in editable mode and is not audited. A package that pip-audit cannot audit fails the check.
+    80	- **Severity:** the severity of the GitHub-reviewed advisory (GHSA) in OSV; without one, the CVSS v3 base score in OSV. Findings of one advisory under several ids (for example PYSEC and GHSA) count once.
+    81	- **Blocking:** HIGH, CRITICAL and unknown severity. An unknown severity blocks, so an advisory cannot pass because its record is incomplete. If the OSV lookup fails, the check reports an error.
+    82	- **Non-blocking:** MODERATE and LOW advisories. The Verification Summary lists them.
+    83	- **Optional extras** (`vectorstores`, `full`, `ocr`, `offline`, `ml`, `hf`, `docs`) are not installed and not audited.
+    84	
+    85	### Accepted exceptions
+    86	
+    87	An advisory that cannot be remediated can be accepted in `.github/dependency-audit-exceptions.json`. Use an exception only when the package cannot be upgraded, removed or moved out of the default installation.
+    88	
+    89	```json
+    90	{
+    91	  "exceptions": [
+    92	    {
+    93	      "id": "GHSA-xxxx-xxxx-xxxx",
+    94	      "package": "example-package",
+    95	      "version": "1.2.3",
+    96	      "justification": "Why the vulnerable code cannot be reached in TenantRAG.",
+    97	      "mitigation": "What limits the risk until a fixed version is available.",
+    98	      "owner": "@github-handle",
+    99	      "review_by": "2027-01-31"
+   100	    }
+   101	  ]
+   102	}
+   103	```
+   104	
+   105	- `id` is the advisory id or one of its aliases. `version` is the installed version. After an upgrade the entry no longer applies and is reported as unused.
+   106	- `review_by` must not have passed and must be at most 366 days ahead. After that date the entry is invalid, and the check fails until the entry is reviewed.
+   107	- Placeholder values (`TBD`, `TODO`, `unknown`, `n/a` and similar) and wildcards are rejected. Each field is required.
+   108	- The Verification Summary lists every accepted exception with its owner and review date.
+   109	- `python scripts/verification/dependency_audit.py validate-exceptions` checks the file.
+   110	
+   111	There are no accepted exceptions.
+   112	
+   113	### Remediation in this change
+   114	
+   115	Before this change, the audit found HIGH or CRITICAL advisories in 17 installed packages. They were remediated without exceptions:
+   116	
+   117	| Package | Before | After | Reason |
+   118	|---|---|---|---|
+   119	| langchain, langchain-openai, langchain-community | 0.2.6, 0.1.8, 0.2.6 | removed | No code imports them. They also brought langchain-core, langchain-text-splitters and langsmith, which had CRITICAL and HIGH advisories. The latest 0.3 releases still have a HIGH advisory in langchain-core that is fixed only in 1.x. |
+   120	| nltk | 3.8.1 | removed | No code imports it. The latest release (3.10.3) still has a HIGH advisory without a fix (GHSA-8mgp-746c-j5xp). |
+   121	| chromadb | >=0.5.0 (1.5.9) | optional `vectorstores` extra | 1.5.9 is the latest release. It has 2 CRITICAL and 2 HIGH advisories without a fix, in the Chroma server HTTP API: GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-2wm9-hf6c-p5cr, GHSA-xph7-9rjv-w5fr. TenantRAG uses only the embedded client. |
+   122	| fastapi, starlette, python-multipart | 0.111.0, 0.37.2, transitive | 0.141.1, 1.7.0, 0.32 pinned | Starlette advisories GHSA-f96h-pmfr-66vw, GHSA-wqp7-x3pw-xc5r, GHSA-82w8-qh3p-5jfq. FastAPI 0.141 does not install python-multipart, which the upload routes need. |

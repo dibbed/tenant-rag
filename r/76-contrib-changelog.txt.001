@@ -1,0 +1,10 @@
+    46	- **API Test Suite**: Implemented comprehensive test suites in `tests/api/test_api.py` covering application lifecycles, health checks, query execution, document uploads, and security validations.
+    47	
+    48	## 2025-02-14 — Legacy Telegram Bot Improvements
+    49	
+    50	- Implemented Anthropic API health check in `_check_anthropic_api()` (`outputs/health.py`).
+    51	- Fixed bare `except` in `app/ui/manager.py`: now catches `(KeyError, ValueError)` for text formatting.
+    52	- Added `admin_users` and `admin_users_list` to settings for configurable admin IDs via `ADMIN_USERS` env.
+    53	- Replaced hardcoded admin IDs in admin handlers with `settings.admin_users_list`.
+    54	- Fixed bug in `split_long_message`: `else` was incorrectly bound to `for` instead of inner `if`.
+    55	- Added comprehensive E2E test suite: `tests/e2e/test_project_e2e_complete.py`.

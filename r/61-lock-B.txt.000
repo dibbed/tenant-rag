@@ -1,0 +1,11 @@
+
+[tool.uv]
+environments = [
+    "python_version >= '3.10' and python_version < '3.13'",
+]
+Using CPython 3.12.14 interpreter at: /opt/hostedtoolcache/Python/3.12.14/x64/bin/python3
+error: No solution found when resolving dependencies for split (markers: python_full_version == '3.12.*')
+  cause: Because llama-index-readers-file>=0.1.4,<=0.1.33 depends on pypdf>=4.0.1,<5.0.0 and llama-index==0.10.43 depends on llama-index-readers-file>=0.1.4,<0.2.0, we can conclude that llama-index==0.10.43 depends on pypdf>=4.0.1,<5.0.0.
+         And because tenant-rag[full] depends on llama-index==0.10.43, we can conclude that tenant-rag[full] depends on pypdf>=4.0.1,<5.0.0.
+         And because your project depends on pypdf==6.19.0 and your project requires tenant-rag[full], we can conclude that your project's requirements are unsatisfiable.
+lock exit=1 seconds=0

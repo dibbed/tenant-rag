@@ -1,0 +1,279 @@
+===== secure_backup 1-30
+     1	"""
+     2	Secure Backup System for RAG System
+     3	
+     4	This module provides comprehensive backup and restore capabilities with
+     5	encryption, compression, and integrity verification.
+     6	"""
+     7	
+     8	from typing import Dict, List, Any, Optional
+     9	from contextlib import contextmanager
+    10	from dataclasses import dataclass
+    11	from enum import Enum
+    12	import json
+    13	import os
+    14	import shutil
+    15	import tarfile
+    16	import time
+    17	import hashlib
+    18	import sqlite3
+    19	from datetime import datetime
+    20	from pathlib import Path
+    21	
+    22	from ragbot.configs.settings import settings
+    23	from ragbot.outputs.logger import logger
+    24	from ragbot.security.encryption import EncryptionManager, EncryptionAlgorithm
+    25	from ragbot.security.key_manager import KeyManager, KeyType
+    26	
+    27	
+    28	class BackupStatus(Enum):
+    29	    """Backup operation status"""
+    30	
+===== secure_backup 505-560
+   505	        finally:
+   506	            # Cleanup temp directory
+   507	            if temp_backup_dir.exists():
+   508	                shutil.rmtree(temp_backup_dir)
+   509	
+   510	    async def _restore_from_archive(
+   511	        self,
+   512	        backup_file: Path,
+   513	        encryption_key: Any,
+   514	        target_stores: Optional[List[Any]],
+   515	    ) -> List[str]:
+   516	        """Restore from backup archive"""
+   517	        # Decrypt backup file
+   518	        decrypted_backup = await self._decrypt_backup_file(backup_file, encryption_key)
+   519	
+   520	        temp_restore_dir = self.temp_dir / f"restore_{int(time.time())}"
+   521	        temp_restore_dir.mkdir(exist_ok=True)
+   522	
+   523	        try:
+   524	            # Extract archive
+   525	            with tarfile.open(decrypted_backup, "r:*") as tar:
+   526	                tar.extractall(temp_restore_dir)
+   527	
+   528	            # Restore each store
+   529	            restored_stores = []
+   530	            backup_dir = temp_restore_dir / "backup"
+   531	
+   532	            if backup_dir.exists():
+   533	                for store_dir in backup_dir.iterdir():
+   534	                    if store_dir.is_dir():
+   535	                        store_type = store_dir.name
+   536	
+   537	                        # Find target store
+   538	                        target_store = None
+   539	                        if target_stores:
+   540	                            for store in target_stores:
+   541	                                if store.get_store_type() == store_type:
+   542	                                    target_store = store
+   543	                                    break
+   544	
+   545	                        if target_store:
+   546	                            # Restore documents
+   547	                            documents_file = store_dir / "documents.json"
+   548	                            if documents_file.exists():
+   549	                                with open(documents_file, "r") as f:
+   550	                                    documents_data = json.load(f)
+   551	
+   552	                                # Convert back to VectorDocument objects
+   553	                                from ragbot.rag.store.base import VectorDocument
+   554	
+   555	                                documents = [
+   556	                                    VectorDocument.from_dict(doc)
+   557	                                    for doc in documents_data
+   558	                                ]
+   559	
+   560	                                # Add documents to store
+===== document_service 1-40
+     1	"""
+     2	Document Processing Service.
+     3	
+     4	This module provides the DocumentService class for document management,
+     5	validation, preprocessing, and metadata tracking.
+     6	"""
+     7	
+     8	import hashlib
+     9	import mimetypes
+    10	import os
+    11	import time
+    12	from dataclasses import dataclass
+    13	from datetime import datetime
+    14	from pathlib import Path
+    15	from typing import Any, Dict, List, Optional
+    16	from urllib.parse import urlparse
+    17	
+    18	from ragbot.configs.settings import settings
+    19	from ragbot.outputs.logger import logger
+    20	from ragbot.rag.exceptions import DocumentProcessingError
+    21	from ragbot.rag.loaders.advanced_loaders import AdvancedDocumentLoader
+    22	
+    23	
+    24	@dataclass
+    25	class ProcessingStats:
+    26	    """Document processing statistics."""
+    27	
+    28	    original_size: int
+    29	    processed_size: int
+    30	    processing_time: float
+    31	    validation_time: float
+    32	    loader_type: str
+    33	    file_type: Optional[str] = None
+    34	    encoding: Optional[str] = None
+    35	    language_detected: Optional[str] = None
+    36	
+    37	
+    38	@dataclass
+    39	class ProcessedDocument:
+    40	    """Enhanced document with processing metadata."""
+===== document_service 244-250, 380-422
+   244	                if not parsed_url.netloc:
+   245	                    errors.append("Invalid URL: missing domain")
+   246	
+   247	                # Security checks for URLs
+   248	                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]
+   249	                if parsed_url.netloc.lower() in suspicious_domains:
+   250	                    warnings.append(f"Potentially unsafe domain: {parsed_url.netloc}")
+   380	                metadata=document.metadata,
+   381	                source=file_path,
+   382	                document_type=document.metadata.get("type", "unknown"),
+   383	                processing_stats=processing_stats,
+   384	                document_id=hashlib.md5(file_path.encode()).hexdigest(),
+   385	                created_at=datetime.now(),
+   386	                file_hash=hashlib.md5(document.text.encode()).hexdigest(),
+   387	            )
+   388	
+   389	            logger.info(
+   390	                f"Document loaded successfully: {file_path} ({validation['format']})"
+   391	            )
+   392	            return processed_doc
+   393	
+   394	        except Exception as e:
+   395	            logger.error(f"Failed to load document {file_path}: {str(e)}")
+   396	            raise DocumentProcessingError(f"Document loading failed: {str(e)}") from e
+   397	
+   398	    async def get_supported_formats(self) -> Dict[str, str]:
+   399	        """
+   400	        Get list of supported file formats.
+   401	
+   402	        Returns:
+   403	            Dict[str, str]: Dictionary of supported formats and descriptions
+   404	        """
+   405	        return await self.advanced_loader.get_supported_formats()
+   406	
+   407	    def generate_document_id(self, source: str, source_type: str) -> str:
+   408	        """
+   409	        Generate a unique document ID.
+   410	
+   411	        Args:
+   412	            source: Document source
+   413	            source_type: Document type
+   414	
+   415	        Returns:
+   416	            str: Unique document ID
+   417	        """
+   418	        timestamp = int(time.time() * 1000)  # milliseconds
+   419	        source_hash = hashlib.md5(source.encode()).hexdigest()[:8]
+   420	        return f"{source_type}_{source_hash}_{timestamp}"
+   421	
+   422	    def calculate_content_hash(self, content: str) -> str:
+===== semantic_chunker 700-715
+   700	            start_index=0,
+   701	            end_index=len(text),
+   702	            chunk_id=chunk_id,
+   703	        )
+   704	
+   705	        return [chunk]
+   706	
+   707	    def _generate_chunk_id(self, document_id: str, chunk_index: int) -> str:
+   708	        """Generate a unique chunk ID."""
+   709	        chunk_string = (
+   710	            f"{document_id}_semantic_{chunk_index}_{self.similarity_threshold}"
+   711	        )
+   712	        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
+   713	
+   714	    def estimate_chunks(self, text: str) -> int:
+   715	        """Estimate the number of chunks that will be created."""
+===== token_chunker 525-545
+   525	            return chunk_text
+   526	
+   527	    def _generate_chunk_id(self, document_id: str, chunk_index: int) -> str:
+   528	        """
+   529	        Generate a unique chunk ID.
+   530	
+   531	        Args:
+   532	            document_id: Document identifier
+   533	            chunk_index: Index of the chunk
+   534	
+   535	        Returns:
+   536	            str: Unique chunk ID
+   537	        """
+   538	        chunk_string = (
+   539	            f"{document_id}_{chunk_index}_{self.chunk_size}_{self.chunk_overlap}"
+   540	        )
+   541	        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
+   542	
+   543	    def estimate_chunks(self, text: str) -> int:
+   544	        """
+   545	        Estimate the number of chunks that will be created.
+===== embeddings/base 300-330
+   300	            if norm1 == 0 or norm2 == 0:
+   301	                return 0.0
+   302	            return float(dot_product / (norm1 * norm2))
+   303	
+   304	        except Exception:
+   305	            return 0.0
+   306	
+   307	    def get_cache_key(self, text: str, **kwargs: Any) -> str:
+   308	        """
+   309	        Generate cache key for text embedding.
+   310	
+   311	        Args:
+   312	            text: Text to generate key for
+   313	            **kwargs: Additional parameters that affect embedding
+   314	
+   315	        Returns:
+   316	            str: Cache key
+   317	        """
+   318	        import hashlib
+   319	
+   320	        # Include model name and relevant config in cache key
+   321	        key_components = [self.model_name, text, str(sorted(kwargs.items()))]
+   322	
+   323	        key_string = "|".join(key_components)
+   324	        return hashlib.md5(key_string.encode()).hexdigest()
+   325	
+   326	    # Optional cache hooks (no-op by default)
+   327	    async def get_cached_embedding(
+   328	        self, text: str, **_kwargs: Any
+   329	    ) -> Optional[List[float]]:
+   330	        """Optional hook: retrieve cached embedding for a text (override in subclasses)."""
+===== caching/base 215-265
+   215	    def embedding(text: str, model: str) -> str:
+   216	        """
+   217	        Generate cache key for embeddings.
+   218	        
+   219	        Args:
+   220	            text: Text to embed
+   221	            model: Embedding model name
+   222	            
+   223	        Returns:
+   224	            Cache key
+   225	        """
+   226	        import hashlib
+   227	        text_hash = hashlib.md5(text.encode()).hexdigest()
+   228	        return f"embedding:{model}:{text_hash}"
+   229	    
+   230	    @staticmethod
+   231	    def query_result(question: str, context_hash: str, model: str, lang: str) -> str:
+   232	        """
+   233	        Generate cache key for query results.
+   234	        
+   235	        Args:
+   236	            question: User question
+   237	            context_hash: Hash of retrieved context
+   238	            model: LLM model name
+   239	            lang: Response language
+   240	            
+   241	        Returns:

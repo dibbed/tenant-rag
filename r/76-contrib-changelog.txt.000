@@ -1,0 +1,150 @@
+===== CONTRIBUTING.md
+     1	# Contributing to TenantRAG
+     2	
+     3	Thank you for your interest in contributing to TenantRAG. We welcome contributions that improve reliability, extend vector store and LLM provider support, and harden multi-tenant operations.
+     4	
+     5	---
+     6	
+     7	## 1. Development Setup
+     8	
+     9	### Prerequisites
+    10	- Python 3.10, 3.11, or 3.12
+    11	- Git
+    12	- Virtual environment tool (`venv` or `conda`)
+    13	
+    14	### Local Setup
+    15	```bash
+    16	# Clone the repository
+    17	git clone https://github.com/dibbed/tenant-rag.git
+    18	cd tenant-rag
+    19	
+    20	# Create and activate virtual environment
+    21	python -m venv venv
+    22	# On Windows (PowerShell):
+    23	.\venv\Scripts\Activate.ps1
+    24	# On Linux/macOS:
+    25	source venv/bin/activate
+    26	
+    27	# Install dependencies
+    28	pip install --upgrade pip
+    29	pip install -r requirements.txt
+    30	pip install -e ".[dev]"
+    31	
+    32	# Copy environment configuration
+    33	cp env.example .env
+    34	```
+    35	
+    36	---
+    37	
+    38	## 2. Running Tests
+    39	
+    40	Always run the test suite before submitting pull requests:
+    41	
+    42	```bash
+    43	# Run all unit, integration, and security tests
+    44	pytest
+    45	
+    46	# Run tests with verbose output
+    47	pytest -v
+    48	
+    49	# Run a specific test module
+    50	pytest tests/security/test_tenant_auth_security.py
+    51	```
+    52	
+    53	Before you open a pull request, run the checks of the Verification Pipeline:
+    54	
+    55	```bash
+    56	make verify            # every check; the container check needs Docker
+    57	make verify-security   # Security Regression Suite; needs Redis and TEST_REDIS_URL=redis://localhost:6379/15
+    58	```
+    59	
+    60	If you add, rename or remove a security test, run `make security-manifest` and commit `tests/security/suite_manifest.json` with the change. A pull request that removes a security test must explain why. Details: `docs/features/security-verification-pipeline/README.md`.
+    61	
+    62	---
+    63	
+    64	## 3. Code Conventions & Standards
+    65	
+    66	- **Formatting & Linting:** We use `ruff` for linting and code formatting.
+    67	  ```bash
+    68	  ruff check .
+    69	  ruff format .
+    70	  ```
+    71	- **Type Annotations:** Use Python type annotations (`typing`) on all new functions and methods.
+    72	- **Import Namespace:** Do not alter the internal package namespace. Core internal imports continue to resolve through `from ragbot...`.
+    73	- **Async Concurrency:** Any operations reading or mutating shared indices must respect async lock patterns (`async with self.async_lock:`).
+    74	- **Error Handling:** Avoid bare `except:`. Wrap failures with domain exceptions from `ragbot.rag.exceptions` or return structured API error responses.
+    75	
+    76	---
+    77	
+    78	## 4. Extending TenantRAG
+    79	
+    80	### Adding a Vector Store
+    81	1. Create a store adapter inheriting from `BaseVectorStore` in `ragbot/rag/store/`.
+    82	2. Implement required methods: `add_documents`, `search`, `delete_documents`, `reset`, `get_document_count`.
+    83	3. Register the store in `VectorStoreFactory._store_registry` in `ragbot/rag/store/factory.py`.
+    84	4. Add integration tests under `tests/integration/`.
+    85	
+    86	### Adding an LLM Provider
+    87	1. Add provider configuration options to `LLMSettings` in `ragbot/configs/settings.py`.
+    88	2. Implement client initialization and inference branching in `QAChain` (`ragbot/rag/qa/chain.py`).
+    89	3. Add tests verifying mock response parsing and error handling in `tests/unit/test_prompting.py`.
+    90	
+    91	### Adding Plugin Hooks
+    92	1. Define new lifecycle hook types in `ragbot/plugins/base_plugin.py` (`HookType` enum).
+    93	2. Wire hook execution points in `ragbot/services/rag_service.py` using `await self.plugin_manager.execute_hooks(...)`.
+    94	3. Ensure all plugin invocations remain exception-contained so failures do not interrupt the core RAG pipeline.
+    95	
+    96	---
+    97	
+    98	## 5. Pull Request Expectations
+    99	
+   100	- **Test Coverage:** All new features or bug fixes must include corresponding tests in `tests/`.
+   101	- **Verification Pipeline:** All Blocking Checks must pass: Tests and Security Regression Suite on Python 3.10, 3.11 and 3.12, Dependency Vulnerability Check, Container Build Check and Verification Summary. Do not skip security tests. A new HIGH or CRITICAL dependency advisory must be fixed, or the dependency must leave the default installation.
+   102	- **Clean Git History:** Write descriptive, imperative commit messages (`feat: ...`, `fix: ...`, `docs: ...`).
+   103	- **No Performance Hype:** Do not add unverified performance assertions or quantitative benchmark claims to documentation without reproducible scripts in `benchmarks/`.
+===== CHANGELOG.md (head 60)
+     1	# Changelog
+     2	
+     3	All notable changes to the RAGBot project are documented in this file.
+     4	
+     5	## 2026-09-26: Security Verification Pipeline
+     6	
+     7	- **Verification Pipeline**: `.github/workflows/ci.yml` runs the full test suite and a separate Security Regression Suite on Python 3.10, 3.11 and 3.12, a Dependency Vulnerability Check (pip-audit with the OSV database), a Container Build Check and report-only Ruff, MyPy and Bandit checks, and writes a Verification Summary for every run. Details: `docs/features/security-verification-pipeline/README.md`.
+     8	- **Security Regression Suite**: a failed, skipped, removed or unlisted security test fails the check. The test list is `tests/security/suite_manifest.json`.
+     9	- **Dependency remediation**: removed the unused langchain, langchain-openai, langchain-community and nltk; moved chromadb to the optional `vectorstores` extra; upgraded fastapi to 0.141.1 (starlette 1.7.0), aiohttp to 3.14.3, cryptography to 50.0.1, pyjwt to 2.15.0, orjson to 3.12.0, Pillow to 12.3.0, pypdf to 6.19.0, requests to 2.34.2, torch to 2.14.0, transformers to 5.17.0, sentence-transformers to 6.1.0 and mkdocs-material to 9.7.7. The dependency check has no accepted exceptions.
+    10	- **Local checks**: `make verify` and `scripts/verify_pipeline.sh` run the same checks.
+    11	- **Test Suite Pass**: 1005 passed, 11 skipped, 0 failed; Security Regression Suite 322 passed, 0 skipped.
+    12	
+    13	## 2026-09-24 — Tenant Authentication, Authorization & API Security Hardening
+    14	
+    15	- **Decoupled Identity & Routing**: Enforced zero-trust separation between identity authentication (`X-API-Key: rgb_<token>` or `Authorization: Bearer <token>`) and routing headers (`X-Tenant-ID`). Requests attempting cross-tenant access are strictly blocked with `HTTP 403 Forbidden`. Requests lacking credentials in multi-tenant mode return `HTTP 401 Unauthorized`.
+    16	- **Cryptographic Credential Storage**: Built persistent SQLite credential store (`tenant_api_keys` table in `data/tenants/tenants.db`). Raw keys follow `rgb_<secrets.token_urlsafe(32)>` format, displayed only upon generation. Only SHA-256 hashes (`key_hash`) are persisted with B-tree indexes.
+    17	- **Immediate Revocation**: Added immediate persistent key revocation with SQLite deactivation and in-memory cache invalidation.
+    18	- **Reset Authorization Protection**: Guarded `/api/v1/documents/reset` with RBAC requiring `admin` or `super_admin` role. Non-admin principals receive `HTTP 403 Forbidden`.
+    19	- **CLI Key Management**: Added subcommands under `ragbot-cli tenant`: `create-api-key`, `revoke-api-key`, and `list-api-keys` with secret masking.
+    20	- **Test Suite Pass**: Achieved 627 passed, 1 skipped, 0 failed across full test suite.
+    21	
+    22	## 2026-09-22 — Multi-Tenant Subsystem & Plugin Architecture Restoration
+    23	
+    24	- **Multi-Tenant Subsystem Restoration**: Restored `ragbot/multi_tenant/` with durable SQLite persistence (`tenants.db`) with WAL mode and `asyncio.Lock()` protection.
+    25	- **Hard Vector Store & Cache Isolation**: Partitioned FAISS (tenant directories), Chroma/Qdrant (tenant collections), and SemanticCache (tenant key prefixing and cosine similarity filtering).
+    26	- **Plugin Architecture Restoration**: Restored `ragbot/plugins/` with `PluginManager`, lifecycle integration (`lifespan`), and standard hook points (`PRE/POST_DOCUMENT_INGEST`, `PRE/POST_QUERY`, `PRE/POST_RESPONSE`).
+    27	- **Observable Failure Isolation**: Plugin hook exceptions are isolated and logged as warnings; faulty plugins cannot crash host request processing.
+    28	- **CLI Management**: Added `ragbot-cli tenant` and `ragbot-cli plugin` administrative commands.
+    29	
+    30	## 2026-09-20 — Core Remediation & Production Hardening
+    31	
+    32	- **Vector Store Concurrency Safety**: Protected `FAISSVectorStore` against race conditions and Windows file sharing collisions (`[WinError 32]`) by wrapping document additions, updates, deletions, clears, and disk saves in an asynchronous class-level lock (`async_lock`).
+    33	- **Cache Lifecycle Unification**: Unified semantic cache ownership under `CacheManager.semantic_cache`, added `clear` method alias to `SemanticCache`, and aligned `RAGService.reset_store()` and `/api/v1/documents/reset` to invalidate all active cache layers when the store is reset.
+    34	- **API Abuse Prevention & Validation**: Implemented `RateLimitMiddleware` using a thread-safe sliding-window counter per client IP address returning standard RFC `HTTP 429` headers. Added `HTTP 413` payload size validation on direct text ingestion routes.
+    35	- **Provider Integrity**: Added native Anthropic Claude (`anthropic.AsyncAnthropic`) support to `QAChain` using the Messages API.
+    36	- **Bytecode Artifact Purge**: Removed orphaned legacy Telegram bytecode artifacts (`ragbot/app/`).
+    37	- **Test Suite Pass**: Achieved 593 passed, 2 skipped, 0 failed across unit, integration, and API test suites in CPU isolation.
+    38	
+    39	## 2026-09-18 — Telegram Transport Migration to API-First Architecture
+    40	
+    41	- **Transport Migration**: Decommissioned `aiogram 3` Telegram transport layer and established a modern, modular **FastAPI** HTTP REST API application layer under `ragbot/api/`.
+    42	- **API Endpoints**: Introduced `/health`, `/api/v1/health`, `/api/v1/query`, `/api/v1/documents/upload`, `/api/v1/documents/text`, `/api/v1/documents/url`, and `/api/v1/documents/reset`.
+    43	- **Application Lifespan**: Initialized heavy shared components (`IntegrationService`, `QAChain`, vector stores, embedders) once during FastAPI lifespan startup to avoid per-request reconstruction overhead.
+    44	- **Dependency Decoupling**: Removed `aiogram` dependency from `requirements.txt`, `setup.py`, and `pyproject.toml`. Made `BOT_TOKEN` optional in configuration.
+    45	- **Entry Points**: Migrated `main.py` and `ragbot/main.py` to start the Uvicorn ASGI server with configurable `--host`, `--port`, `--workers`, and `--reload` parameters.

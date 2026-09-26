@@ -1,0 +1,182 @@
+== verification-container/container.json
+   check: container
+   details.auth_probes: [{"detail": "Authentication required. Set MULTI_TENANT_ENABLED=true and send an API key. Anonymous access is only available when ENVIRONMENT=development and ALLOW_ANONYMOUS=true.", "request": "POST /api/v1/query", "status": 401}, {"detail": "Authentication required. Set MULTI_TENANT_ENABLED=true and...(+168)
+   details.build_seconds: 157.3
+   details.docker_health: healthy
+   details.docker_version: 28.0.4
+   details.health_status: {"/api/v1/health": "healthy", "/health": "healthy"}
+   details.image_user: appuser
+   details.process_uids: [10001]
+   details.ready_seconds: 20.3
+   details.removed: true
+   details.runtime_user: appuser
+   details.uid: 10001
+   image: tenant-rag:verification
+   log_tail: list[20] ["\u001b[32m2026-09-26 16:31:24\u001b[0m | \u001b[1mINFO    \u001b[0m | \u001b[36mragbot.services.integration_service\u001b[0m:\u001b[36m_verify_components\u001b[0m:\u001b[36m444\u001b[0m | \u001b[1mVerifying component health...\u001b[0m", "\u001b[32m2026-09-26 16:31:24\u001b[0m | \u001b[1mINFO    \...(+4287)
+   mode: blocking
+   problems: list[0] []
+   python: 3.12.14
+   schema: 1
+   status: pass
+   steps: list[6] [{"detail": "the image tenant-rag:verification was built in 157 s", "status": "pass", "step": "build"}, {"detail": "the container tenant-rag-verification-2334 started with the default settings of the image", "status": "pass", "step": "start"}, {"detail": "GET /health answered HTTP 200 after 20 s", "...(+920)
+   summary: built in 157 s; ready after 20 s; health HTTP 200 (healthy); HEALTHCHECK healthy; requests without credentials: HTTP 401, 401; runtime UID 10001
+   title: Container Build Check
+== verification-dependency-audit/dependency-audit.json
+   accepted: list[0] []
+   blocking: list[0] []
+   check: dependency-audit
+   counts: {"CRITICAL": 0, "HIGH": 0, "LOW": 0, "MODERATE": 5, "UNKNOWN": 0}
+   exceptions: {"invalid": [], "path": ".github/dependency-audit-exceptions.json", "unused": [], "valid": 0}
+   fail_on: high
+   lookup_errors: list[0] []
+   mode: blocking
+   non_blocking: list[5] [{"aliases": ["CVE-2025-69534", "PYSEC-2026-89"], "exception": null, "fix_versions": ["3.8.1"], "id": "GHSA-5wmx-573v-2qwq", "package": "markdown", "severity": "MODERATE", "severity_source": "GitHub advisory", "summary": "Python-Markdown has an Uncaught Exception", "version": "3.6"}, {"aliases": ["C...(+1318)
+   packages: list[196] ["accelerate==1.15.0", "aiohappyeyeballs==2.7.1", "aiohttp==3.14.3", "aioresponses==0.7.9", "aiosignal==1.4.0", "alembic==1.13.2", "annotated-doc==0.0.5", "annotated-types==0.8.0", "anthropic==0.28.1", "anyio==4.15.1", "attrs==26.1.0", "babel==2.18.0", "backrefs==8.0", "bandit==1.7.9", "bcrypt==4.1....(+3821)
+   problems: list[0] []
+   python: 3.11.16
+   schema: 1
+   skipped: list[1] [{"name": "tenant-rag", "reason": "distribution marked as editable"}]
+   status: pass
+   summary: 196 packages audited: 0 blocking, 0 accepted, 5 non-blocking advisories
+   title: Dependency Vulnerability Check
+   tool: pip-audit 2.10.1 (OSV)
+== verification-security-py3.10/security-py3.10.json
+   check: security-suite
+   collection_problems: list[0] []
+   counts: {"collected": 322, "error": 0, "failed": 0, "passed": 322, "skipped": 0, "xfailed": 0, "xpassed": 0}
+   duration_seconds: 29.18
+   failed_tests: list[0] []
+   manifest: {"added_vs_base": [], "base_available": false, "base_ref": null, "expected": 322, "missing": [], "path": "tests/security/suite_manifest.json", "paths": ["tests/security", "tests/unit/test_edge_client_address.py", "tests/unit/test_edge_cors_policy.py", "tests/unit/test_edge_rate_limit_store.py", "tes...(+189)
+   mode: blocking
+   not_run: list[0] []
+   problems: list[0] []
+   python: 3.10.21
+   schema: 1
+   skipped_tests: list[0] []
+   status: pass
+   summary: 322 passed, 0 failed, 0 errors, 0 skipped
+   title: Security Regression Suite
+== verification-security-py3.11/security-py3.11.json
+   check: security-suite
+   collection_problems: list[0] []
+   counts: {"collected": 322, "error": 0, "failed": 0, "passed": 322, "skipped": 0, "xfailed": 0, "xpassed": 0}
+   duration_seconds: 25.94
+   failed_tests: list[0] []
+   manifest: {"added_vs_base": [], "base_available": false, "base_ref": null, "expected": 322, "missing": [], "path": "tests/security/suite_manifest.json", "paths": ["tests/security", "tests/unit/test_edge_client_address.py", "tests/unit/test_edge_cors_policy.py", "tests/unit/test_edge_rate_limit_store.py", "tes...(+189)
+   mode: blocking
+   not_run: list[0] []
+   problems: list[0] []
+   python: 3.11.16
+   schema: 1
+   skipped_tests: list[0] []
+   status: pass
+   summary: 322 passed, 0 failed, 0 errors, 0 skipped
+   title: Security Regression Suite
+== verification-security-py3.12/security-py3.12.json
+   check: security-suite
+   collection_problems: list[0] []
+   counts: {"collected": 322, "error": 0, "failed": 0, "passed": 322, "skipped": 0, "xfailed": 0, "xpassed": 0}
+   duration_seconds: 27.87
+   failed_tests: list[0] []
+   manifest: {"added_vs_base": [], "base_available": false, "base_ref": null, "expected": 322, "missing": [], "path": "tests/security/suite_manifest.json", "paths": ["tests/security", "tests/unit/test_edge_client_address.py", "tests/unit/test_edge_cors_policy.py", "tests/unit/test_edge_rate_limit_store.py", "tes...(+189)
+   mode: blocking
+   not_run: list[0] []
+   problems: list[0] []
+   python: 3.12.14
+   schema: 1
+   skipped_tests: list[0] []
+   status: pass
+   summary: 322 passed, 0 failed, 0 errors, 0 skipped
+   title: Security Regression Suite
+== verification-static-bandit/static-bandit.json
+   annotations: list[9] [{"file": "ragbot/caching/base.py", "line": 227, "message": "Use of weak MD5 hash for security. Consider usedforsecurity=False", "title": "Bandit B324 hashlib (HIGH)"}, {"file": "ragbot/caching/base.py", "line": 245, "message": "Use of weak MD5 hash for security. Consider usedforsecurity=False", "ti...(+1291)
+   check: static-bandit
+   command: bandit -c pyproject.toml -r ragbot -f json -q
+   details.by_severity: {"HIGH": 19, "LOW": 182, "MEDIUM": 9}
+   details.by_test: {"B104 hardcoded_bind_all_interfaces": 3, "B110 try_except_pass": 142, "B112 try_except_continue": 22, "B202 tarfile_unsafe_members": 1, "B301 blacklist": 5, "B307 blacklist": 1, "B311 blacklist": 3, "B324 hashlib": 18, "B403 blacklist": 5, "B404 blacklist": 3, "B603 subprocess_without_shell_equals_...(+52)
+   details.errors: []
+   details.high_and_medium: [{"file": "ragbot/caching/base.py", "issue": "Use of weak MD5 hash for security. Consider usedforsecurity=False", "line": 227, "severity": "HIGH", "test": "B324 hashlib"}, {"file": "ragbot/caching/base.py", "issue": "Use of weak MD5 hash for security. Consider usedforsecurity=False", "line": 245, "s...(+5044)
+   findings: 210
+   mode: report-only
+   problems: list[0] []
+   python: 3.12.14
+   schema: 1
+   status: findings
+   summary: 210 findings: 19 high, 9 medium, 182 low severity
+   title: Insecure-pattern check (Bandit)
+   tool: bandit
+   tool_exit_code: 1
+   tool_version: bandit 1.7.9
+   warnings: list[1] ["[warnings]\tWARNING\tinvalid escape sequence '\\s'"]
+== verification-static-mypy/static-mypy.json
+   annotations: list[0] []
+   check: static-mypy
+   command: mypy ragbot --ignore-missing-imports --no-color-output --no-pretty
+   details.by_code: {"arg-type": 51, "assignment": 120, "attr-defined": 162, "call-arg": 38, "call-overload": 4, "dict-item": 10, "import-untyped": 1, "index": 77, "misc": 14, "name-defined": 1, "no-any-return": 76, "no-redef": 4, "no-untyped-def": 274, "operator": 20, "override": 24, "return-value": 15, "type-arg": 50...(+93)
+   details.errors_without_code: []
+   details.files: 106
+   details.summary_line: Found 1160 errors in 106 files (checked 161 source files)
+   findings: 1160
+   mode: report-only
+   problems: list[0] []
+   python: 3.12.14
+   schema: 1
+   status: findings
+   summary: 1160 errors in 106 files
+   title: Type check (MyPy)
+   tool: mypy
+   tool_exit_code: 1
+   tool_version: mypy 1.10.1 (compiled: yes)
+   warnings: list[0] []
+== verification-static-ruff/static-ruff.json
+   annotations: list[0] []
+   check: static-ruff
+   command: ruff check . --no-fix --output-format json
+   details.by_code: {"ARG001": 25, "B007": 12, "B009": 1, "B017": 4, "B904": 5, "B905": 19, "C401": 5, "C413": 1, "C416": 1, "C420": 1, "E402": 15, "E712": 7, "E713": 1, "E721": 3, "E731": 1, "E741": 1, "F401": 75, "F541": 21, "F811": 1, "F821": 1, "F841": 25, "I001": 95, "PERF102": 8, "PERF203": 59, "PERF401": 37, "PE...(+567)
+   details.files: 214
+   findings: 4628
+   mode: report-only
+   problems: list[0] []
+   python: 3.12.14
+   schema: 1
+   status: findings
+   summary: 4628 findings in 214 files (most frequent: UP006 1770, W293 689, UP045 595)
+   title: Style check (Ruff)
+   tool: ruff
+   tool_exit_code: 1
+   tool_version: ruff 0.12.12
+   warnings: list[4] ["warning: The top-level linter settings are deprecated in favour of their counterparts in the `lint` section. Please update the following options in `pyproject.toml`:", "  - 'ignore' -> 'lint.ignore'", "  - 'select' -> 'lint.select'", "  - 'isort' -> 'lint.isort'"]
+== verification-tests-py3.10/tests-py3.10.json
+   check: tests
+   collection_problems: list[0] []
+   counts: {"collected": 1016, "error": 0, "failed": 0, "passed": 1005, "skipped": 11, "xfailed": 0, "xpassed": 0}
+   duration_seconds: 159.77
+   failed_tests: list[0] []
+   mode: blocking
+   not_run: list[0] []
+   problems: list[0] []
+   python: 3.10.21
+   schema: 1
+   skipped_tests: list[11] [{"nodeid": "tests/e2e/test_vector_store_e2e_comprehensive.py::TestCompleteWorkflowE2E::test_chroma_complete_workflow", "outcome": "skipped", "reason": "Skipped: chromadb is optional (vectorstores extra) and not installed"}, {"nodeid": "tests/e2e/test_vector_store_e2e_comprehensive.py::TestErrorHand...(+2023)
+   status: pass
+   summary: 1005 passed, 0 failed, 0 errors, 11 skipped
+   title: Tests
+== verification-tests-py3.11/tests-py3.11.json
+   check: tests
+   collection_problems: list[0] []
+   counts: {"collected": 1016, "error": 0, "failed": 0, "passed": 1005, "skipped": 11, "xfailed": 0, "xpassed": 0}
+   duration_seconds: 171.27
+   failed_tests: list[0] []
+   mode: blocking
+   not_run: list[0] []
+   problems: list[0] []
+   python: 3.11.16
+   schema: 1
+   skipped_tests: list[11] [{"nodeid": "tests/e2e/test_vector_store_e2e_comprehensive.py::TestCompleteWorkflowE2E::test_chroma_complete_workflow", "outcome": "skipped", "reason": "Skipped: chromadb is optional (vectorstores extra) and not installed"}, {"nodeid": "tests/e2e/test_vector_store_e2e_comprehensive.py::TestErrorHand...(+2023)
+   status: pass
+   summary: 1005 passed, 0 failed, 0 errors, 11 skipped
+   title: Tests
+== verification-tests-py3.12/tests-py3.12.json
+   check: tests
+   collection_problems: list[0] []
+   counts: {"collected": 1016, "error": 0, "failed": 0, "passed": 1005, "skipped": 11, "xfailed": 0, "xpassed": 0}

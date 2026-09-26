@@ -1,0 +1,243 @@
+     1	#!/usr/bin/env python3
+     2	"""Run one Static Analysis Check (Ruff, MyPy or Bandit) and write its report.
+     3	
+     4	    python scripts/verification/static_analysis.py {ruff,mypy,bandit} [--mode MODE] [--report PATH]
+     5	    python scripts/verification/static_analysis.py pins TOOL [TOOL ...]
+     6	
+     7	The checks use the repository's own tools and settings (pyproject.toml):
+     8	
+     9	    ruff    style check             ruff check . --no-fix
+    10	    mypy    type check              mypy ragbot --ignore-missing-imports   (as `make type-check`)
+    11	    bandit  insecure-pattern check  bandit -c pyproject.toml -r ragbot     ([tool.bandit])
+    12	
+    13	The exit status of the tool is kept: 0 when there is no finding, 1 when there
+    14	are findings, 2 when the tool could not run. MODE ("report-only" or
+    15	"blocking") is written to the report and sets the annotation level. In
+    16	.github/workflows/ci.yml a Report-Only Check runs with continue-on-error, so
+    17	findings mark the check as failed without blocking a merge.
+    18	
+    19	"pins" prints the requirement of each tool pinned in the dev extra of
+    20	pyproject.toml, so CI installs the same versions as a developer environment.
+    21	"""
+    22	
+    23	from __future__ import annotations
+    24	
+    25	import argparse
+    26	import json
+    27	import os
+    28	import platform
+    29	import re
+    30	import subprocess
+    31	import sys
+    32	from collections import Counter
+    33	from pathlib import Path
+    34	from typing import TYPE_CHECKING, Any
+    35	
+    36	if TYPE_CHECKING:
+    37	    from collections.abc import Callable
+    38	
+    39	ROOT = Path(__file__).resolve().parents[2]
+    40	MODES = ("report-only", "blocking")
+    41	MAX_FILE_ANNOTATIONS = 9
+    42	TOOLS: dict[str, dict[str, Any]] = {
+    43	    "ruff": {
+    44	        "title": "Style check (Ruff)",
+    45	        "args": ["ruff", "check", ".", "--no-fix", "--output-format", "json"],
+    46	    },
+    47	    "mypy": {
+    48	        "title": "Type check (MyPy)",
+    49	        "args": ["mypy", "ragbot", "--ignore-missing-imports", "--no-color-output", "--no-pretty"],
+    50	    },
+    51	    "bandit": {
+    52	        "title": "Insecure-pattern check (Bandit)",
+    53	        "args": ["bandit", "-c", "pyproject.toml", "-r", "ragbot", "-f", "json", "-q"],
+    54	    },
+    55	}
+    56	MYPY_ERROR = re.compile(
+    57	    r"^(?P<path>[^:\s][^:]*):(?P<line>\d+)(?::\d+)?: error: (?P<message>.*?)(?:  \[(?P<code>[a-z0-9-]+)\])?$"
+    58	)
+    59	MYPY_SUMMARY = re.compile(r"^(Found \d+ errors? in \d+ files?.*|Success: .*)$")
+    60	
+    61	
+    62	class ToolOutputError(ValueError):
+    63	    """The output of the tool cannot be read."""
+    64	
+    65	
+    66	def parse_ruff(stdout: str) -> tuple[int, dict[str, Any], list[dict[str, Any]]]:
+    67	    try:
+    68	        items = json.loads(stdout or "[]")
+    69	    except json.JSONDecodeError as exc:
+    70	        raise ToolOutputError(f"the ruff output is not JSON: {exc}") from exc
+    71	    if not isinstance(items, list):
+    72	        raise ToolOutputError("the ruff output is not a list of findings")
+    73	    by_code = Counter(str(item.get("code") or "syntax-error") for item in items)
+    74	    files = {str(item.get("filename")) for item in items}
+    75	    return len(items), {"by_code": dict(by_code.most_common()), "files": len(files)}, []
+    76	
+    77	
+    78	def parse_mypy(stdout: str) -> tuple[int, dict[str, Any], list[dict[str, Any]]]:
+    79	    lines = stdout.splitlines()
+    80	    matches = [match for match in (MYPY_ERROR.match(line) for line in lines) if match]
+    81	    by_code = Counter(match.group("code") or "none" for match in matches)
+    82	    files = {match.group("path") for match in matches}
+    83	    summary = next((line for line in reversed(lines) if MYPY_SUMMARY.match(line)), "")
+    84	    without_code = [match.group(0) for match in matches if not match.group("code")]
+    85	    details = {
+    86	        "by_code": dict(by_code.most_common()),
+    87	        "files": len(files),
+    88	        "summary_line": summary,
+    89	        "errors_without_code": without_code[:10],
+    90	    }
+    91	    return len(matches), details, []
+    92	
+    93	
+    94	def _relative(path: str, root: Path) -> str:
+    95	    try:
+    96	        return Path(path).resolve().relative_to(root).as_posix()
+    97	    except ValueError:
+    98	        return path
+    99	
+   100	
+   101	def parse_bandit(stdout: str, root: Path = ROOT) -> tuple[int, dict[str, Any], list[dict[str, Any]]]:
+   102	    try:
+   103	        data = json.loads(stdout)
+   104	    except json.JSONDecodeError as exc:
+   105	        raise ToolOutputError(f"the bandit output is not JSON: {exc}") from exc
+   106	    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+   107	        raise ToolOutputError("the bandit output has no results list")
+   108	    results = data["results"]
+   109	    by_severity = Counter(str(result.get("issue_severity", "UNDEFINED")).upper() for result in results)
+   110	    by_test = Counter(f"{result.get('test_id')} {result.get('test_name')}" for result in results)
+   111	    notable = [
+   112	        {
+   113	            "severity": severity,
+   114	            "test": f"{result.get('test_id')} {result.get('test_name')}",
+   115	            "file": _relative(str(result.get("filename", "")), root),
+   116	            "line": int(result.get("line_number") or 0),
+   117	            "issue": str(result.get("issue_text", "")),
+   118	        }
+   119	        for severity in ("HIGH", "MEDIUM")
+   120	        for result in results
+   121	        if str(result.get("issue_severity", "")).upper() == severity
+   122	    ]
+   123	    details = {
+   124	        "by_severity": {level: by_severity.get(level, 0) for level in ("HIGH", "MEDIUM", "LOW")},
+   125	        "by_test": dict(by_test.most_common()),
+   126	        "high_and_medium": notable,
+   127	        "errors": data.get("errors", []),
+   128	    }
+   129	    annotations = [
+   130	        {
+   131	            "file": item["file"],
+   132	            "line": item["line"],
+   133	            "title": f"Bandit {item['test']} ({item['severity']})",
+   134	            "message": item["issue"],
+   135	        }
+   136	        for item in notable[:MAX_FILE_ANNOTATIONS]
+   137	    ]
+   138	    return len(results), details, annotations
+   139	
+   140	
+   141	PARSERS = {"ruff": parse_ruff, "mypy": parse_mypy, "bandit": parse_bandit}
+   142	
+   143	
+   144	def summarize(tool: str, count: int, details: dict[str, Any]) -> str:
+   145	    if tool == "ruff":
+   146	        top = ", ".join(f"{code} {number}" for code, number in list(details["by_code"].items())[:3])
+   147	        text = f"{count} findings in {details['files']} files"
+   148	        return f"{text} (most frequent: {top})" if count else text
+   149	    if tool == "mypy":
+   150	        return f"{count} errors in {details['files']} files"
+   151	    severity = details["by_severity"]
+   152	    return (
+   153	        f"{count} findings: {severity['HIGH']} high, {severity['MEDIUM']} medium, "
+   154	        f"{severity['LOW']} low severity"
+   155	    )
+   156	
+   157	
+   158	def tool_version(tool: str, runner: Callable[..., Any], root: Path) -> str:
+   159	    proc = runner(
+   160	        [sys.executable, "-m", tool, "--version"], cwd=root, capture_output=True, text=True, check=False
+   161	    )
+   162	    lines = (proc.stdout or proc.stderr or "").strip().splitlines()
+   163	    if not lines:
+   164	        return "unknown"
+   165	    # "python -m bandit --version" prints "__main__.py 1.7.9".
+   166	    return lines[0].replace("__main__.py", tool, 1)
+   167	
+   168	
+   169	def run_check(
+   170	    tool: str, mode: str, root: Path = ROOT, runner: Callable[..., Any] = subprocess.run
+   171	) -> dict[str, Any]:
+   172	    """Run one tool and build its report."""
+   173	    spec = TOOLS[tool]
+   174	    report: dict[str, Any] = {
+   175	        "schema": 1,
+   176	        "check": f"static-{tool}",
+   177	        "title": spec["title"],
+   178	        "tool": tool,
+   179	        "mode": mode,
+   180	        "command": " ".join(spec["args"]),
+   181	        "tool_version": tool_version(tool, runner, root),
+   182	        "python": platform.python_version(),
+   183	    }
+   184	    command = [sys.executable, "-m", *spec["args"]]
+   185	    print("+ " + " ".join(command), flush=True)
+   186	    proc = runner(command, cwd=root, capture_output=True, text=True, check=False)
+   187	    stdout = proc.stdout or ""
+   188	    warnings = [line for line in (proc.stderr or "").splitlines() if line.strip()][:20]
+   189	    try:
+   190	        count, details, annotations = PARSERS[tool](stdout)
+   191	    except ToolOutputError as exc:
+   192	        report.update(
+   193	            status="error",
+   194	            findings=None,
+   195	            summary=f"could not run: {exc}",
+   196	            problems=[str(exc), f"{tool} exited with code {proc.returncode}"],
+   197	            warnings=warnings,
+   198	            output_tail=stdout.splitlines()[-20:],
+   199	            tool_exit_code=proc.returncode,
+   200	        )
+   201	        return report
+   202	    problems = []
+   203	    if proc.returncode not in (0, 1):
+   204	        problems.append(f"{tool} exited with code {proc.returncode}")
+   205	        problems.extend(details.get("errors_without_code", [])[:5])
+   206	    elif proc.returncode == 1 and count == 0:
+   207	        problems.append(f"{tool} exited with code 1 but reported no finding")
+   208	    if problems:
+   209	        status = "error"
+   210	    elif count == 0:
+   211	        status = "pass"
+   212	    else:
+   213	        status = "fail" if mode == "blocking" else "findings"
+   214	    report.update(
+   215	        status=status,
+   216	        findings=count,
+   217	        summary=summarize(tool, count, details),
+   218	        details=details,
+   219	        problems=problems,
+   220	        warnings=warnings,
+   221	        annotations=annotations,
+   222	        tool_exit_code=proc.returncode,
+   223	    )
+   224	    return report
+   225	
+   226	
+   227	def exit_code(report: dict[str, Any]) -> int:
+   228	    """Keep the exit status of the tool: 0 no finding, 1 findings, 2 could not run."""
+   229	    return {"pass": 0, "findings": 1, "fail": 1}.get(report["status"], 2)
+   230	
+   231	
+   232	def _escape_data(value: str) -> str:
+   233	    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+   234	
+   235	
+   236	def _escape_property(value: str) -> str:
+   237	    return _escape_data(value).replace(":", "%3A").replace(",", "%2C")
+   238	
+   239	
+   240	def emit_annotations(report: dict[str, Any]) -> None:
+   241	    if os.environ.get("GITHUB_ACTIONS") != "true" or report["status"] == "pass":
+   242	        return
+   243	    level = "error" if report["mode"] == "blocking" or report["status"] == "error" else "warning"

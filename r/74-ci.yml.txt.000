@@ -1,0 +1,251 @@
+     1	# Verification Pipeline: the Security Verification Pipeline feature
+     2	# (REQ-MTS-CI-001 to REQ-MTS-CI-005).
+     3	# Documentation: docs/features/security-verification-pipeline/README.md
+     4	#
+     5	# Blocking Checks (required status checks of main):
+     6	#   Tests (Python 3.10), Tests (Python 3.11), Tests (Python 3.12)
+     7	#   Security Regression Suite (Python 3.10), (Python 3.11), (Python 3.12)
+     8	#   Dependency Vulnerability Check
+     9	#   Container Build Check
+    10	#   Verification Summary
+    11	# Report-Only Checks (visible, do not block a merge):
+    12	#   Static Analysis (ruff, report-only), (mypy, report-only), (bandit, report-only)
+    13	name: Verification Pipeline
+    14	
+    15	on:
+    16	  pull_request:
+    17	    branches: [main]
+    18	  push:
+    19	    branches: [main]
+    20	  workflow_dispatch:
+    21	
+    22	permissions:
+    23	  contents: read
+    24	
+    25	concurrency:
+    26	  group: verification-${{ github.event.pull_request.number || github.ref }}
+    27	  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    28	
+    29	env:
+    30	  CUDA_VISIBLE_DEVICES: ""
+    31	  TORCH_DEVICE: "cpu"
+    32	  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    33	  PYTHONUNBUFFERED: "1"
+    34	  REPORTS_DIR: verification-reports
+    35	
+    36	jobs:
+    37	  tests:
+    38	    name: Tests (Python ${{ matrix.python-version }})
+    39	    runs-on: ubuntu-24.04
+    40	    timeout-minutes: 45
+    41	    strategy:
+    42	      fail-fast: false
+    43	      matrix:
+    44	        python-version: ["3.10", "3.11", "3.12"]
+    45	    services:
+    46	      redis:
+    47	        image: redis:7-alpine
+    48	        ports:
+    49	          - 6379:6379
+    50	        options: >-
+    51	          --health-cmd "redis-cli ping"
+    52	          --health-interval 5s
+    53	          --health-timeout 3s
+    54	          --health-retries 10
+    55	    steps:
+    56	      - name: Check out the repository
+    57	        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    58	        with:
+    59	          persist-credentials: false
+    60	      - name: Set up Python ${{ matrix.python-version }}
+    61	        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+    62	        with:
+    63	          python-version: ${{ matrix.python-version }}
+    64	          cache: pip
+    65	          cache-dependency-path: |
+    66	            requirements.txt
+    67	            pyproject.toml
+    68	      - name: Install dependencies
+    69	        run: |
+    70	          python -m pip install --upgrade pip
+    71	          python -m pip install -r requirements.txt
+    72	          python -m pip install -e ".[dev]"
+    73	      - name: Run the full test suite
+    74	        env:
+    75	          TEST_REDIS_URL: redis://localhost:6379/15
+    76	        run: >-
+    77	          python scripts/verification/run_suite.py full
+    78	          --report "$REPORTS_DIR/tests-py${{ matrix.python-version }}.json"
+    79	          -- -v
+    80	      - name: Upload the report
+    81	        if: always()
+    82	        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+    83	        with:
+    84	          name: verification-tests-py${{ matrix.python-version }}
+    85	          path: ${{ env.REPORTS_DIR }}
+    86	          if-no-files-found: warn
+    87	          retention-days: 14
+    88	
+    89	  security-suite:
+    90	    name: Security Regression Suite (Python ${{ matrix.python-version }})
+    91	    runs-on: ubuntu-24.04
+    92	    timeout-minutes: 30
+    93	    strategy:
+    94	      fail-fast: false
+    95	      matrix:
+    96	        python-version: ["3.10", "3.11", "3.12"]
+    97	    services:
+    98	      redis:
+    99	        image: redis:7-alpine
+   100	        ports:
+   101	          - 6379:6379
+   102	        options: >-
+   103	          --health-cmd "redis-cli ping"
+   104	          --health-interval 5s
+   105	          --health-timeout 3s
+   106	          --health-retries 10
+   107	    steps:
+   108	      - name: Check out the repository
+   109	        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+   110	        with:
+   111	          # The full history holds the base commit, to compare its manifest.
+   112	          fetch-depth: 0
+   113	          persist-credentials: false
+   114	      - name: Set up Python ${{ matrix.python-version }}
+   115	        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+   116	        with:
+   117	          python-version: ${{ matrix.python-version }}
+   118	          cache: pip
+   119	          cache-dependency-path: |
+   120	            requirements.txt
+   121	            pyproject.toml
+   122	      - name: Install dependencies
+   123	        run: |
+   124	          python -m pip install --upgrade pip
+   125	          python -m pip install -r requirements.txt
+   126	          python -m pip install -e ".[dev]"
+   127	      - name: Run the Security Regression Suite
+   128	        env:
+   129	          TEST_REDIS_URL: redis://localhost:6379/15
+   130	          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+   131	        run: |
+   132	          manifest=tests/security/suite_manifest.json
+   133	          base_args=()
+   134	          if [ -n "$BASE_SHA" ] && git cat-file -e "$BASE_SHA:$manifest" 2>/dev/null; then
+   135	            git show "$BASE_SHA:$manifest" > "$RUNNER_TEMP/base-manifest.json"
+   136	            base_args=(--base-manifest "$RUNNER_TEMP/base-manifest.json" --base-ref "${BASE_SHA:0:12}")
+   137	          fi
+   138	          python scripts/verification/run_suite.py security \
+   139	            --report "$REPORTS_DIR/security-py${{ matrix.python-version }}.json" \
+   140	            "${base_args[@]}" -- -v
+   141	      - name: Upload the report
+   142	        if: always()
+   143	        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+   144	        with:
+   145	          name: verification-security-py${{ matrix.python-version }}
+   146	          path: ${{ env.REPORTS_DIR }}
+   147	          if-no-files-found: warn
+   148	          retention-days: 14
+   149	
+   150	  static-analysis:
+   151	    name: Static Analysis (${{ matrix.tool }}, ${{ matrix.mode }})
+   152	    runs-on: ubuntu-24.04
+   153	    timeout-minutes: 30
+   154	    # A Report-Only Check keeps the exit status of its tool: findings mark the
+   155	    # check as failed, and continue-on-error keeps them from failing the run.
+   156	    continue-on-error: ${{ matrix.mode == 'report-only' }}
+   157	    strategy:
+   158	      fail-fast: false
+   159	      matrix:
+   160	        # To make a check a Blocking Check, set its mode to "blocking" and add
+   161	        # "Static Analysis (<tool>, blocking)" to the required status checks.
+   162	        include:
+   163	          - tool: ruff
+   164	            mode: report-only
+   165	          - tool: mypy
+   166	            mode: report-only
+   167	          - tool: bandit
+   168	            mode: report-only
+   169	    steps:
+   170	      - name: Check out the repository
+   171	        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+   172	        with:
+   173	          persist-credentials: false
+   174	      - name: Set up Python
+   175	        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+   176	        with:
+   177	          python-version: "3.12"
+   178	          cache: pip
+   179	          cache-dependency-path: |
+   180	            requirements.txt
+   181	            pyproject.toml
+   182	      - name: Install the project and its dependencies
+   183	        if: matrix.tool == 'mypy'
+   184	        run: |
+   185	          python -m pip install --upgrade pip
+   186	          python -m pip install -r requirements.txt
+   187	          python -m pip install -e ".[dev]"
+   188	      - name: Install the pinned tool
+   189	        if: matrix.tool != 'mypy'
+   190	        run: |
+   191	          python -m pip install --upgrade pip
+   192	          python scripts/verification/static_analysis.py pins ${{ matrix.tool }} > "$RUNNER_TEMP/tool-requirements.txt"
+   193	          python -m pip install -r "$RUNNER_TEMP/tool-requirements.txt"
+   194	      - name: Run ${{ matrix.tool }}
+   195	        run: >-
+   196	          python scripts/verification/static_analysis.py ${{ matrix.tool }}
+   197	          --mode ${{ matrix.mode }}
+   198	          --report "$REPORTS_DIR/static-${{ matrix.tool }}.json"
+   199	      - name: Upload the report
+   200	        if: always()
+   201	        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+   202	        with:
+   203	          name: verification-static-${{ matrix.tool }}
+   204	          path: ${{ env.REPORTS_DIR }}
+   205	          if-no-files-found: warn
+   206	          retention-days: 14
+   207	
+   208	  dependency-audit:
+   209	    name: Dependency Vulnerability Check
+   210	    runs-on: ubuntu-24.04
+   211	    timeout-minutes: 30
+   212	    steps:
+   213	      - name: Check out the repository
+   214	        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+   215	        with:
+   216	          persist-credentials: false
+   217	      - name: Set up Python 3.11 (the Python version of the container image)
+   218	        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+   219	        with:
+   220	          python-version: "3.11"
+   221	          cache: pip
+   222	          cache-dependency-path: |
+   223	            requirements.txt
+   224	            pyproject.toml
+   225	      - name: Install dependencies (as in the Tests job)
+   226	        run: |
+   227	          python -m pip install --upgrade pip
+   228	          python -m pip install -r requirements.txt
+   229	          python -m pip install -e ".[dev]"
+   230	      - name: Install pip-audit in its own virtual environment
+   231	        run: |
+   232	          python -m venv "$RUNNER_TEMP/pip-audit"
+   233	          "$RUNNER_TEMP/pip-audit/bin/python" -m pip install --upgrade pip
+   234	          "$RUNNER_TEMP/pip-audit/bin/python" -m pip install -r scripts/verification/requirements-audit.txt
+   235	      - name: Audit the installed dependencies
+   236	        run: >-
+   237	          python scripts/verification/dependency_audit.py run
+   238	          --pip-audit "$RUNNER_TEMP/pip-audit/bin/pip-audit"
+   239	          --report "$REPORTS_DIR/dependency-audit.json"
+   240	      - name: Upload the report
+   241	        if: always()
+   242	        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+   243	        with:
+   244	          name: verification-dependency-audit
+   245	          path: ${{ env.REPORTS_DIR }}
+   246	          if-no-files-found: warn
+   247	          retention-days: 14
+   248	
+   249	  container:
+   250	    name: Container Build Check
+   251	    runs-on: ubuntu-24.04

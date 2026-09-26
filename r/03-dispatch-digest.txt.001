@@ -1,0 +1,11 @@
+   duration_seconds: 173.9
+   failed_tests: list[0] []
+   mode: blocking
+   not_run: list[0] []
+   problems: list[0] []
+   python: 3.12.14
+   schema: 1
+   skipped_tests: list[11] [{"nodeid": "tests/e2e/test_vector_store_e2e_comprehensive.py::TestCompleteWorkflowE2E::test_chroma_complete_workflow", "outcome": "skipped", "reason": "Skipped: chromadb is optional (vectorstores extra) and not installed"}, {"nodeid": "tests/e2e/test_vector_store_e2e_comprehensive.py::TestErrorHand...(+2023)
+   status: pass
+   summary: 1005 passed, 0 failed, 0 errors, 11 skipped
+   title: Tests
