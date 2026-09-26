@@ -1,0 +1,4 @@
+{
+  "description": "Accepted exceptions of the Dependency Vulnerability Check (REQ-MTS-CI-004). Each entry needs id (advisory id or alias), package, version (the installed version), justification, mitigation, owner and review_by (YYYY-MM-DD, at most 366 days ahead). An entry applies only to that package version and stops applying after review_by. Process: docs/features/security-verification-pipeline/README.md.",
+  "exceptions": []
+}
