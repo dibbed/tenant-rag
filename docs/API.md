@@ -34,18 +34,18 @@ Request bodies above `SECURITY_MAX_FILE_SIZE_MB` (default 50 MB) are refused wit
 When multi-tenancy is enabled (`MULTI_TENANT_ENABLED=true`), API endpoints enforce strict zero-trust identity and boundary authorization:
 
 1. **Authentication vs Routing**:
-   - **Identity Authentication**: Clients must supply credentials via `X-API-Key: rgb_<token>` or `Authorization: Bearer <token>`.
+   - **Identity Authentication**: Clients must supply credentials via `X-API-Key: rgb_<key_id>_<secret>` or `Authorization: Bearer <token>`.
    - **Routing Context**: Clients specify the target tenant context via `X-Tenant-ID: <tenant_id>`. If omitted, the tenant associated with the authenticated principal is used automatically.
 2. **Boundary Enforcement & Status Codes**:
    - **401 Unauthorized**: Missing credentials, invalid API key, expired key, or revoked key.
    - **403 Forbidden**: Cross-tenant access attempt (e.g. Tenant A trying to access Tenant B), inactive or suspended tenant, or insufficient permissions for the action.
-   - **Reset Authorization**: `/api/v1/documents/reset` strictly requires `admin` or `super_admin` role. Non-admin principals receive `403 Forbidden`.
+   - **Reset Authorization**: `/api/v1/documents/reset` requires `system_admin` (role `super_admin`), `tenant_admin` (role `admin`) of the target tenant, or the explicit `delete_documents` permission on that tenant. Other principals receive `403 Forbidden`.
 3. **Cryptographic Key Storage**:
-   - Raw keys follow the format `rgb_<secrets.token_urlsafe(32)>` and are only displayed once upon generation.
-   - Keys are cryptographically hashed using SHA-256 (`key_hash`) before persistence in SQLite (`data/tenants/tenants.db`).
+   - Raw keys follow the format `rgb_<key_id>_<secret>` (`key_id`: 32 hex characters used for lookup; `secret`: `secrets.token_urlsafe(32)`) and are only displayed once upon generation.
+   - Keys are stored only as salted scrypt hashes (`key_hash`, format `scrypt$n$r$p$salt$hash`) in SQLite (`data/tenants/tenants.db`). Legacy SHA-256 keys are rejected with a migration error (see SECURITY.md, 'API key migration').
    - Listing keys (`tenantrag tenant list-api-keys`) masks secrets, displaying only a 12-character prefix (`rgb_...`) and metadata.
-4. **Single-Tenant Compatibility**:
-   - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`, the default), requests proceed without any authentication headers or tenant context, maintaining 100% backward compatibility.
+4. **Single-Tenant Mode**:
+   - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`, the default), API requests are rejected with `HTTP 401` unless `ENVIRONMENT=development` and `ALLOW_ANONYMOUS=true` are both set (insecure local development mode). Health checks stay open.
 
 ---
 
@@ -192,7 +192,7 @@ Directly ingests a raw string payload into the knowledge base without filesystem
 
 **Error Codes:**
 - `400 Bad Request`: Text content empty or whitespace only.
-- `413 Request Entity Too Large`: Text exceeds max payload character threshold.
+- `413 Request Entity Too Large`: Text exceeds the size limit (counted in UTF-8 bytes).
 
 ---
 

@@ -3,12 +3,12 @@
 **Multi-tenant RAG infrastructure for SaaS backends.**
 
 [![CI](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Local%20Tests-627%20Passed%2C%200%20Failed-success.svg)](#-testing--verification)
+[![Tests](https://img.shields.io/badge/Local%20Tests-935%20Passed%2C%200%20Failed-success.svg)](#-testing--verification)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-TenantRAG is an API-first Python microservice providing Retrieval-Augmented Generation (RAG) designed specifically for multi-tenant SaaS architectures. It provides directory-partitioned vector stores per tenant, tenant-scoped semantic caching, salted SHA-256 API key authentication, and native support for local and cloud LLMs.
+TenantRAG is an API-first Python microservice providing Retrieval-Augmented Generation (RAG) designed specifically for multi-tenant SaaS architectures. It provides directory-partitioned vector stores per tenant, tenant-scoped semantic caching, API keys stored as salted scrypt hashes, and native support for local and cloud LLMs.
 
 > [!NOTE]
 > **مستندات فارسی**: مستندات کامل به زبان فارسی در فایل [README.fa.md](README.fa.md) در دسترس است.
@@ -33,7 +33,7 @@ pip install -e .
 # Configure environment
 cp env.example .env
 # Note: MULTI_TENANT_ENABLED=true in .env activates tenant partitioning and API key authentication.
-# When disabled, TenantRAG operates in single-tenant zero-config development mode.
+# When disabled, API requests are rejected with HTTP 401 unless ENVIRONMENT=development and ALLOW_ANONYMOUS=true (insecure, local development only).
 ```
 
 ### 2. Start the Server
@@ -50,9 +50,9 @@ python main.py
 # Create tenant
 tenantrag tenant create --tenant-id acme_corp --name "Acme Corporation"
 
-# Issue SHA-256 hashed API key (shown once)
+# Issue an API key (stored as a salted scrypt hash; the key is shown once)
 tenantrag tenant create-key --tenant-id acme_corp --name "backend_api"
-# Example output: Key created: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8
+# The printed key has the format rgb_<key_id>_<secret>, for example rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8_EXAMPLE-SECRET-DO-NOT-USE-0000000000000
 ```
 
 ### 4. Ingest a Document (cURL)
@@ -60,7 +60,7 @@ tenantrag tenant create-key --tenant-id acme_corp --name "backend_api"
 ```bash
 curl -X POST "http://localhost:8000/api/v1/documents/text" \
   -H "X-Tenant-ID: acme_corp" \
-  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8_EXAMPLE-SECRET-DO-NOT-USE-0000000000000" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Acme employees can expense home office equipment up to $500 annually.",
@@ -73,7 +73,7 @@ curl -X POST "http://localhost:8000/api/v1/documents/text" \
 ```bash
 curl -X POST "http://localhost:8000/api/v1/query" \
   -H "X-Tenant-ID: acme_corp" \
-  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8_EXAMPLE-SECRET-DO-NOT-USE-0000000000000" \
   -H "Content-Type: application/json" \
   -d '{
     "question": "What is the annual home office equipment budget?",
@@ -132,8 +132,10 @@ flowchart TD
     Client["Client Applications<br/>(SaaS Backends, Webhooks, Microservices)"]
 
     subgraph Transport ["1. HTTP Transport & Security Layer (FastAPI)"]
-        RL["Sliding-Window Rate Limiter<br/>(HTTP 429 RFC)"]
-        CORS["CORS & Origin Validation"]
+        RL["Rate Limiter<br/>(per principal or client address, HTTP 429)"]
+        BodyLimit["Request Size Limit<br/>(HTTP 413)"]
+        Proxy["Trusted Proxy Resolver<br/>(client address)"]
+        CORS["CORS Origin Allowlist<br/>(no origin by default)"]
         AuthResolver["Identity Resolver<br/>(X-API-Key / Bearer Token)"]
         TenantBoundary["Tenant Authorization Boundary<br/>(X-Tenant-ID Matching & Status)"]
         APIRouter["FastAPI REST Router (/api/v1)"]
@@ -142,7 +144,7 @@ flowchart TD
     subgraph ServiceLayer ["2. Orchestration & Core Services"]
         IntService["IntegrationService<br/>(Lifespan Engine)"]
         RAGService["RAGService<br/>(Ingest, Query, Reset)"]
-        TenantMgr["TenantManager & TenantAuth<br/>(SQLite WAL & SHA-256 Hashes)"]
+        TenantMgr["TenantManager & TenantAuth<br/>(SQLite WAL & scrypt Key Hashes)"]
         PluginMgr["PluginManager<br/>(In-Process Lifecycle Hooks)"]
     end
 
@@ -168,7 +170,7 @@ flowchart TD
         HFLocal["HuggingFace Local (CPU/GPU)"]
     end
 
-    Client --> RL --> CORS --> AuthResolver --> TenantBoundary --> APIRouter
+    Client --> Proxy --> CORS --> RL --> BodyLimit --> AuthResolver --> TenantBoundary --> APIRouter
     APIRouter --> IntService
     APIRouter --> RAGService
 
@@ -191,7 +193,7 @@ flowchart TD
 3. **Tenant-Scoped Semantic Cache:** Reuses responses for semantically similar queries by computing embedding cosine similarity within the caller's tenant partition.
 4. **Vector Store Backends:** Modular vector storage supporting **FAISS** (with class-level async locks), **ChromaDB**, and **Qdrant**.
 5. **LLM Provider Flexibility:** Connect to **OpenAI**, **Anthropic Claude**, **OpenRouter**, **Ollama** (offline local models), or **HuggingFace Local**.
-6. **Salted SHA-256 API Key Authentication:** Keys (`rgb_<token>`) are hashed using SHA-256 prior to storage. Comparison uses constant-time string comparison (`secrets.compare_digest`).
+6. **Salted scrypt API Key Hashing:** Keys (`rgb_<key_id>_<secret>`) are stored only as salted scrypt hashes and looked up by key id. Verification is constant-time (`hmac.compare_digest`). Legacy SHA-256 keys are rejected (see [SECURITY.md](SECURITY.md)).
 7. **Concurrency-Hardened for Single Nodes:** `FAISSVectorStore` uses class-level `asyncio.Lock()` to prevent Windows OS file-locking collisions (`PermissionError`) during simultaneous reads and writes. SQLite uses WAL journal mode with write locks.
 8. **Failure-Isolated Plugins:** In-process plugin architecture supporting lifecycle hooks (`PRE/POST_QUERY`, `PRE/POST_DOCUMENT_INGEST`, `PRE/POST_RESPONSE`). Exceptions in plugins are caught and logged without aborting client requests.
 9. **Bilingual English & Persian Support:** Out-of-the-box support for Persian punctuation marks (`؟`, `؛`, `،`), numeral conversion, localized QA prompt templates, and `fas+eng` OCR defaults.
@@ -285,7 +287,7 @@ pytest -q
 
 **Verified Test Baseline:**
 ```text
-627 passed, 1 skipped, 0 failed in CPU isolation
+935 passed, 1 skipped, 0 failed in CPU isolation (Python 3.10, 3.11 and 3.12)
 ```
 
 ---

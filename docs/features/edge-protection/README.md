@@ -135,6 +135,7 @@ curl -si -X POST https://api.example.com/api/v1/documents/upload -F "file=@big.b
 | `tests/security/test_edge_rate_limit.py` | Forged `X-Forwarded-For` and similar headers, trusted proxy disabled and enabled, proxy chains, IPv6 grouping, limits and `429` details, health exemption, per-principal counting, failed authentication, shared and separate instances, shared store outage, route inventory |
 | `tests/security/test_edge_cors.py` | Allowed, blocked and missing origins, development and production configuration, wildcard rules, invalid entries, CORS headers on `413` and `429`, preflights and the rate limit, middleware order |
 | `tests/security/test_edge_upload_limits.py` | Normal upload, exactly at the limit, one byte above, declared and huge sizes, streamed and false sizes, invalid `Content-Length`, UTF-8 text limit, memory use for large uploads and refusals, no files left |
+| `tests/security/test_edge_content_length.py` | `Content-Length` values with non-ASCII digits or thousands of digits get `400` or `413`, never `500` |
 | `tests/unit/test_edge_client_address.py` | Address parsing, trusted proxy parsing, right-to-left resolution, `X-Forwarded-Proto`, the middleware |
 | `tests/unit/test_edge_rate_limit_store.py` | Memory store window, expiry and cap; Redis store with a fake client; fallback, cooldown and recovery; settings and startup messages |
 | `tests/unit/test_edge_cors_policy.py` | Origin validation and normalization, wildcard rules |

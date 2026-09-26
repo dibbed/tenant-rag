@@ -58,7 +58,7 @@ Running PyTorch or CUDA operations during continuous unit testing can trigger GP
 ## 4. Operational & Architecture
 
 ### How does the Rate Limiter work?
-TenantRAG enforces an in-memory sliding-window rate limit per client IP address. The default is **60 requests per 60 seconds** (`SECURITY_RATE_LIMIT_REQUESTS=60`, `SECURITY_RATE_LIMIT_WINDOW=60`). Exceeding the quota returns `HTTP 429 Too Many Requests` with a `Retry-After` header.
+Requests are limited with a sliding window: per authenticated principal (API key or session), otherwise per client address. The default is **10 requests per 60 seconds** (`SECURITY_RATE_LIMIT_REQUESTS=10`, `SECURITY_RATE_LIMIT_WINDOW=60`). Forwarded headers count only from proxies listed in `SECURITY_TRUSTED_PROXIES`, and each instance counts on its own unless `SECURITY_RATE_LIMIT_STORAGE_URL` points to Redis. Exceeding the quota returns `HTTP 429 Too Many Requests` with a `Retry-After` header. See [Edge Protection](features/edge-protection/README.md).
 
 ### How does the Semantic Cache work?
 Before executing vector database retrieval and calling the LLM, TenantRAG computes the cosine similarity of the query embedding against recently cached query embeddings. If similarity exceeds `CACHE_SIMILARITY_THRESHOLD` (default `0.85`), the cached answer is returned immediately without calling the LLM.
@@ -68,7 +68,7 @@ Send an authenticated HTTP POST request to:
 ```bash
 curl -X POST "http://localhost:8000/api/v1/documents/reset"
 ```
-In single-tenant mode, this clears the global vector store index files and purges all semantic and general cache entries. In multi-tenant mode, an authenticated principal with `admin` or `super_admin` role is required; providing `X-Tenant-ID: <id>` clears only that specific tenant's data.
+In single-tenant mode (anonymous access works only with `ENVIRONMENT=development` and `ALLOW_ANONYMOUS=true`), this clears the global vector store index files and purges all semantic and general cache entries. In multi-tenant mode, the principal needs `tenant_admin` (role `admin`) or the `delete_documents` permission on the target tenant, or `system_admin` (role `super_admin`); providing `X-Tenant-ID: <id>` clears only that tenant's data.
 
 ---
 
@@ -81,7 +81,7 @@ When `MULTI_TENANT_ENABLED=true`:
 - **Persistence**: Tenant configs, quotas, and users are durably saved in an embedded SQLite database (`data/tenants/tenants.db`).
 
 ### How does API key authentication work?
-API keys follow the format `rgb_<token>`. The raw secret is displayed only once upon generation. The system stores only cryptographic SHA-256 hashes (`key_hash`) in SQLite. Authenticated principals are verified before tenant routing headers (`X-Tenant-ID`) are evaluated, preventing tenant impersonation and cross-tenant data leakage.
+API keys follow the format `rgb_<key_id>_<secret>`. The raw key is displayed only once upon generation. The system stores only a salted scrypt hash (`key_hash`) in SQLite and finds the key by its key id; legacy SHA-256 keys are rejected. Authenticated principals are verified before tenant routing headers (`X-Tenant-ID`) are evaluated, preventing tenant impersonation and cross-tenant data leakage.
 
 ### How do I manage API keys via the CLI?
 Use `tenantrag` (or `ragbot-cli`):

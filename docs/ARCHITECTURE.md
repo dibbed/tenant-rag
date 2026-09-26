@@ -11,8 +11,10 @@ flowchart TD
     Client["Client (Web / Mobile / Service)"]
 
     subgraph APILayer ["1. Transport & API Layer (FastAPI)"]
-        RL["RateLimitMiddleware (Sliding Window)"]
-        CORS["CORSMiddleware"]
+        RL["RateLimitMiddleware (Sliding Window, per Principal or Client Address)"]
+        BodyLimit["BodySizeLimitMiddleware (HTTP 413)"]
+        Proxy["TrustedProxyMiddleware (Client Address)"]
+        CORS["CORSMiddleware (Origin Allowlist)"]
         Router["APIRouter (/api/v1)"]
         HealthRoute["/health & /api/v1/health"]
         QueryRoute["/api/v1/query"]
@@ -48,7 +50,7 @@ flowchart TD
         HFLocal["Local HuggingFace"]
     end
 
-    Client --> RL --> CORS --> Router
+    Client --> Proxy --> CORS --> RL --> BodyLimit --> Router
     Router --> HealthRoute
     Router --> QueryRoute
     Router --> DocRoute
@@ -80,7 +82,7 @@ flowchart TD
 ### 1️⃣ Transport & API Layer (`ragbot/api/`)
 - **FastAPI Application**: High-speed asynchronous web framework hosting typed REST endpoints with automatic OpenAPI documentation.
 - **Lifespan Context (`ragbot/api/app.py`)**: Asynchronously initializes shared system components once on startup (`IntegrationService`, `QAChain`, vector stores, and embedders), attaches them to `app.state`, and cleanly frees resources on shutdown.
-- **Rate Limiting Middleware (`ragbot/api/middleware/rate_limit.py`)**: Protects the API using a thread-safe sliding-window timestamp counter per client IP address.
+- **Edge Protection (`ragbot/api/edge/`, `ragbot/api/middleware/`)**: takes the client address from the TCP peer (forwarded headers only from `SECURITY_TRUSTED_PROXIES`), applies the CORS origin allowlist, limits requests per authenticated principal or client address with a sliding window (optional shared Redis store), and refuses request bodies above the upload limit with `HTTP 413`. See [Edge Protection](features/edge-protection/README.md).
 - **Exception Shielding**: Converts unhandled system exceptions into clean JSON problem responses to prevent leaking internal tracebacks or secrets.
 
 ### 2️⃣ Service Orchestration Layer (`ragbot/services/`)
@@ -140,7 +142,7 @@ Return IngestResponse (chunks created, processing time)
 ```text
 POST /api/v1/query
   ↓
-1. RateLimitMiddleware checks client IP sliding-window quota
+1. Rate limit: a request without credentials counts against its client address before its body is read; a request with credentials counts against its principal after authentication (HTTP 429 over the limit)
   ↓
 2. Extract tenant context from X-Tenant-ID header (if multi-tenant enabled)
   ↓

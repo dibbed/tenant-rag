@@ -187,9 +187,10 @@ Phase 3 hardening for audit findings C9, C10 and C11. Configuration, migration n
 1. **Single-node focus:** SQLite and FAISS are designed for single-node deployments. For scale-out, use a centralized vector store (Qdrant) and external database configuration.
 2. **In-process state:** user sessions and the key verification cache are per process. Sessions do not survive restarts and are not shared between workers.
 3. **Rate limiting:** without `SECURITY_RATE_LIMIT_STORAGE_URL`, each instance and worker process counts on its own, and during a shared store outage the effective limit is multiplied by the number of instances. A request with a credential is counted only after its body has been received (bounded by the request size limit). A failed credential check runs scrypt before it is counted.
-4. **Request parsing:** the pinned Starlette version keeps multipart fields without a file name in memory (CVE-2024-47874); the request size limit bounds this. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is not bounded by the upload limit.
+4. **Request parsing:** the pinned Starlette version (0.37.2, through FastAPI 0.111.0) keeps multipart form fields without a file name in memory and joins their parts with repeated copies (CVE-2024-47874, fixed in Starlette 0.40.0). The request size limit caps one such field at the upload limit, but not its memory or CPU cost: in the Phase 3 verification review, a 40 MiB field took 2.2 seconds and raised peak memory by 79 MiB, while the same data sent as a file part used no extra memory. Parallel requests multiply this cost. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is not bounded by the upload limit.
 5. **In-process plugins:** plugins run in-process. Exceptions are contained, but a faulty plugin can block the event loop or use too much CPU or memory. Do not install untrusted plugins.
 6. **Encryption at rest:** documents and embeddings are stored on disk in plaintext or pickle format. Production deployments must use full-disk or volume encryption (for example LUKS, BitLocker, or cloud volume encryption).
+7. **Open findings:** the risks found in the Phase 3 verification review, with their severity and the recommended actions, are listed in `docs/security/PHASE3_EDGE_SECURITY_REVIEW.md`.
 
 ---
 

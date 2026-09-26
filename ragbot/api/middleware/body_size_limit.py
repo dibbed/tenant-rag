@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 #: Room for multipart boundaries and part headers on top of the file size.
 MULTIPART_ALLOWANCE_BYTES = 64 * 1024
 DEFAULT_UPLOAD_LIMIT_MB = 50
+#: A declared size with more digits than this is larger than any possible limit.
+MAX_CONTENT_LENGTH_DIGITS = 18
 
 
 def upload_limit_mb() -> int:
@@ -95,7 +97,7 @@ class BodySizeLimitMiddleware:
         if declared_values:
             distinct = {value.strip() for value in declared_values}
             declared = next(iter(distinct)) if len(distinct) == 1 else ""
-            if not declared.isdigit():
+            if not (declared.isascii() and declared.isdigit()):
                 invalid = JSONResponse(
                     status_code=400,
                     content={"detail": "Invalid Content-Length header"},
@@ -103,7 +105,7 @@ class BodySizeLimitMiddleware:
                 )
                 await invalid(scope, receive, send)
                 return
-            if int(declared) > body_limit:
+            if len(declared) > MAX_CONTENT_LENGTH_DIGITS or int(declared) > body_limit:
                 await payload_too_large_response(max_mb)(scope, receive, send)
                 return
 

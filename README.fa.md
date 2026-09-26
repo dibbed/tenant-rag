@@ -3,12 +3,12 @@
 **میکروسرویس RAG چندمستأجری مبتنی بر FastAPI برای توسعه‌دهندگان سامانه‌های ابری و سازمانی.**
 
 [![CI](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Local%20Tests-627%20Passed%2C%200%20Failed-success.svg)](#-تست‌ها-و-اعتبارسنجی)
+[![Tests](https://img.shields.io/badge/Local%20Tests-935%20Passed%2C%200%20Failed-success.svg)](#-تست‌ها-و-اعتبارسنجی)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-پروژه **TenantRAG** یک میکروسرویس مستقل و API-محور به زبان پایتون است که امکان پیاده‌سازی تولید تقویت‌شده با بازیابی اطلاعات (**RAG**) را با تمرکز ویژه بر **جداسازی داده‌های چندمستأجری (Multi-Tenancy)** فراهم می‌سازد. در این سامانه، مخازن برداری هر سازمان در دایرکتوری‌های مجزا ذخیره شده، کش معنایی به شناسه مستأجر مقید است و احراز هویت با کلیدهای API بر پایه هش SHA-256 انجام می‌پذیرد.
+پروژه **TenantRAG** یک میکروسرویس مستقل و API-محور به زبان پایتون است که امکان پیاده‌سازی تولید تقویت‌شده با بازیابی اطلاعات (**RAG**) را با تمرکز ویژه بر **جداسازی داده‌های چندمستأجری (Multi-Tenancy)** فراهم می‌سازد. در این سامانه، مخازن برداری هر سازمان در دایرکتوری‌های مجزا ذخیره شده، کش معنایی به شناسه مستأجر مقید است و احراز هویت با کلیدهای API بر پایه هش نمک‌دار scrypt انجام می‌پذیرد.
 
 > [!NOTE]
 > **English Documentation**: مستندات انگلیسی به همراه جزئیات معماری در فایل [README.md](README.md) در دسترس است.
@@ -38,7 +38,7 @@ pip install -e .
 # تنظیم فایل متغیرهای محیطی
 cp env.example .env
 # نکته: مقدار MULTI_TENANT_ENABLED=true در .env جداسازی داده‌ها و احراز هویت کلیدهای API را فعال می‌کند.
-# در صورت غیرفعال بودن، سیستم در حالت تک‌مستأجره توسعه محلی بدون نیاز به احراز هویت اجرا خواهد شد.
+# در صورت غیرفعال بودن، درخواست‌های API با خطای HTTP 401 رد می‌شوند، مگر آنکه ENVIRONMENT=development و ALLOW_ANONYMOUS=true هر دو تنظیم شده باشند (ناامن و فقط برای توسعه محلی).
 ```
 
 ### ۲. اجرای سرور API
@@ -57,7 +57,7 @@ tenantrag tenant create --tenant-id acme_corp --name "Acme Corporation"
 
 # صدور کلید دسترسی امن (کلید فقط یک‌بار نمایش داده می‌شود)
 tenantrag tenant create-key --tenant-id acme_corp --name "backend_api"
-# نمونه خروجی: Key created: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8
+# قالب کلید چاپ‌شده rgb_<key_id>_<secret> است، برای نمونه: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8_EXAMPLE-SECRET-DO-NOT-USE-0000000000000
 ```
 
 ### ۴. بارگذاری و ایندکس سند (cURL)
@@ -65,7 +65,7 @@ tenantrag tenant create-key --tenant-id acme_corp --name "backend_api"
 ```bash
 curl -X POST "http://localhost:8000/api/v1/documents/text" \
   -H "X-Tenant-ID: acme_corp" \
-  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8_EXAMPLE-SECRET-DO-NOT-USE-0000000000000" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "کارکنان شرکت مجاز هستند سالانه تا سقف ۵۰۰ دلار بابت تجهیزات دورکاری هزینه دریافت کنند.",
@@ -78,7 +78,7 @@ curl -X POST "http://localhost:8000/api/v1/documents/text" \
 ```bash
 curl -X POST "http://localhost:8000/api/v1/query" \
   -H "X-Tenant-ID: acme_corp" \
-  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8" \
+  -H "X-API-Key: rgb_9f8a2b3c4d5e6f708192a3b4c5d6e7f8_EXAMPLE-SECRET-DO-NOT-USE-0000000000000" \
   -H "Content-Type: application/json" \
   -d '{
     "question": "سقف بودجه سالانه تجهیزات دورکاری چقدر است؟",
@@ -137,8 +137,10 @@ flowchart TD
     Client["کلاینت‌های متصل<br/>(بک‌اند سامانه‌های SaaS، وب‌هوک‌ها، میکروسرویس‌ها)"]
 
     subgraph Transport ["۱. لایه ارتباطی و امنیت HTTP (FastAPI)"]
-        RL["محدودساز نرخ درخواست<br/>(Sliding-Window HTTP 429)"]
-        CORS["مدیریت دسترسی متقاطع CORS"]
+        RL["محدودساز نرخ درخواست<br/>(به ازای کاربر احرازشده یا نشانی کلاینت، HTTP 429)"]
+        BodyLimit["محدودیت اندازه درخواست<br/>(HTTP 413)"]
+        Proxy["تشخیص نشانی کلاینت<br/>(فقط از پراکسی‌های مورد اعتماد)"]
+        CORS["فهرست مجاز مبدأهای CORS<br/>(به‌طور پیش‌فرض هیچ مبدأیی مجاز نیست)"]
         AuthResolver["احراز هویت هویت کاربر<br/>(X-API-Key / Bearer Token)"]
         TenantBoundary["اعتبارسنجی مرز مستأجر<br/>(تطبیق X-Tenant-ID و بررسی وضعیت فعال)"]
         APIRouter["مسیریاب اصلی REST (/api/v1)"]
@@ -147,7 +149,7 @@ flowchart TD
     subgraph ServiceLayer ["۲. لایه سرویس‌ها و هماهنگی"]
         IntService["IntegrationService<br/>(مدیریت چرخه حیات سامانه)"]
         RAGService["RAGService<br/>(خط لوله پرسش، بارگذاری سند، بازنشانی)"]
-        TenantMgr["TenantManager & TenantAuth<br/>(پایگاه پایدار SQLite و هش‌های SHA-256)"]
+        TenantMgr["TenantManager & TenantAuth<br/>(پایگاه پایدار SQLite و هش‌های نمک‌دار scrypt)"]
         PluginMgr["PluginManager<br/>(موتور افزونه‌های درون‌پردازشی با تفکیک خطا)"]
     end
 
@@ -173,7 +175,7 @@ flowchart TD
         HFLocal["HuggingFace Local (اجرای آفلاین CPU/GPU)"]
     end
 
-    Client --> RL --> CORS --> AuthResolver --> TenantBoundary --> APIRouter
+    Client --> Proxy --> CORS --> RL --> BodyLimit --> AuthResolver --> TenantBoundary --> APIRouter
     APIRouter --> IntService
     APIRouter --> RAGService
 
@@ -196,7 +198,7 @@ flowchart TD
 3. **کش معنایی مقید به مستأجر:** بازاستفاده از پاسخ‌های پرسش‌های مشابه معنایی از طریق محاسبه شباهت کسینوسی در محدوده داده‌های همان مستأجر.
 4. **پشتیبانی از پایگاه‌های برداری استاندارد:** اتصال به مخازن **FAISS** (همراه با قفل‌های غیرهمزمان برای رفع تداخل فایل‌ها)، **ChromaDB** و **Qdrant**.
 5. **اتصال به مدل‌های متنوع LLM:** امکان کار با **OpenAI**، **Anthropic Claude**، **OpenRouter**، **Ollama** (مدل‌های محلی آفلاین) و **HuggingFace Local**.
-6. **احراز هویت با هش SHA-256:** کلیدهای دسترسی به صورت هش‌شده ذخیره شده و اعتبارسنجی با مقایسه زمان‌ثابت (`secrets.compare_digest`) صورت می‌گیرد.
+6. **ذخیره کلیدها با هش نمک‌دار scrypt:** کلیدهای دسترسی با قالب `rgb_<key_id>_<secret>` فقط به صورت هش نمک‌دار scrypt ذخیره و با شناسه کلید جستجو می‌شوند. اعتبارسنجی با مقایسه زمان‌ثابت (`hmac.compare_digest`) انجام می‌شود و کلیدهای قدیمی SHA-256 پذیرفته نمی‌شوند.
 7. **ایمن‌سازی همزمانی در سرور منفرد:** استفاده از `asyncio.Lock` در سطح کلاس برای جلوگیری از خطاهای قفل‌شدگی فایل در ویندوز هنگام خواندن و نوشتن همزمان ایندکس‌ها.
 8. **افزونه‌های درون‌پردازشی با ایزولاسیون خطا:** امکان اجرای هوک‌های مختلف پردازشی بدون اینکه خطای یک افزونه موجب قطعی درخواست کلاینت شود.
 9. **پشتیبانی دوزبانه انگلیسی و فارسی:** شناسایی علائم نگارشی فارسی (`؟`، `؛`، `،`) در تقطیع متن، تبدیل ارقام فارسی، تنظیم پیش‌فرض OCR به `fas+eng` و الگوهای پرامپت بومی‌سازی‌شده.
@@ -279,7 +281,7 @@ pytest -q
 
 **وضعیت تأییدشده تست‌ها:**
 ```text
-627 passed, 1 skipped, 0 failed in CPU isolation
+935 passed, 1 skipped, 0 failed in CPU isolation (Python 3.10, 3.11 and 3.12)
 ```
 
 ---
