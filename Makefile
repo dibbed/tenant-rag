@@ -66,6 +66,30 @@ security:  ## Run security checks
 	@pip audit || echo "pip-audit not installed, run: pip install pip-audit"
 	@bandit -r ragbot/ || echo "bandit not installed, run: pip install bandit"
 
+## Verification Pipeline: the checks of .github/workflows/ci.yml, run locally
+## (docs/features/security-verification-pipeline/README.md)
+.PHONY: verify verify-tests verify-security verify-static verify-deps verify-container security-manifest
+verify:  ## Run every Verification Pipeline check and print the Verification Summary
+	@bash scripts/verify_pipeline.sh all
+
+verify-tests:  ## Run the full test suite with the pipeline gate
+	@bash scripts/verify_pipeline.sh tests
+
+verify-security:  ## Run the Security Regression Suite (the Redis tests need TEST_REDIS_URL)
+	@bash scripts/verify_pipeline.sh security
+
+verify-static:  ## Run Ruff, MyPy and Bandit as Report-Only Checks
+	@bash scripts/verify_pipeline.sh static
+
+verify-deps:  ## Run the Dependency Vulnerability Check (pip-audit and OSV)
+	@bash scripts/verify_pipeline.sh deps
+
+verify-container:  ## Run the Container Build Check (needs Docker)
+	@bash scripts/verify_pipeline.sh container
+
+security-manifest:  ## Update tests/security/suite_manifest.json after adding, renaming or removing a security test
+	@$${PYTHON:-python3} scripts/verification/run_suite.py security --update-manifest
+
 ## 🐳 Docker
 build:  ## Build Docker image
 	@echo "🏗️ Building Docker image..."

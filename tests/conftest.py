@@ -33,6 +33,35 @@ os.environ["ENVIRONMENT"] = "development"
 os.environ["ALLOW_ANONYMOUS"] = "true"
 
 
+# aioresponses 0.7.9 builds aiohttp ClientResponse objects itself and does not
+# pass the stream_writer argument that aiohttp 3.14 requires
+# (https://github.com/aio-libs/aiohttp/issues/12815). For responses created by
+# aioresponses the request is already sent (writer=None), so aiohttp only reads
+# stream_writer.output_size. This subclass supplies that value.
+def _make_aioresponses_compatible_with_aiohttp() -> None:
+    try:
+        import inspect
+
+        import aiohttp
+        import aioresponses.core as aioresponses_core
+    except ImportError:
+        return
+    parameters = inspect.signature(aiohttp.ClientResponse.__init__).parameters
+    if "stream_writer" not in parameters:
+        return
+
+    class _MockedClientResponse(aiohttp.ClientResponse):
+        def __init__(self, *args: Any, stream_writer: Any = None, **kwargs: Any) -> None:
+            if stream_writer is None:
+                stream_writer = SimpleNamespace(output_size=0)
+            super().__init__(*args, stream_writer=stream_writer, **kwargs)
+
+    aioresponses_core.ClientResponse = _MockedClientResponse
+
+
+_make_aioresponses_compatible_with_aiohttp()
+
+
 @pytest.fixture(scope="session")
 def event_loop_policy():
     """Provide an event loop policy compatible with Windows/Py3.12.
