@@ -1,0 +1,177 @@
+# Phase 3.5: Bandit B307 (eval) in ragbot/monitoring/alert_manager.py.
+
+@@@@FILE ragbot/monitoring/alert_manager.py
+@@@@OLD
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict
+@@@@NEW
+from __future__ import annotations
+
+import ast
+import logging
+import numbers
+import operator
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Callable, Dict, Mapping
+
+_log = logging.getLogger(__name__)
+
+# Security (Bandit B307): an alert condition is parsed into a checked syntax
+# tree and evaluated by this module; it is never passed to eval(). Grammar:
+# comparisons (>, >=, <, <=, ==, !=) between metric names, ``threshold`` and
+# numbers, joined with ``and`` / ``or``.
+MAX_CONDITION_LENGTH = 200
+_COMPARISONS: Dict[type, Callable[[Any, Any], bool]] = {
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+
+
+class UnsupportedConditionError(ValueError):
+    """An alert condition is outside the supported grammar, or a value is not a number."""
+
+
+class _MissingMetric(LookupError):
+    """The condition names a metric that is not in the metrics."""
+
+
+def parse_condition(condition: str) -> ast.expr:
+    """Parse an alert condition and check it against the supported grammar.
+
+    Examples: ``cpu_usage > threshold``, ``0 < response_time <= 5``,
+    ``error_rate >= threshold and cpu_usage > 50``. Calls, attributes,
+    subscripts, arithmetic, strings, booleans and all other constructs raise
+    UnsupportedConditionError.
+    """
+    if not isinstance(condition, str) or not condition.strip():
+        raise UnsupportedConditionError("an alert condition must be a non-empty string")
+    if len(condition) > MAX_CONDITION_LENGTH:
+        raise UnsupportedConditionError(
+            f"an alert condition has at most {MAX_CONDITION_LENGTH} characters"
+        )
+    try:
+        tree = ast.parse(condition.strip(), mode="eval")
+    except SyntaxError as exc:
+        raise UnsupportedConditionError(f"invalid alert condition {condition!r}") from exc
+    _check_condition(tree.body, condition)
+    return tree.body
+
+
+def _check_condition(node: ast.expr, condition: str) -> None:
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+        for value in node.values:
+            _check_condition(value, condition)
+        return
+    if isinstance(node, ast.Compare):
+        if not all(type(op) in _COMPARISONS for op in node.ops):
+            raise UnsupportedConditionError(f"unsupported comparison in {condition!r}")
+        for operand in (node.left, *node.comparators):
+            _check_operand(operand, condition)
+        return
+    raise UnsupportedConditionError(
+        f"unsupported alert condition {condition!r}: use comparisons joined by 'and' or 'or'"
+    )
+
+
+def _check_operand(node: ast.expr, condition: str) -> None:
+    if isinstance(node, ast.Name):
+        return
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        node = node.operand
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        return
+    raise UnsupportedConditionError(
+        f"unsupported value in {condition!r}: use metric names, 'threshold' or numbers"
+    )
+
+
+def _number(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise UnsupportedConditionError(f"the value of {name!r} is not a number")
+    return float(value)
+
+
+def _operand_value(node: ast.expr, threshold: float, metrics: Mapping[str, Any]) -> float:
+    if isinstance(node, ast.Name):
+        if node.id == "threshold":
+            return _number(threshold, "threshold")
+        if node.id not in metrics:
+            raise _MissingMetric(node.id)
+        return _number(metrics[node.id], node.id)
+    if isinstance(node, ast.UnaryOp):
+        return -_operand_value(node.operand, threshold, metrics)
+    if isinstance(node, ast.Constant):
+        return _number(node.value, repr(node.value))
+    raise UnsupportedConditionError("unsupported operand")
+
+
+def _holds(node: ast.expr, threshold: float, metrics: Mapping[str, Any]) -> bool:
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            return all(_holds(value, threshold, metrics) for value in node.values)
+        return any(_holds(value, threshold, metrics) for value in node.values)
+    if not isinstance(node, ast.Compare):
+        raise UnsupportedConditionError("unsupported condition")
+    left = _operand_value(node.left, threshold, metrics)
+    for op, comparator in zip(node.ops, node.comparators):
+        right = _operand_value(comparator, threshold, metrics)
+        if not _COMPARISONS[type(op)](left, right):
+            return False
+        left = right
+    return True
+
+
+def evaluate_condition(condition: str, threshold: float, metrics: Mapping[str, Any]) -> bool:
+    """Return True when ``condition`` holds for ``metrics`` and ``threshold``.
+
+    A metric that the condition names but ``metrics`` does not contain makes
+    the condition false. An unsupported condition, or a value that is not a
+    number, raises UnsupportedConditionError.
+    """
+    tree = parse_condition(condition)
+    try:
+        return _holds(tree, threshold, metrics)
+    except _MissingMetric:
+        return False
+@@@@END
+
+@@@@OLD
+    async def add_alert_rule(self, rule_id: str, rule: AlertRule) -> None:
+        self.alert_rules[rule_id] = rule
+@@@@NEW
+    async def add_alert_rule(self, rule_id: str, rule: AlertRule) -> None:
+        # Security (Bandit B307): refuse a condition outside the supported grammar.
+        parse_condition(rule.condition)
+        self.alert_rules[rule_id] = rule
+@@@@END
+
+@@@@OLD
+        try:
+            expr = condition
+            for k, v in metrics.items():
+                expr = expr.replace(k, str(v))
+            expr = expr.replace("threshold", str(threshold))
+            return bool(eval(expr))
+        except Exception:
+            return False
+@@@@NEW
+        """Return True when the condition holds; an unsupported condition never fires.
+
+        Security (Bandit B307): the condition is parsed and evaluated by
+        evaluate_condition; metric values are compared as numbers and are
+        never put into code.
+        """
+        try:
+            return evaluate_condition(condition, threshold, metrics)
+        except UnsupportedConditionError as exc:
+            _log.warning("Alert condition %r was not evaluated: %s", condition, exc)
+            return False
+@@@@END

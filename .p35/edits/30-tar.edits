@@ -1,0 +1,21 @@
+# Phase 3.5: Bandit B202 (tarfile.extractall) in ragbot/security/secure_backup.py.
+
+@@@@FILE ragbot/security/secure_backup.py
+@@@@OLD
+from ragbot.security.key_manager import KeyManager, KeyType
+@@@@NEW
+from ragbot.security.key_manager import KeyManager, KeyType
+from ragbot.security.safe_archive import safe_extract_tar
+@@@@END
+
+@@@@OLD
+            # Extract archive
+            with tarfile.open(decrypted_backup, "r:*") as tar:
+                tar.extractall(temp_restore_dir)
+@@@@NEW
+            # Extract archive. Security (Bandit B202): safe_extract_tar checks
+            # every member first and refuses the archive when a member is a
+            # link or a special file, or points outside temp_restore_dir.
+            with tarfile.open(decrypted_backup, "r:*") as tar:
+                safe_extract_tar(tar, temp_restore_dir)
+@@@@END

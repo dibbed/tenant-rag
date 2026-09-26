@@ -1,0 +1,231 @@
+# Phase 3.5: C7 and C8 (ragbot/api/dependencies.py) and the test fixtures that relied on the MagicMock branch.
+
+@@@@FILE ragbot/api/dependencies.py
+@@@@OLD
+import inspect
+from typing import Optional
+from unittest.mock import MagicMock
+@@@@NEW
+import inspect
+from typing import Any, Optional
+@@@@END
+
+@@@@OLD
+async def get_authorized_tenant_context(
+    request: Request,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
+    rag_service: RAGService = Depends(get_rag_service_dep),
+) -> Optional[str]:
+    """
+    Retrieve and authorize tenant context.
+
+    - In single-tenant mode (multi_tenant.enabled=False): returns None.
+    - In multi-tenant mode:
+      - Validates principal is authenticated.
+      - Security (C4): the requested X-Tenant-ID must match the principal's
+        tenant unless the principal is a system_admin (role super_admin).
+        Key permissions such as manage_tenant never grant cross-tenant access.
+      - If X-Tenant-ID is omitted, defaults to principal.tenant_id.
+      - Verifies target tenant exists and is active.
+    """
+@@@@NEW
+# Security (C7): the detail of the HTTP 503 answer when the tenant registry
+# cannot answer. It names no internal error; the exception is in the log.
+TENANT_VERIFICATION_UNAVAILABLE_DETAIL = "Tenant verification is temporarily unavailable"
+
+
+async def get_tenant_registry(
+    rag_service: RAGService = Depends(get_rag_service_dep),
+) -> Any:
+    """Return the tenant registry that checks that a tenant exists and is active.
+
+    The registry is the tenant manager of the RAG service, or None when the
+    service has none. Security (C8): tests replace this dependency with
+    ``app.dependency_overrides`` or give the RAG service a fake tenant
+    manager; production code has no branch for test framework objects.
+    """
+    return getattr(rag_service, "tenant_manager", None)
+
+
+def _tenant_status(tenant: Any) -> Optional[str]:
+    """Return the status of a tenant record, or None when it has no known status."""
+    value = getattr(tenant, "status", None)
+    if isinstance(value, TenantStatus):
+        return value.value
+    if isinstance(value, str):
+        return value.strip().lower()
+    return None
+
+
+async def verify_tenant_is_active(registry: Any, tenant_id: str) -> None:
+    """Allow the request only when the tenant exists and is active.
+
+    Security (C7): unknown or error is never authorized.
+    - No registry, or a registry without get_tenant: HTTP 503.
+    - The lookup raises: HTTP 503 without internal details; the exception is
+      logged for operators.
+    - The tenant does not exist: HTTP 403.
+    - The status is not ``active``, or cannot be read: HTTP 403.
+    """
+    get_tenant = getattr(registry, "get_tenant", None)
+    if registry is None or not callable(get_tenant):
+        logger.error(
+            f"Tenant verification unavailable for tenant {tenant_id!r}: "
+            "no tenant registry is configured"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=TENANT_VERIFICATION_UNAVAILABLE_DETAIL,
+        )
+    try:
+        result = get_tenant(tenant_id)
+        tenant = await result if inspect.isawaitable(result) else result
+    except Exception as exc:
+        logger.error(
+            f"Tenant verification failed for tenant {tenant_id!r}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=TENANT_VERIFICATION_UNAVAILABLE_DETAIL,
+        ) from None
+    if tenant is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Tenant '{tenant_id}' does not exist",
+        )
+    if _tenant_status(tenant) != TenantStatus.ACTIVE.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Tenant '{tenant_id}' is not active",
+        )
+
+
+async def get_authorized_tenant_context(
+    request: Request,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+    principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
+    tenant_registry: Any = Depends(get_tenant_registry),
+) -> Optional[str]:
+    """
+    Retrieve and authorize tenant context.
+
+    - In single-tenant mode (multi_tenant.enabled=False): returns None.
+    - In multi-tenant mode:
+      - Validates principal is authenticated.
+      - Security (C4): the requested X-Tenant-ID must match the principal's
+        tenant unless the principal is a system_admin (role super_admin).
+        Key permissions such as manage_tenant never grant cross-tenant access.
+      - If X-Tenant-ID is omitted, defaults to principal.tenant_id.
+      - Security (C7): the target tenant must exist and be active; the check
+        fails closed when the tenant registry cannot answer.
+    """
+@@@@END
+
+@@@@OLD
+    # Check if target tenant exists and is active
+    tenant_mgr = getattr(rag_service, "tenant_manager", None)
+    if tenant_mgr and hasattr(tenant_mgr, "get_tenant"):
+        try:
+            tenant_res = tenant_mgr.get_tenant(target_tenant)
+            tenant = await tenant_res if inspect.isawaitable(tenant_res) else tenant_res
+            if tenant is None and not isinstance(tenant_mgr, MagicMock):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Tenant '{target_tenant}' does not exist",
+                )
+            if tenant is not None:
+                status_attr = getattr(tenant, "status", None)
+                if status_attr is not None and not isinstance(status_attr, MagicMock):
+                    status_str = (
+                        status_attr.value
+                        if hasattr(status_attr, "value")
+                        else str(status_attr)
+                    )
+                    if status_str.lower() != "active":
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Tenant '{target_tenant}' is not active",
+                        )
+        except HTTPException:
+            raise
+        except Exception as t_err:
+            logger.debug(f"Tenant verification note: {t_err}")
+
+    return target_tenant
+@@@@NEW
+    # Security (C7): the target tenant must exist and be active (fail closed).
+    await verify_tenant_is_active(tenant_registry, target_tenant)
+
+    return target_tenant
+@@@@END
+
+@@@@FILE tests/security/conftest.py
+@@@@OLD
+from ragbot.configs.settings import settings
+from ragbot.services.rag_service import IngestResult, QueryResult
+@@@@NEW
+from ragbot.configs.settings import settings
+from ragbot.multi_tenant.models import TenantConfig
+from ragbot.services.rag_service import IngestResult, QueryResult
+@@@@END
+
+@@@@OLD
+def _mock_rag() -> MagicMock:
+    rag = MagicMock()
+@@@@NEW
+class ActiveTenantRegistry:
+    """Test fake of the tenant registry: every tenant exists and is active.
+
+    Security (C7, C8): the tenant check no longer skips MagicMock objects, so
+    the edge tests give the RAG service this explicit fake instead of an
+    automatic MagicMock attribute.
+    """
+
+    async def get_tenant(self, tenant_id: str) -> TenantConfig:
+        return TenantConfig(tenant_id=tenant_id, name=tenant_id)
+
+
+def _mock_rag() -> MagicMock:
+    rag = MagicMock()
+    rag.tenant_manager = ActiveTenantRegistry()
+@@@@END
+
+@@@@FILE tests/integration/test_api_tenant_plugin.py
+@@@@OLD
+from ragbot.multi_tenant.models import AuthenticatedPrincipal
+@@@@NEW
+from ragbot.multi_tenant.models import AuthenticatedPrincipal, TenantConfig
+@@@@END
+
+@@@@OLD
+@pytest.fixture
+def mock_integration_service():
+@@@@NEW
+class _ActiveTenants:
+    """Fake tenant registry: the listed tenants exist and are active (Security C7, C8)."""
+
+    def __init__(self, *tenant_ids: str) -> None:
+        self._tenants = {
+            tenant_id: TenantConfig(tenant_id=tenant_id, name=tenant_id) for tenant_id in tenant_ids
+        }
+
+    async def get_tenant(self, tenant_id: str):
+        return self._tenants.get(tenant_id)
+
+
+@pytest.fixture
+def mock_integration_service():
+@@@@END
+
+@@@@OLD
+    mock_rag.reset_store = AsyncMock(return_value=True)
+    return mock_rag
+@@@@NEW
+    mock_rag.reset_store = AsyncMock(return_value=True)
+    # Security (C7, C8): the tenant check needs an answer from the tenant
+    # registry; an automatic MagicMock attribute is refused.
+    mock_rag.tenant_manager = _ActiveTenants("acme_tenant_99")
+    return mock_rag
+@@@@END

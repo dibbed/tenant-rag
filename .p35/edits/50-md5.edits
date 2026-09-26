@@ -1,0 +1,158 @@
+# Phase 3.5: Bandit B324 (MD5). Security-sensitive uses move to SHA-256; stable
+# non-security identifiers keep MD5 with usedforsecurity=False.
+
+@@@@FILE ragbot/caching/base.py
+@@@@OLD
+        text_hash = hashlib.md5(text.encode()).hexdigest()
+@@@@NEW
+        # Security: SHA-256. These keys name entries of a cache that every
+        # tenant shares; with MD5, a crafted text could collide with another
+        # text and receive its cached value.
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+@@@@END
+
+@@@@OLD
+        question_hash = hashlib.md5(question.encode()).hexdigest()
+@@@@NEW
+        question_hash = hashlib.sha256(question.encode("utf-8")).hexdigest()  # see embedding()
+@@@@END
+
+@@@@OLD
+        source_hash = hashlib.md5(source.encode()).hexdigest()
+@@@@NEW
+        source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()  # see embedding()
+@@@@END
+
+@@@@FILE ragbot/caching/semantic_cache.py
+@@@@OLD
+        query_hash = hashlib.md5(query.encode()).hexdigest()
+@@@@NEW
+        # Security: SHA-256, because this embedding cache is shared by every
+        # tenant; with MD5, a crafted query could collide with another query
+        # and receive its cached embedding.
+        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+@@@@END
+
+@@@@OLD
+                h = int(hashlib.md5(query.encode()).hexdigest()[:8], 16)
+@@@@NEW
+                # Only the seed of a deterministic fallback vector, not a security
+                # value: MD5 with usedforsecurity=False keeps the old vectors.
+                h = int(hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()[:8], 16)
+@@@@END
+
+@@@@FILE ragbot/plugins/plugin_marketplace.py
+@@@@OLD
+    async def _cache_search_results(
+@@@@NEW
+    def _search_cache_file(self, query: str) -> Path:
+        """Return the cache file of the search results of one query.
+
+        Security: the name is the SHA-256 of the query, so two different queries
+        cannot be crafted to share one cache file (MD5 collisions are
+        practical). Writing and reading use this one function.
+        """
+        digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
+        return self.cache_dir / f"search_{digest}.json"
+
+    async def _cache_search_results(
+@@@@END
+
+@@@@OLD
+            cache_file = (
+                self.cache_dir
+                / f"search_{hashlib.md5(query.encode()).hexdigest()}.json"
+            )
+@@@@NEW
+            cache_file = self._search_cache_file(query)
+@@@@END
+
+@@@@OLD
+            cache_file = (
+                self.cache_dir
+                / f"search_{hashlib.md5(query.encode()).hexdigest():.json}"
+            )
+@@@@NEW
+            cache_file = self._search_cache_file(query)
+@@@@END
+
+@@@@FILE ragbot/rag/chunkers/semantic_chunker.py
+@@@@OLD
+        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
+@@@@NEW
+        # Stored chunk id, not a security value: MD5 (usedforsecurity=False)
+        # keeps the ids of chunks that are already stored.
+        return hashlib.md5(chunk_string.encode(), usedforsecurity=False).hexdigest()[:12]
+@@@@END
+
+@@@@FILE ragbot/rag/chunkers/token_chunker.py
+@@@@OLD
+        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
+@@@@NEW
+        # Stored chunk id, not a security value: MD5 (usedforsecurity=False)
+        # keeps the ids of chunks that are already stored.
+        return hashlib.md5(chunk_string.encode(), usedforsecurity=False).hexdigest()[:12]
+@@@@END
+
+@@@@FILE ragbot/rag/embeddings/base.py
+@@@@OLD
+        return hashlib.md5(key_string.encode()).hexdigest()
+@@@@NEW
+        # Security: SHA-256, because an embedding cache can be shared by every
+        # tenant and MD5 collisions are practical.
+        return hashlib.sha256(key_string.encode("utf-8")).hexdigest()
+@@@@END
+
+@@@@FILE ragbot/rag/embeddings/st_embedder.py
+@@@@OLD
+from ragbot.rag.exceptions import EmbeddingError
+@@@@NEW
+from ragbot.rag.exceptions import EmbeddingError
+
+
+def _embedding_cache_key(text: str) -> str:
+    """Return the key of a text in the in-memory embedding cache.
+
+    Security: SHA-256, because one embedder instance serves every tenant; with
+    MD5, a crafted text could collide with another text and receive its cached
+    embedding.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+@@@@END
+
+@@@@OLD count=4
+hashlib.md5(text.encode()).hexdigest()
+@@@@NEW
+_embedding_cache_key(text)
+@@@@END
+
+@@@@FILE ragbot/rag/store/faiss_store.py
+@@@@OLD
+        hash_obj = hashlib.md5(f"{text}_{i}".encode())
+@@@@NEW
+        # Deterministic test and fallback vector, not a security value: MD5
+        # (usedforsecurity=False) keeps the vectors that stores already hold.
+        hash_obj = hashlib.md5(f"{text}_{i}".encode(), usedforsecurity=False)
+@@@@END
+
+@@@@FILE ragbot/services/document_service.py
+@@@@OLD
+                document_id=hashlib.md5(file_path.encode()).hexdigest(),
+                created_at=datetime.now(),
+                file_hash=hashlib.md5(document.text.encode()).hexdigest(),
+@@@@NEW
+                # Stored document id, not a security value: MD5
+                # (usedforsecurity=False) keeps the ids of stored documents.
+                document_id=hashlib.md5(file_path.encode(), usedforsecurity=False).hexdigest(),
+                created_at=datetime.now(),
+                # Content fingerprint: SHA-256, so it can serve as an integrity hash.
+                file_hash=hashlib.sha256(document.text.encode("utf-8")).hexdigest(),
+@@@@END
+
+@@@@OLD
+        source_hash = hashlib.md5(source.encode()).hexdigest()[:8]
+@@@@NEW
+        # Readable id prefix, not a security value (the timestamp makes the id
+        # unique): MD5 with usedforsecurity=False.
+        source_hash = hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]
+@@@@END

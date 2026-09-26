@@ -1,0 +1,85 @@
+# Phase 3.5: Bandit B104 (bind to all interfaces) and the Bandit configuration.
+
+@@@@FILE ragbot/main.py
+@@@@OLD
+        default=os.getenv("HOST", "0.0.0.0"),
+        help="Host IP to bind the HTTP server to (default: 0.0.0.0)",
+@@@@NEW
+        # Security (Bandit B104): the loopback interface unless HOST or --host
+        # selects another one. The container image and docker-compose.yml bind
+        # all interfaces explicitly.
+        default=os.getenv("HOST", "127.0.0.1"),
+        help="Host IP to bind the HTTP server to (default: HOST, else 127.0.0.1)",
+@@@@END
+
+@@@@FILE ragbot/outputs/health_endpoints.py
+@@@@OLD
+def start_health_server(port: int = 8081) -> None:
+    """
+    Start standalone health check server.
+
+    Args:
+        port: Port to run the health server on
+    """
+@@@@NEW
+def start_health_server(port: int = 8081, host: str = "127.0.0.1") -> None:
+    """
+    Start standalone health check server.
+
+    Args:
+        port: Port to run the health server on
+        host: Interface to bind to. Security (Bandit B104): the loopback
+            interface by default; pass another address to accept connections
+            from other hosts.
+    """
+@@@@END
+
+@@@@OLD
+        logger.info(f"Starting health server on port {port}")
+
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+@@@@NEW
+        logger.info(f"Starting health server on {host}:{port}")
+
+        uvicorn.run(app, host=host, port=port, log_level="info")
+@@@@END
+
+@@@@FILE ragbot/services/document_service.py
+@@@@OLD
+                # Security checks for URLs
+                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]
+@@@@NEW
+                # Security checks for URLs. This list only adds a warning; the URL
+                # loader blocks internal targets (SSRF guard, C6). The entry for
+                # the unspecified address is a host name to warn about, not a
+                # bind address, so Bandit B104 does not apply to this line.
+                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]  # nosec B104
+@@@@END
+
+@@@@FILE tests/unit/test_entrypoints.py
+@@@@OLD count=2
+            host="0.0.0.0",
+@@@@NEW
+            host="127.0.0.1",
+@@@@END
+
+@@@@FILE pyproject.toml
+@@@@OLD
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101", "B601"]
+@@@@NEW
+[tool.bandit]
+exclude_dirs = ["tests"]
+# Only B101 (assert_used, LOW severity) is skipped. No MEDIUM or HIGH test is
+# skipped: a finding is fixed, or suppressed on its own line with
+# "# nosec <test id>" and a reason (docs/security/PHASE3_5_SECURITY_HARDENING.md).
+skips = ["B101"]
+@@@@END
+
+@@@@FILE tests/security/test_phase35_tenant_verification.py
+@@@@OLD
+    app.dependency_overrides[get_integration_service_dep] = _Integration
+@@@@NEW
+    app.dependency_overrides[get_integration_service_dep] = lambda: _Integration()
+@@@@END

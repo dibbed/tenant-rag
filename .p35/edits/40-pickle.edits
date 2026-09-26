@@ -1,0 +1,264 @@
+# Phase 3.5: Bandit B301 (pickle) in the FAISS store and the Redis cache.
+
+@@@@FILE ragbot/rag/store/faiss_store.py
+@@@@OLD
+import os
+import pickle
+import threading
+@@@@NEW
+import os
+import threading
+@@@@END
+
+@@@@OLD
+from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
+@@@@NEW
+from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
+from ragbot.rag.store.document_persistence import (
+    LEGACY_PICKLE_FILE,
+    documents_file,
+    load_documents,
+    save_documents,
+)
+@@@@END
+
+@@@@OLD
+        self.documents_path = self.index_path / "documents.pkl"
+@@@@NEW
+        # Security (Bandit B301): documents.npz (JSON and float64 arrays), never pickle.
+        self.documents_path = documents_file(self.index_path)
+@@@@END
+
+@@@@OLD
+            # Save documents atomically (optionally drop embeddings)
+            documents_path = save_path / "documents.pkl"
+            documents_tmp = save_path / "documents.pkl.tmp"
+            with open(documents_tmp, "wb") as f:
+                if not self.keep_embeddings:
+                    slim_docs = {
+                        k: VectorDocument(
+                            id=v.id,
+                            content=v.content,
+                            embedding=[],
+                            metadata=v.metadata,
+                        )
+                        for k, v in self.documents.items()
+                    }
+                    pickle.dump(slim_docs, f)
+                else:
+                    pickle.dump(self.documents, f)
+            if documents_path.exists():
+                try:
+                    os.replace(
+                        str(documents_path), str(save_path / "documents.pkl.bak")
+                    )
+                except Exception:
+                    pass
+            os.replace(str(documents_tmp), str(documents_path))
+@@@@NEW
+            # Save documents atomically (optionally drop embeddings).
+            # Security (Bandit B301): documents.npz holds JSON and float64
+            # arrays only; the documents are never pickled.
+            save_documents(save_path, self.documents, keep_embeddings=self.keep_embeddings)
+@@@@END
+
+@@@@OLD
+        # Load documents
+        documents_path = load_path / "documents.pkl"
+        if documents_path.exists():
+            try:
+                with open(documents_path, "rb") as f:
+                    self.documents = pickle.load(f)
+            except (EOFError, pickle.UnpicklingError, TypeError) as e:
+                logger.warning(f"Failed to load documents from pickle: {e}")
+                self.documents = {}
+@@@@NEW
+        # Load documents. Security (Bandit B301): a legacy documents.pkl is
+        # never unpickled; load_documents raises LegacyPickleDocumentsError for
+        # a store that has only that file (fail closed).
+        self.documents = load_documents(load_path)
+@@@@END
+
+@@@@OLD
+            # Load documents
+            with open(self.documents_path, "rb") as f:
+                self.documents = pickle.load(f)
+@@@@NEW
+            # Load documents (Security: documents.npz, never pickle)
+            self.documents = load_documents(self.index_path)
+@@@@END
+
+@@@@OLD
+            # Save documents
+            documents_path = save_path / "documents.pkl"
+            with open(documents_path, "wb") as f:
+                pickle.dump(self.documents, f)
+@@@@NEW
+            # Save documents (Security: documents.npz, never pickle)
+            save_documents(save_path, self.documents)
+@@@@END
+
+@@@@OLD
+                # Best-effort load
+                import pickle
+
+                docs_path = self.index_path / "documents.pkl"
+                if docs_path.exists():
+                    with open(docs_path, "rb") as f:
+                        self.documents = pickle.load(f)
+                    # Rebuild arrays
+@@@@NEW
+                # Best-effort load (Security: documents.npz, never pickle)
+                self.documents = load_documents(self.index_path)
+                if self.documents:
+                    # Rebuild arrays
+@@@@END
+
+@@@@OLD
+            import json
+            import pickle
+
+            with open(save_path / "documents.pkl", "wb") as f:
+                pickle.dump(self.documents, f)
+            meta = {
+@@@@NEW
+            import json
+
+            save_documents(save_path, self.documents)
+            meta = {
+@@@@END
+
+@@@@OLD
+            load_path = Path(path) if path else self.index_path
+            import pickle
+
+            docs_path = load_path / "documents.pkl"
+            if docs_path.exists():
+                try:
+                    with open(docs_path, "rb") as f:
+                        self.documents = pickle.load(f)
+                    # rebuild arrays
+@@@@NEW
+            load_path = Path(path) if path else self.index_path
+            if documents_file(load_path).exists() or (load_path / LEGACY_PICKLE_FILE).exists():
+                try:
+                    self.documents = load_documents(load_path)
+                    # rebuild arrays
+@@@@END
+
+@@@@FILE ragbot/caching/redis_cache.py
+@@@@OLD
+import json
+import pickle
+from typing import Any, Dict, List, Optional
+
+from ragbot.caching.base import BaseCache
+@@@@NEW
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
+
+from ragbot.caching.base import BaseCache
+from ragbot.caching.cache_codec import decode_cache_value, encode_cache_value
+@@@@END
+
+@@@@OLD
+class RedisCache(BaseCache):
+    """
+    Redis cache implementation with connection pooling and serialization.
+    
+    This cache uses Redis as the backend storage with automatic serialization
+    and deserialization of Python objects.
+    """
+    
+    def __init__(self, redis_url: Optional[str] = None, default_ttl: int = 3600, 
+                 serialization: str = "pickle"):
+        """
+        Initialize the Redis cache.
+        
+        Args:
+            redis_url: Redis connection URL (uses settings if None)
+            default_ttl: Default time-to-live in seconds
+            serialization: Serialization method ("pickle" or "json")
+        """
+        super().__init__(default_ttl)
+        self.redis_url = redis_url or settings.redis.url
+        self.serialization = serialization
+        self._redis = None
+        self._connection_pool = None
+        
+        logger.info(f"RedisCache initialized with URL={self.redis_url}, serialization={serialization}")
+@@@@NEW
+def _redacted_url(url: str) -> str:
+    """Return the Redis URL without its password, for logs."""
+    try:
+        password = urlsplit(url).password
+    except ValueError:
+        return "<invalid Redis URL>"
+    return url.replace(f":{password}@", ":***@", 1) if password else url
+
+
+class RedisCache(BaseCache):
+    """
+    Redis cache implementation with connection pooling and serialization.
+
+    Values are stored as versioned JSON (ragbot/caching/cache_codec.py).
+    Security (Bandit B301): pickle is not used, because a writer with access to
+    the Redis database could otherwise run code in the application. Legacy
+    pickle entries and malformed entries are cache misses.
+    """
+
+    def __init__(self, redis_url: Optional[str] = None, default_ttl: int = 3600,
+                 serialization: str = "json"):
+        """
+        Initialize the Redis cache.
+
+        Args:
+            redis_url: Redis connection URL (uses settings if None)
+            default_ttl: Default time-to-live in seconds
+            serialization: Must be "json" (the default). "pickle" was removed
+                for security and raises ValueError.
+        """
+        if serialization != "json":
+            raise ValueError(
+                f"Unsupported cache serialization {serialization!r}: only 'json' is "
+                "supported (pickle was removed because unpickling can run code)"
+            )
+        super().__init__(default_ttl)
+        self.redis_url = redis_url or settings.redis.url
+        self.serialization = serialization
+        self._redis = None
+        self._connection_pool = None
+
+        logger.info(
+            f"RedisCache initialized with URL={_redacted_url(self.redis_url)}, "
+            f"serialization={serialization}"
+        )
+@@@@END
+
+@@@@OLD
+        try:
+            if self.serialization == "json":
+                return json.dumps(value, ensure_ascii=False).encode('utf-8')
+            else:  # pickle
+                return pickle.dumps(value)
+        except Exception as e:
+@@@@NEW
+        try:
+            return encode_cache_value(value)
+        except Exception as e:
+@@@@END
+
+@@@@OLD
+        try:
+            if self.serialization == "json":
+                return json.loads(data.decode('utf-8'))
+            else:  # pickle
+                return pickle.loads(data)
+        except Exception as e:
+@@@@NEW
+        try:
+            # Security (Bandit B301): never unpickled. A legacy pickle entry or
+            # malformed data raises CacheDecodeError and is a cache miss.
+            return decode_cache_value(data)
+        except Exception as e:
+@@@@END
