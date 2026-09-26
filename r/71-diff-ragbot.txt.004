@@ -1,0 +1,239 @@
++    entries = data["documents"]
++    if not isinstance(entries, list):
++        raise DocumentFileError(f"{path}: 'documents' is not a list", path)
++    total = int(values.shape[0])
++    documents: dict[str, VectorDocument] = {}
++    for index, entry in enumerate(entries):
++        where = f"{path}: document {index}"
++        if not isinstance(entry, dict) or set(entry) != _FIELDS:
++            raise DocumentFileError(f"{where} does not have exactly the fields {sorted(_FIELDS)}", path)
++        key = entry["key"]
++        doc_id = entry["id"]
++        content = entry["content"]
++        metadata = entry["metadata"]
++        score = entry["score"]
++        embedding = entry["embedding"]
++        if not isinstance(key, str) or not key:
++            raise DocumentFileError(f"{where}: 'key' is not a non-empty string", path)
++        if key in documents:
++            raise DocumentFileError(f"{where}: the key {key!r} is not unique", path)
++        if not isinstance(doc_id, str) or not doc_id:
++            raise DocumentFileError(f"{where}: 'id' is not a non-empty string", path)
++        if not isinstance(content, str):
++            raise DocumentFileError(f"{where}: 'content' is not a string", path)
++        if not isinstance(metadata, dict):
++            raise DocumentFileError(f"{where}: 'metadata' is not an object", path)
++        if score is not None and (isinstance(score, bool) or not isinstance(score, (int, float))):
++            raise DocumentFileError(f"{where}: 'score' is not a number", path)
++        if (
++            not isinstance(embedding, list)
++            or len(embedding) != 2
++            or not all(type(number) is int and number >= 0 for number in embedding)
++            or embedding[0] + embedding[1] > total
++        ):
++            raise DocumentFileError(f"{where}: 'embedding' is not a valid [offset, length] pair", path)
++        start, length = embedding
++        try:
++            documents[key] = VectorDocument(
++                id=doc_id,
++                content=content,
++                embedding=values[start : start + length].tolist(),
++                metadata=metadata,
++                score=score,
++            )
++        except ValueError as exc:
++            raise DocumentFileError(f"{where}: {exc}", path) from exc
++    return documents
+diff --git a/ragbot/rag/store/faiss_store.py b/ragbot/rag/store/faiss_store.py
+index 22e2e91..af48ee6 100644
+--- a/ragbot/rag/store/faiss_store.py
++++ b/ragbot/rag/store/faiss_store.py
+@@ -8,7 +8,6 @@ and document storage with proper persistence and atomic operations.
+ import asyncio
+ import json
+ import os
+-import pickle
+ import threading
+ import time
+ from pathlib import Path
+@@ -28,6 +27,12 @@ from ragbot.outputs.logger import logger
+ from ragbot.outputs.metrics import metrics_manager
+ from ragbot.rag.exceptions import VectorStoreError
+ from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
++from ragbot.rag.store.document_persistence import (
++    LEGACY_PICKLE_FILE,
++    documents_file,
++    load_documents,
++    save_documents,
++)
+ 
+ 
+ def embed_texts(texts: List[str]) -> List[List[float]]:
+@@ -65,7 +70,9 @@ def _generate_deterministic_embeddings(texts: List[str]) -> List[List[float]]:
+     embeddings = []
+     for i, text in enumerate(texts):
+         # Create deterministic but unique embedding
+-        hash_obj = hashlib.md5(f"{text}_{i}".encode())
++        # Deterministic test and fallback vector, not a security value: MD5
++        # (usedforsecurity=False) keeps the vectors that stores already hold.
++        hash_obj = hashlib.md5(f"{text}_{i}".encode(), usedforsecurity=False)
+         hash_bytes = hash_obj.digest()
+ 
+         # Convert to 768-dim vector (normalize to [-1, 1])
+@@ -137,7 +144,8 @@ class FAISSVectorStore(BaseVectorStore):
+ 
+         # File paths
+         self.faiss_index_path = self.index_path / "faiss.index"
+-        self.documents_path = self.index_path / "documents.pkl"
++        # Security (Bandit B301): documents.npz (JSON and float64 arrays), never pickle.
++        self.documents_path = documents_file(self.index_path)
+         self.metadata_path = self.index_path / "metadata.json"
+ 
+         # Initialize storage
+@@ -702,31 +710,10 @@ class FAISSVectorStore(BaseVectorStore):
+                             pass
+                     os.replace(str(faiss_tmp), str(faiss_path))
+ 
+-            # Save documents atomically (optionally drop embeddings)
+-            documents_path = save_path / "documents.pkl"
+-            documents_tmp = save_path / "documents.pkl.tmp"
+-            with open(documents_tmp, "wb") as f:
+-                if not self.keep_embeddings:
+-                    slim_docs = {
+-                        k: VectorDocument(
+-                            id=v.id,
+-                            content=v.content,
+-                            embedding=[],
+-                            metadata=v.metadata,
+-                        )
+-                        for k, v in self.documents.items()
+-                    }
+-                    pickle.dump(slim_docs, f)
+-                else:
+-                    pickle.dump(self.documents, f)
+-            if documents_path.exists():
+-                try:
+-                    os.replace(
+-                        str(documents_path), str(save_path / "documents.pkl.bak")
+-                    )
+-                except Exception:
+-                    pass
+-            os.replace(str(documents_tmp), str(documents_path))
++            # Save documents atomically (optionally drop embeddings).
++            # Security (Bandit B301): documents.npz holds JSON and float64
++            # arrays only; the documents are never pickled.
++            save_documents(save_path, self.documents, keep_embeddings=self.keep_embeddings)
+ 
+             # Save metadata
+             metadata = {
+@@ -823,15 +810,10 @@ class FAISSVectorStore(BaseVectorStore):
+             # No existing index, create new one
+             self._initialize_index()
+ 
+-        # Load documents
+-        documents_path = load_path / "documents.pkl"
+-        if documents_path.exists():
+-            try:
+-                with open(documents_path, "rb") as f:
+-                    self.documents = pickle.load(f)
+-            except (EOFError, pickle.UnpicklingError, TypeError) as e:
+-                logger.warning(f"Failed to load documents from pickle: {e}")
+-                self.documents = {}
++        # Load documents. Security (Bandit B301): a legacy documents.pkl is
++        # never unpickled; load_documents raises LegacyPickleDocumentsError for
++        # a store that has only that file (fail closed).
++        self.documents = load_documents(load_path)
+ 
+         # Load metadata
+         metadata_path = load_path / "metadata.json"
+@@ -1468,9 +1450,8 @@ class FAISSStore(FAISSVectorStore):
+             # Load FAISS index
+             self.index = faiss.read_index(str(self.faiss_index_path))
+ 
+-            # Load documents
+-            with open(self.documents_path, "rb") as f:
+-                self.documents = pickle.load(f)
++            # Load documents (Security: documents.npz, never pickle)
++            self.documents = load_documents(self.index_path)
+ 
+             # Load metadata
+             with open(self.metadata_path, "r") as f:
+@@ -1507,10 +1488,8 @@ class FAISSStore(FAISSVectorStore):
+                     faiss_path = save_path / "faiss.index"
+                     faiss.write_index(self.index, str(faiss_path))
+ 
+-            # Save documents
+-            documents_path = save_path / "documents.pkl"
+-            with open(documents_path, "wb") as f:
+-                pickle.dump(self.documents, f)
++            # Save documents (Security: documents.npz, never pickle)
++            save_documents(save_path, self.documents)
+ 
+             # Save metadata
+             import json
+@@ -1642,13 +1621,9 @@ if not FAISS_AVAILABLE:
+             # Try to load existing data
+             try:
+                 self.index_path.mkdir(parents=True, exist_ok=True)
+-                # Best-effort load
+-                import pickle
+-
+-                docs_path = self.index_path / "documents.pkl"
+-                if docs_path.exists():
+-                    with open(docs_path, "rb") as f:
+-                        self.documents = pickle.load(f)
++                # Best-effort load (Security: documents.npz, never pickle)
++                self.documents = load_documents(self.index_path)
++                if self.documents:
+                     # Rebuild arrays
+                     for i, doc in enumerate(self.documents.values()):
+                         self.id_to_pos[doc.id] = i
+@@ -1780,10 +1755,8 @@ if not FAISS_AVAILABLE:
+             save_path = Path(path) if path else self.index_path
+             save_path.mkdir(parents=True, exist_ok=True)
+             import json
+-            import pickle
+ 
+-            with open(save_path / "documents.pkl", "wb") as f:
+-                pickle.dump(self.documents, f)
++            save_documents(save_path, self.documents)
+             meta = {
+                 "embedding_dimension": self.embedding_dimension,
+                 "count": len(self.documents),
+@@ -1793,13 +1766,9 @@ if not FAISS_AVAILABLE:
+ 
+         async def load(self, path: Optional[str] = None) -> None:
+             load_path = Path(path) if path else self.index_path
+-            import pickle
+-
+-            docs_path = load_path / "documents.pkl"
+-            if docs_path.exists():
++            if documents_file(load_path).exists() or (load_path / LEGACY_PICKLE_FILE).exists():
+                 try:
+-                    with open(docs_path, "rb") as f:
+-                        self.documents = pickle.load(f)
++                    self.documents = load_documents(load_path)
+                     # rebuild arrays
+                     self.id_to_pos = {}
+                     self.embeddings = []
+diff --git a/ragbot/rag/store/legacy_pickle_migration.py b/ragbot/rag/store/legacy_pickle_migration.py
+new file mode 100644
+index 0000000..e76f904
+--- /dev/null
++++ b/ragbot/rag/store/legacy_pickle_migration.py
+@@ -0,0 +1,190 @@
++"""Convert a legacy FAISS document store (documents.pkl) to documents.npz, once.
++
++    python -m ragbot.rag.store.legacy_pickle_migration --trust-legacy-pickle DIRECTORY [DIRECTORY ...]
++
++Security (Phase 3.5, Bandit B301): loading a pickle file can run arbitrary
++code. The application never loads documents.pkl (see
++ragbot/rag/store/document_persistence.py); a store that has only that file does
++not open. This command is the only reader of the legacy format, and an operator
++runs it deliberately:
++
++- Run it only for a store directory whose documents.pkl TenantRAG wrote on a
++  system you control. Never run it for a file that you received, downloaded or
++  restored from an untrusted source; delete such a store and ingest the
++  documents again instead.
++- The command refuses to run without --trust-legacy-pickle.

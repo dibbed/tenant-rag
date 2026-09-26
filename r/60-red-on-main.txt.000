@@ -1,0 +1,83 @@
+/tmp/main-wt/ragbot/rag/chunkers/hierarchical_chunker.py:15: UserWarning: Configuration warning: OpenAI API key is required when using OpenAI embeddings
+  from ragbot.configs.settings import settings
+[32m2026-09-26 18:57:39[0m | [1mINFO    [0m | [36mragbot.outputs.metrics[0m:[36m__init__[0m:[36m66[0m | [1mMetrics manager initialized (enabled: True)[0m
+[32m2026-09-26 18:57:39[0m | [1mINFO    [0m | [36mragbot.outputs.metrics[0m:[36m__init__[0m:[36m66[0m | [1mMetrics manager initialized (enabled: True)[0m
+[32m2026-09-26 18:57:39[0m | [1mINFO    [0m | [36mragbot.caching.cache_manager[0m:[36m__init__[0m:[36m66[0m | [1mCacheManager initialized[0m
+ragbot from /tmp/main-wt/ragbot/__init__.py
+...............F...FFFFFFFFFFFFFFFFFFFFFF.FF..F.....F.FFFFFFFF.......... [ 42%]
+..FFFFFF.FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF.FFFF...FFFFFFFFFFFFFFFFFFFF [ 84%]
+FF......FF..FFFFFFFFFFFFFF.                                              [100%]
+=============================== warnings summary ===============================
+../v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:32
+  /tmp/v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:32: DeprecationWarning: 'pkgutil.find_loader' is deprecated and slated for removal in Python 3.14; use importlib.util.find_spec() instead
+    numpy_installed = find_loader('numpy') is not None
+
+../v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:36
+  /tmp/v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:36: DeprecationWarning: 'pkgutil.find_loader' is deprecated and slated for removal in Python 3.14; use importlib.util.find_spec() instead
+    pandas_installed = find_loader('pandas') is not None
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+../v312/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /tmp/v312/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/security/test_phase35_faiss_persistence.py::test_only_the_migration_command_imports_pickle
+tests/security/test_phase35_faiss_persistence.py::test_the_application_never_imports_the_migration_command
+  <unknown>:205: SyntaxWarning: invalid escape sequence '\s'
+
+tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[parent-traversal]
+tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[nested-traversal]
+tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[absolute-path]
+tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[symlink-outside]
+tests/security/test_phase35_tar_extraction.py::test_a_valid_backup_is_restored
+  /tmp/main-wt/ragbot/security/secure_backup.py:526: DeprecationWarning: Python 3.14 will, by default, filter extracted tar archives and reject files or modify their metadata. Use the filter argument to control this behavior.
+    tar.extractall(temp_restore_dir)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/security/test_phase35_alert_conditions.py::test_a_metric_value_that_is_not_a_number_does_not_fire[string] - assert True is False
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[__import__('os').system('true')] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage > threshold + 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage.real > 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[metrics['cpu_usage'] > 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[len(cpu_usage) > 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused['a' < 'b'] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[True] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[not cpu_usage > 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage is None] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage in [1, 2]] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[(cpu_usage if cpu_usage else 0) > 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[lambda: 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[(cpu_usage := 1) > 0] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage > True] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[-cpu_usage > 1] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[   ] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_unsupported_conditions_are_refused[cpu_usage > 111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111] - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_a_metric_value_is_never_executed - AssertionError: assert not True
+ +  where True = exists()
+ +    where exists = (PosixPath('/tmp/pytest-of-runner/pytest-3/test_a_metric_value_is_never_e0') / 'p35-metric-marker').exists
+FAILED tests/security/test_phase35_alert_conditions.py::test_a_rule_condition_is_never_executed - AssertionError: assert not True
+ +  where True = exists()
+ +    where exists = (PosixPath('/tmp/pytest-of-runner/pytest-3/test_a_rule_condition_is_never0') / 'p35-rule-marker').exists
+FAILED tests/security/test_phase35_alert_conditions.py::test_add_alert_rule_refuses_an_unsupported_condition - ImportError: cannot import name 'UnsupportedConditionError' from 'ragbot.monitoring.alert_manager' (/tmp/main-wt/ragbot/monitoring/alert_manager.py)
+FAILED tests/security/test_phase35_alert_conditions.py::test_the_module_does_not_call_eval_or_exec - AssertionError: assert not ({'AlertRule', 'bool', 'eval', 'print', 'str'} & {'compile', 'eval', 'exec'})
+FAILED tests/security/test_phase35_bind_address.py::test_the_api_server_binds_to_loopback_by_default - AssertionError: assert '0.0.0.0' == '127.0.0.1'
+  
+  - 127.0.0.1
+  + 0.0.0.0
+FAILED tests/security/test_phase35_bind_address.py::test_the_health_server_binds_to_loopback_by_default - AssertionError: assert '0.0.0.0' == '127.0.0.1'
+  
+  - 127.0.0.1
+  + 0.0.0.0
+FAILED tests/security/test_phase35_cache_serialization.py::test_tuples_and_numpy_values_are_stored_as_lists_and_numbers - AssertionError: assert {'array': arr...uple': (1, 2)} == {'array': [0....uple': [1, 2]}
+  

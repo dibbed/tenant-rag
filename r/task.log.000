@@ -1,0 +1,6 @@
+[warnings]	WARNING	invalid escape sequence '\s'
+
+[tester]	WARNING	nosec encountered (B104), but no failed test on line 251
+[tester]	WARNING	nosec encountered (B104), but no failed test on line 251
+done
+task_exit=0

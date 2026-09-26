@@ -1,0 +1,129 @@
+FAILED tests/security/test_phase35_hash_usage.py::test_shared_cache_keys_use_sha256 - AssertionError: assert 'embedding:mo...63f7d28e17f72' == 'embedding:mo...0ff61f20015ad'
+  
+  - embedding:model-x:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+  + embedding:model-x:900150983cd24fb0d6963f7d28e17f72
+FAILED tests/security/test_phase35_hash_usage.py::test_the_embedding_cache_keys_use_sha256 - ImportError: cannot import name '_embedding_cache_key' from 'ragbot.rag.embeddings.st_embedder' (/tmp/main-wt/ragbot/rag/embeddings/st_embedder.py)
+FAILED tests/security/test_phase35_hash_usage.py::test_the_marketplace_search_cache_is_named_with_sha256_and_read_back - AssertionError: assert False
+ +  where False = exists()
+ +    where exists = ((PosixPath('/tmp/pytest-of-runner/pytest-3/test_the_marketplace_search_ca0') / 'cache') / 'search_ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad.json').exists
+FAILED tests/security/test_phase35_static_policy.py::test_every_nosec_names_a_reviewed_bandit_test - AssertionError: assert set() == {('ragbot/ser....py', 'B104')}
+  
+  Extra items in the right set:
+  ('ragbot/services/document_service.py', 'B104')
+  
+  Full diff:
+  + set()
+  - {
+  -     (
+  -         'ragbot/services/document_service.py',
+  -         'B104',
+  -     ),
+  - }
+FAILED tests/security/test_phase35_static_policy.py::test_the_bandit_configuration_skips_no_medium_or_high_test - AssertionError: assert {'B101', 'B601'} <= {'B101'}
+  
+  Extra items in the left set:
+  'B601'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[absolute-path] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[backslash-traversal] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[block-device] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[character-device] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[dot-segments] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[duplicate-member] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[fifo] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[hardlink-outside] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[nested-traversal] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[parent-traversal] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[symlink-outside] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[symlink-relative] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_archive_is_refused_before_anything_is_written[windows-drive] - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_a_valid_archive_is_extracted_without_unsafe_permission_bits - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_a_python_without_extraction_filters_is_refused - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[parent-traversal] - AssertionError: assert {'backups', '...backups/temp'} == {'backups', 'backups/temp'}
+  
+  Extra items in the left set:
+  'backups/outside.txt'
+  
+  Full diff:
+    {
+        'backups',
+  +     'backups/outside.txt',
+        'backups/temp',
+    }
+FAILED tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[nested-traversal] - AssertionError: assert {'backups', '...backups/temp'} == {'backups', 'backups/temp'}
+  
+  Extra items in the left set:
+  'backups/nested.txt'
+  
+  Full diff:
+    {
+        'backups',
+  +     'backups/nested.txt',
+        'backups/temp',
+    }
+FAILED tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[absolute-path] - AssertionError: assert {'absolute.tx...backups/temp'} == {'backups', 'backups/temp'}
+  
+  Extra items in the left set:
+  'absolute.txt'
+  
+  Full diff:
+    {
+  +     'absolute.txt',
+        'backups',
+        'backups/temp',
+    }
+FAILED tests/security/test_phase35_tar_extraction.py::test_a_backup_restore_never_writes_outside_the_restore_directory[symlink-outside] - AssertionError: assert {'backups', '...ugh-link.txt'} == {'backups', 'backups/temp'}
+  
+  Extra items in the left set:
+  'through-link.txt'
+  
+  Full diff:
+    {
+        'backups',
+        'backups/temp',
+  +     'through-link.txt',
+    }
+FAILED tests/security/test_phase35_tar_extraction.py::test_an_unsafe_backup_is_not_restored - ModuleNotFoundError: No module named 'ragbot.security.safe_archive'
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_tenant_with_an_unknown_status_is_refused[no-status] - assert 200 == 403
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_tenant_with_an_unknown_status_is_refused[status-none] - assert 200 == 403
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_tenant_with_an_unknown_status_is_refused[dict-record] - assert 200 == 403
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_lookup_error_fails_closed_without_internal_details[runtime-error] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_lookup_error_fails_closed_without_internal_details[os-error] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_lookup_error_fails_closed_without_internal_details[connection-error] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_lookup_error_fails_closed_without_internal_details[timeout] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_lookup_error_fails_closed_without_internal_details[key-error] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_an_unavailable_registry_fails_closed[no-registry] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_an_unavailable_registry_fails_closed[no-get-tenant] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_an_unavailable_registry_fails_closed[get-tenant-not-callable] - assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_lookup_error_is_logged_for_operators - AssertionError: assert 200 == 503
+ +  where 200 = <Response [200 OK]>.status_code
+ +    where <Response [200 OK]> = _query(<fastapi.applications.FastAPI object at 0x7f2cc3f93ec0>)
+ +      where <fastapi.applications.FastAPI object at 0x7f2cc3f93ec0> = _app(<test_phase35_tenant_verification._Rag object at 0x7f2cc3f903e0>, AuthenticatedPrincipal(principal_id='key_ab6c37461f2b4fa2999941c9339d1df9', identity_type='api_key', tenant_id='tenant_a', username=None, role='admin', permissions=['ask_questions'], is_super_admin=False))
+ +        where AuthenticatedPrincipal(principal_id='key_ab6c37461f2b4fa2999941c9339d1df9', identity_type='api_key', tenant_id='tenant_a', username=None, role='admin', permissions=['ask_questions'], is_super_admin=False) = _principal()
+FAILED tests/security/test_phase35_tenant_verification.py::test_authentication_code_does_not_use_test_frameworks - assert ["ragbot/api/...ns MagicMock'] == []
+  
+  Left contains 2 more items, first extra item: "ragbot/api/dependencies.py imports ['unittest.mock']"
+  
+  Full diff:
+  - []
+  + [
+  +     "ragbot/api/dependencies.py imports ['unittest.mock']",
+  +     'ragbot/api/dependencies.py mentions MagicMock',
+  + ]
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_mock_registry_without_the_tenant_is_refused - assert 200 == 403
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_mock_tenant_status_is_not_trusted - assert 200 == 403
+ +  where 200 = <Response [200 OK]>.status_code
+FAILED tests/security/test_phase35_tenant_verification.py::test_a_dependency_override_replaces_the_tenant_registry - AttributeError: module 'ragbot.api.dependencies' has no attribute 'get_tenant_registry'
+118 failed, 53 passed, 13 warnings in 2.92s
+exit=1

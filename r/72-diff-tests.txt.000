@@ -1,0 +1,94 @@
+diff --git a/tests/integration/test_api_tenant_plugin.py b/tests/integration/test_api_tenant_plugin.py
+index cf9d1f1..aff1bab 100644
+--- a/tests/integration/test_api_tenant_plugin.py
++++ b/tests/integration/test_api_tenant_plugin.py
+@@ -13,10 +13,22 @@ from ragbot.api.dependencies import (
+     get_rag_service_dep,
+ )
+ from ragbot.configs.settings import Settings, MultiTenantSettings
+-from ragbot.multi_tenant.models import AuthenticatedPrincipal
++from ragbot.multi_tenant.models import AuthenticatedPrincipal, TenantConfig
+ from ragbot.services.rag_service import IngestResult, QueryResult
+ 
+ 
++class _ActiveTenants:
++    """Fake tenant registry: the listed tenants exist and are active (Security C7, C8)."""
++
++    def __init__(self, *tenant_ids: str) -> None:
++        self._tenants = {
++            tenant_id: TenantConfig(tenant_id=tenant_id, name=tenant_id) for tenant_id in tenant_ids
++        }
++
++    async def get_tenant(self, tenant_id: str):
++        return self._tenants.get(tenant_id)
++
++
+ @pytest.fixture
+ def mock_integration_service():
+     """Mock integration service providing mocked RAG and tracking methods."""
+@@ -52,6 +64,9 @@ def mock_multi_tenant_rag_service():
+         )
+     )
+     mock_rag.reset_store = AsyncMock(return_value=True)
++    # Security (C7, C8): the tenant check needs an answer from the tenant
++    # registry; an automatic MagicMock attribute is refused.
++    mock_rag.tenant_manager = _ActiveTenants("acme_tenant_99")
+     return mock_rag
+ 
+ 
+diff --git a/tests/security/conftest.py b/tests/security/conftest.py
+index 3b82cf9..b80d94f 100644
+--- a/tests/security/conftest.py
++++ b/tests/security/conftest.py
+@@ -20,6 +20,7 @@ import httpx
+ import pytest
+ 
+ from ragbot.configs.settings import settings
++from ragbot.multi_tenant.models import TenantConfig
+ from ragbot.services.rag_service import IngestResult, QueryResult
+ 
+ if TYPE_CHECKING:
+@@ -33,8 +34,21 @@ EDGE_ENV_VARS = (
+ MULTIPART_BOUNDARY = "edgeprotectionboundary"
+ 
+ 
++class ActiveTenantRegistry:
++    """Test fake of the tenant registry: every tenant exists and is active.
++
++    Security (C7, C8): the tenant check no longer skips MagicMock objects, so
++    the edge tests give the RAG service this explicit fake instead of an
++    automatic MagicMock attribute.
++    """
++
++    async def get_tenant(self, tenant_id: str) -> TenantConfig:
++        return TenantConfig(tenant_id=tenant_id, name=tenant_id)
++
++
+ def _mock_rag() -> MagicMock:
+     rag = MagicMock()
++    rag.tenant_manager = ActiveTenantRegistry()
+     rag.query_documents = AsyncMock(
+         return_value=QueryResult(
+             answer="ok",
+diff --git a/tests/unit/test_entrypoints.py b/tests/unit/test_entrypoints.py
+index 7162183..6597528 100644
+--- a/tests/unit/test_entrypoints.py
++++ b/tests/unit/test_entrypoints.py
+@@ -33,7 +33,7 @@ class TestApplicationEntrypoints:
+ 
+         mock_uvicorn_run.assert_called_once_with(
+             "ragbot.api.app:app",
+-            host="0.0.0.0",
++            host="127.0.0.1",
+             port=8000,
+             reload=False,
+             workers=1,
+@@ -69,7 +69,7 @@ class TestApplicationEntrypoints:
+ 
+         mock_uvicorn_run.assert_called_once_with(
+             "ragbot.api.app:app",
+-            host="0.0.0.0",
++            host="127.0.0.1",
+             port=8000,
+             reload=True,
+             workers=1,

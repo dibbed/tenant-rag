@@ -1,0 +1,13 @@
+bandit exit=1
+total=177 HIGH=0 MEDIUM=0 LOW=177
+errors: []
+metrics_totals: {"CONFIDENCE.HIGH": 177, "CONFIDENCE.LOW": 0, "CONFIDENCE.MEDIUM": 0, "CONFIDENCE.UNDEFINED": 0, "SEVERITY.HIGH": 0, "SEVERITY.LOW": 177, "SEVERITY.MEDIUM": 0, "SEVERITY.UNDEFINED": 0, "loc": 52888, "nosec": 0, "skipped_tests": 1}
+== by test id and severity
+  B110 try_except_pass LOW: 141
+  B112 try_except_continue LOW: 22
+  B311 blacklist LOW: 3
+  B403 blacklist LOW: 1
+  B404 blacklist LOW: 3
+  B603 subprocess_without_shell_equals_true LOW: 4
+  B607 start_process_with_partial_path LOW: 3
+== HIGH/MEDIUM locations

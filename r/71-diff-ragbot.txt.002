@@ -1,0 +1,260 @@
++            _check_operand(operand, condition)
++        return
++    raise UnsupportedConditionError(
++        f"unsupported alert condition {condition!r}: use comparisons joined by 'and' or 'or'"
++    )
++
++
++def _check_operand(node: ast.expr, condition: str) -> None:
++    if isinstance(node, ast.Name):
++        return
++    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
++        node = node.operand
++    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
++        return
++    raise UnsupportedConditionError(
++        f"unsupported value in {condition!r}: use metric names, 'threshold' or numbers"
++    )
++
++
++def _number(value: Any, name: str) -> float:
++    if isinstance(value, bool) or not isinstance(value, numbers.Real):
++        raise UnsupportedConditionError(f"the value of {name!r} is not a number")
++    return float(value)
++
++
++def _operand_value(node: ast.expr, threshold: float, metrics: Mapping[str, Any]) -> float:
++    if isinstance(node, ast.Name):
++        if node.id == "threshold":
++            return _number(threshold, "threshold")
++        if node.id not in metrics:
++            raise _MissingMetric(node.id)
++        return _number(metrics[node.id], node.id)
++    if isinstance(node, ast.UnaryOp):
++        return -_operand_value(node.operand, threshold, metrics)
++    if isinstance(node, ast.Constant):
++        return _number(node.value, repr(node.value))
++    raise UnsupportedConditionError("unsupported operand")
++
++
++def _holds(node: ast.expr, threshold: float, metrics: Mapping[str, Any]) -> bool:
++    if isinstance(node, ast.BoolOp):
++        if isinstance(node.op, ast.And):
++            return all(_holds(value, threshold, metrics) for value in node.values)
++        return any(_holds(value, threshold, metrics) for value in node.values)
++    if not isinstance(node, ast.Compare):
++        raise UnsupportedConditionError("unsupported condition")
++    left = _operand_value(node.left, threshold, metrics)
++    for op, comparator in zip(node.ops, node.comparators):
++        right = _operand_value(comparator, threshold, metrics)
++        if not _COMPARISONS[type(op)](left, right):
++            return False
++        left = right
++    return True
++
++
++def evaluate_condition(condition: str, threshold: float, metrics: Mapping[str, Any]) -> bool:
++    """Return True when ``condition`` holds for ``metrics`` and ``threshold``.
++
++    A metric that the condition names but ``metrics`` does not contain makes
++    the condition false. An unsupported condition, or a value that is not a
++    number, raises UnsupportedConditionError.
++    """
++    tree = parse_condition(condition)
++    try:
++        return _holds(tree, threshold, metrics)
++    except _MissingMetric:
++        return False
+ 
+ 
+ @dataclass
+@@ -61,6 +189,8 @@ class AlertManager:
+             self.alert_rules[rule_id] = rule
+ 
+     async def add_alert_rule(self, rule_id: str, rule: AlertRule) -> None:
++        # Security (Bandit B307): refuse a condition outside the supported grammar.
++        parse_condition(rule.condition)
+         self.alert_rules[rule_id] = rule
+ 
+     async def remove_alert_rule(self, rule_id: str) -> None:
+@@ -85,13 +215,16 @@ class AlertManager:
+     async def _evaluate_condition(
+         self, condition: str, threshold: float, metrics: Dict[str, Any]
+     ) -> bool:
++        """Return True when the condition holds; an unsupported condition never fires.
++
++        Security (Bandit B307): the condition is parsed and evaluated by
++        evaluate_condition; metric values are compared as numbers and are
++        never put into code.
++        """
+         try:
+-            expr = condition
+-            for k, v in metrics.items():
+-                expr = expr.replace(k, str(v))
+-            expr = expr.replace("threshold", str(threshold))
+-            return bool(eval(expr))
+-        except Exception:
++            return evaluate_condition(condition, threshold, metrics)
++        except UnsupportedConditionError as exc:
++            _log.warning("Alert condition %r was not evaluated: %s", condition, exc)
+             return False
+ 
+     async def _send_alert(
+diff --git a/ragbot/outputs/health_endpoints.py b/ragbot/outputs/health_endpoints.py
+index 906e6f7..71817a0 100644
+--- a/ragbot/outputs/health_endpoints.py
++++ b/ragbot/outputs/health_endpoints.py
+@@ -393,12 +393,15 @@ def create_health_app() -> Optional[Any]:
+     return app
+ 
+ 
+-def start_health_server(port: int = 8081) -> None:
++def start_health_server(port: int = 8081, host: str = "127.0.0.1") -> None:
+     """
+     Start standalone health check server.
+ 
+     Args:
+         port: Port to run the health server on
++        host: Interface to bind to. Security (Bandit B104): the loopback
++            interface by default; pass another address to accept connections
++            from other hosts.
+     """
+     if not FASTAPI_AVAILABLE:
+         logger.error("Cannot start health server - FastAPI not available")
+@@ -411,9 +414,9 @@ def start_health_server(port: int = 8081) -> None:
+         if app is None:
+             return
+ 
+-        logger.info(f"Starting health server on port {port}")
++        logger.info(f"Starting health server on {host}:{port}")
+ 
+-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
++        uvicorn.run(app, host=host, port=port, log_level="info")
+ 
+     except ImportError:
+         logger.error("Cannot start health server - uvicorn not available")
+diff --git a/ragbot/plugins/plugin_marketplace.py b/ragbot/plugins/plugin_marketplace.py
+index e85f29c..d24317d 100644
+--- a/ragbot/plugins/plugin_marketplace.py
++++ b/ragbot/plugins/plugin_marketplace.py
+@@ -373,15 +373,22 @@ class PluginMarketplace:
+             logger.error(f"Failed to download plugin {plugin.id}: {e}")
+             return None
+ 
++    def _search_cache_file(self, query: str) -> Path:
++        """Return the cache file of the search results of one query.
++
++        Security: the name is the SHA-256 of the query, so two different queries
++        cannot be crafted to share one cache file (MD5 collisions are
++        practical). Writing and reading use this one function.
++        """
++        digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
++        return self.cache_dir / f"search_{digest}.json"
++
+     async def _cache_search_results(
+         self, query: str, results: List[MarketplacePlugin]
+     ) -> None:
+         """Cache search results locally"""
+         try:
+-            cache_file = (
+-                self.cache_dir
+-                / f"search_{hashlib.md5(query.encode()).hexdigest()}.json"
+-            )
++            cache_file = self._search_cache_file(query)
+ 
+             cache_data = {
+                 "query": query,
+@@ -410,10 +417,7 @@ class PluginMarketplace:
+     async def _get_cached_search_results(self, query: str) -> List[MarketplacePlugin]:
+         """Get cached search results"""
+         try:
+-            cache_file = (
+-                self.cache_dir
+-                / f"search_{hashlib.md5(query.encode()).hexdigest():.json}"
+-            )
++            cache_file = self._search_cache_file(query)
+ 
+             if not cache_file.exists():
+                 return []
+diff --git a/ragbot/rag/chunkers/semantic_chunker.py b/ragbot/rag/chunkers/semantic_chunker.py
+index eb3f320..fa3f3c5 100644
+--- a/ragbot/rag/chunkers/semantic_chunker.py
++++ b/ragbot/rag/chunkers/semantic_chunker.py
+@@ -709,7 +709,9 @@ class SemanticChunker(BaseChunker):
+         chunk_string = (
+             f"{document_id}_semantic_{chunk_index}_{self.similarity_threshold}"
+         )
+-        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
++        # Stored chunk id, not a security value: MD5 (usedforsecurity=False)
++        # keeps the ids of chunks that are already stored.
++        return hashlib.md5(chunk_string.encode(), usedforsecurity=False).hexdigest()[:12]
+ 
+     def estimate_chunks(self, text: str) -> int:
+         """Estimate the number of chunks that will be created."""
+diff --git a/ragbot/rag/chunkers/token_chunker.py b/ragbot/rag/chunkers/token_chunker.py
+index 02a5ca8..b3595a2 100644
+--- a/ragbot/rag/chunkers/token_chunker.py
++++ b/ragbot/rag/chunkers/token_chunker.py
+@@ -538,7 +538,9 @@ class TokenChunker(BaseChunker):
+         chunk_string = (
+             f"{document_id}_{chunk_index}_{self.chunk_size}_{self.chunk_overlap}"
+         )
+-        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
++        # Stored chunk id, not a security value: MD5 (usedforsecurity=False)
++        # keeps the ids of chunks that are already stored.
++        return hashlib.md5(chunk_string.encode(), usedforsecurity=False).hexdigest()[:12]
+ 
+     def estimate_chunks(self, text: str) -> int:
+         """
+diff --git a/ragbot/rag/embeddings/base.py b/ragbot/rag/embeddings/base.py
+index 1f16412..e89b99b 100644
+--- a/ragbot/rag/embeddings/base.py
++++ b/ragbot/rag/embeddings/base.py
+@@ -321,7 +321,9 @@ class BaseEmbedder(ABC):
+         key_components = [self.model_name, text, str(sorted(kwargs.items()))]
+ 
+         key_string = "|".join(key_components)
+-        return hashlib.md5(key_string.encode()).hexdigest()
++        # Security: SHA-256, because an embedding cache can be shared by every
++        # tenant and MD5 collisions are practical.
++        return hashlib.sha256(key_string.encode("utf-8")).hexdigest()
+ 
+     # Optional cache hooks (no-op by default)
+     async def get_cached_embedding(
+diff --git a/ragbot/rag/embeddings/st_embedder.py b/ragbot/rag/embeddings/st_embedder.py
+index 4247b8a..e537ee3 100644
+--- a/ragbot/rag/embeddings/st_embedder.py
++++ b/ragbot/rag/embeddings/st_embedder.py
+@@ -15,6 +15,16 @@ from ragbot.outputs.logger import logger
+ from ragbot.rag.exceptions import EmbeddingError
+ 
+ 
++def _embedding_cache_key(text: str) -> str:
++    """Return the key of a text in the in-memory embedding cache.
++
++    Security: SHA-256, because one embedder instance serves every tenant; with
++    MD5, a crafted text could collide with another text and receive its cached
++    embedding.
++    """
++    return hashlib.sha256(text.encode("utf-8")).hexdigest()
++
++
+ class STEmbedder(BaseEmbedder):
+     """SentenceTransformers-based embedder (offline capable)."""
+ 
+@@ -68,7 +78,7 @@ class STEmbedder(BaseEmbedder):
+         uncached_indices = []
+ 
+         for i, text in enumerate(texts):
+-            text_hash = hashlib.md5(text.encode()).hexdigest()
++            text_hash = _embedding_cache_key(text)
+             if text_hash in self._cache:
+                 cached_results.append((i, self._cache[text_hash]))
+             else:
+@@ -92,7 +102,7 @@ class STEmbedder(BaseEmbedder):
+ 
+             # Cache new embeddings
+             for i, (text, embedding) in enumerate(zip(uncached_texts, new_embeddings)):
+-                text_hash = hashlib.md5(text.encode()).hexdigest()
++                text_hash = _embedding_cache_key(text)
+                 self._cache[text_hash] = embedding

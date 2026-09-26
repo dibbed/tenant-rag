@@ -1,0 +1,3 @@
+ragbot/plugins/examples/economic_analysis_plugin.py:205: SyntaxWarning: invalid escape sequence '\s'
+  pattern = f"{indicator}[:\s]+(\d+(?:\.\d+)?)"
+compile exit=0

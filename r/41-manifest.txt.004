@@ -1,0 +1,122 @@
+tests/unit/test_edge_client_address.py::test_invalid_or_catch_all_entries_are_rejected[0.0.0.0/0]
+tests/unit/test_edge_client_address.py::test_invalid_or_catch_all_entries_are_rejected[::/0]
+tests/unit/test_edge_client_address.py::test_wide_networks_are_reported
+tests/unit/test_edge_client_address.py::test_resolve_client_address[203.0.113.9-forwarded0-203.0.113.9-False]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded1-198.51.100.7-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded2-198.51.100.7-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded3-198.51.100.7-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded4-198.51.100.7-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded5-10.0.0.5-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded6-10.0.0.5-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded7-10.0.0.2-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded8-10.0.0.2-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[10.0.0.2-forwarded9-2001:db8::7-True]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[testclient-forwarded10-testclient-False]
+tests/unit/test_edge_client_address.py::test_resolve_client_address[None-forwarded11-None-False]
+tests/unit/test_edge_client_address.py::test_forwarded_headers_are_ignored_without_trusted_proxies
+tests/unit/test_edge_client_address.py::test_only_the_nearest_hops_are_examined
+tests/unit/test_edge_client_address.py::test_forwarded_proto[values0-https]
+tests/unit/test_edge_client_address.py::test_forwarded_proto[values1-https]
+tests/unit/test_edge_client_address.py::test_forwarded_proto[values2-https]
+tests/unit/test_edge_client_address.py::test_forwarded_proto[values3-http]
+tests/unit/test_edge_client_address.py::test_forwarded_proto[values4-None]
+tests/unit/test_edge_client_address.py::test_forwarded_proto[values5-None]
+tests/unit/test_edge_client_address.py::test_rate_limit_address_key[198.51.100.7-198.51.100.7]
+tests/unit/test_edge_client_address.py::test_rate_limit_address_key[::ffff:198.51.100.7-198.51.100.7]
+tests/unit/test_edge_client_address.py::test_rate_limit_address_key[2001:db8:1:2::10-2001:db8:1:2::/64]
+tests/unit/test_edge_client_address.py::test_rate_limit_address_key[2001:0db8:0001:0002:0000:0000:0000:0020-2001:db8:1:2::/64]
+tests/unit/test_edge_client_address.py::test_rate_limit_address_key[testclient-testclient]
+tests/unit/test_edge_client_address.py::test_rate_limit_address_key[None-unknown]
+tests/unit/test_edge_client_address.py::test_middleware_leaves_untrusted_peers_unchanged
+tests/unit/test_edge_client_address.py::test_middleware_applies_the_client_address_from_a_trusted_proxy
+tests/unit/test_edge_client_address.py::test_middleware_without_trusted_proxies_ignores_loopback_headers
+tests/unit/test_edge_client_address.py::test_middleware_maps_the_websocket_scheme
+tests/unit/test_edge_cors_policy.py::test_empty_setting_allows_no_origin
+tests/unit/test_edge_cors_policy.py::test_origins_are_normalized[https://app.example.com-https://app.example.com]
+tests/unit/test_edge_cors_policy.py::test_origins_are_normalized[https://APP.Example.com/-https://app.example.com]
+tests/unit/test_edge_cors_policy.py::test_origins_are_normalized[https://app.example.com:443-https://app.example.com]
+tests/unit/test_edge_cors_policy.py::test_origins_are_normalized[http://localhost:3000-http://localhost:3000]
+tests/unit/test_edge_cors_policy.py::test_origins_are_normalized[http://[::1]:8080-http://[::1]:8080]
+tests/unit/test_edge_cors_policy.py::test_origins_are_normalized[HTTP://Localhost:80-http://localhost]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[null]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://*.example.com]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[*.example.com]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[ftp://app.example.com]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[app.example.com]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[localhost:3000]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://app.example.com/path]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://user@app.example.com]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://app.example.com?x=1]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://app.example.com#top]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://]
+tests/unit/test_edge_cors_policy.py::test_invalid_origins_are_rejected[https://app.example.com:99999]
+tests/unit/test_edge_cors_policy.py::test_listed_origins_may_send_credentials
+tests/unit/test_edge_cors_policy.py::test_wildcard_in_development_allows_every_origin_without_credentials
+tests/unit/test_edge_cors_policy.py::test_wildcard_outside_development_is_rejected[production]
+tests/unit/test_edge_cors_policy.py::test_wildcard_outside_development_is_rejected[staging]
+tests/unit/test_edge_cors_policy.py::test_wildcard_outside_development_is_rejected[test]
+tests/unit/test_edge_cors_policy.py::test_wildcard_mixed_with_origins_still_validates_them
+tests/unit/test_edge_rate_limit_store.py::test_memory_store_allows_the_limit_then_refuses
+tests/unit/test_edge_rate_limit_store.py::test_refused_requests_are_not_recorded_and_the_window_slides
+tests/unit/test_edge_rate_limit_store.py::test_records_are_deleted_after_their_window
+tests/unit/test_edge_rate_limit_store.py::test_expired_subjects_are_swept_during_requests
+tests/unit/test_edge_rate_limit_store.py::test_number_of_subjects_is_capped
+tests/unit/test_edge_rate_limit_store.py::test_limiters_that_share_a_store_share_the_count
+tests/unit/test_edge_rate_limit_store.py::test_limiters_with_their_own_store_count_separately
+tests/unit/test_edge_rate_limit_store.py::test_subject_names
+tests/unit/test_edge_rate_limit_store.py::test_headers_of_a_refused_decision
+tests/unit/test_edge_rate_limit_store.py::test_refusals_are_logged_once_per_subject_and_window
+tests/unit/test_edge_rate_limit_store.py::test_background_sweep_starts_and_stops
+tests/unit/test_edge_rate_limit_store.py::test_redis_store_hashes_subjects_and_reads_decisions
+tests/unit/test_edge_rate_limit_store.py::test_fallback_keeps_limiting_and_warns_once
+tests/unit/test_edge_rate_limit_store.py::test_fallback_retries_after_the_cooldown_and_logs_recovery
+tests/unit/test_edge_rate_limit_store.py::test_slow_shared_store_times_out_and_falls_back
+tests/unit/test_edge_rate_limit_store.py::test_mask_url_hides_passwords[redis://localhost:6379/0-redis://localhost:6379/0]
+tests/unit/test_edge_rate_limit_store.py::test_mask_url_hides_passwords[redis://:secret@redis:6379/1-redis://:***@redis:6379/1]
+tests/unit/test_edge_rate_limit_store.py::test_mask_url_hides_passwords[rediss://user:secret@cache.example.com:6380/2-rediss://user:***@cache.example.com:6380/2]
+tests/unit/test_edge_rate_limit_store.py::test_default_settings_are_secure
+tests/unit/test_edge_rate_limit_store.py::test_invalid_storage_url_is_rejected
+tests/unit/test_edge_rate_limit_store.py::test_storage_url_builds_a_shared_store_with_fallback
+tests/unit/test_edge_rate_limit_store.py::test_startup_messages_for_the_default_settings
+tests/unit/test_edge_rate_limit_store.py::test_startup_messages_warn_about_wide_networks_and_hide_passwords
+tests/integration/test_edge_rate_limit_redis.py::test_limit_is_exact_under_concurrency
+tests/integration/test_edge_rate_limit_redis.py::test_records_expire_with_the_window
+tests/integration/test_edge_rate_limit_redis.py::test_two_application_instances_share_one_counter
+tests/integration/test_edge_uvicorn_server.py::test_oversized_upload_is_refused_before_the_body_is_sent
+tests/integration/test_multi_tenant_isolation.py::test_semantic_cache_tenant_isolation
+tests/integration/test_multi_tenant_isolation.py::test_faiss_vector_store_filesystem_isolation
+tests/integration/test_multi_tenant_isolation.py::test_rag_service_tenant_reset_isolation
+
+=============================== warnings summary ===============================
+../../../../../../tmp/v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:32
+  /tmp/v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:32: DeprecationWarning: 'pkgutil.find_loader' is deprecated and slated for removal in Python 3.14; use importlib.util.find_spec() instead
+    numpy_installed = find_loader('numpy') is not None
+
+../../../../../../tmp/v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:36
+  /tmp/v312/lib/python3.12/site-packages/pytesseract/pytesseract.py:36: DeprecationWarning: 'pkgutil.find_loader' is deprecated and slated for removal in Python 3.14; use importlib.util.find_spec() instead
+    pandas_installed = find_loader('pandas') is not None
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+../../../../../../tmp/v312/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /tmp/v312/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+493 tests collected in 1.01s
+Updated /home/runner/work/tenant-rag/tenant-rag/repo/tests/security/suite_manifest.json: 493 tests, 171 added, 0 removed.
+  + tests/security/test_phase35_alert_conditions.py::test_a_condition_with_a_missing_metric_does_not_fire
+  + tests/security/test_phase35_alert_conditions.py::test_a_metric_value_is_never_executed
+  + tests/security/test_phase35_alert_conditions.py::test_a_metric_value_that_is_not_a_number_does_not_fire[bool]
+  + tests/security/test_phase35_alert_conditions.py::test_a_metric_value_that_is_not_a_number_does_not_fire[list]
+  + tests/security/test_phase35_alert_conditions.py::test_a_metric_value_that_is_not_a_number_does_not_fire[none]
+  + tests/security/test_phase35_alert_conditions.py::test_a_metric_value_that_is_not_a_number_does_not_fire[string]
+  + tests/security/test_phase35_alert_conditions.py::test_a_rule_condition_is_never_executed
+  + tests/security/test_phase35_alert_conditions.py::test_add_alert_rule_refuses_an_unsupported_condition

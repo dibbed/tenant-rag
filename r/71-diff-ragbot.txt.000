@@ -1,0 +1,274 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 6831b85..e896551 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -329,5 +329,8 @@ exclude_lines = [
+ 
+ [tool.bandit]
+ exclude_dirs = ["tests"]
+-skips = ["B101", "B601"]
++# Only B101 (assert_used, LOW severity) is skipped. No MEDIUM or HIGH test is
++# skipped: a finding is fixed, or suppressed on its own line with
++# "# nosec <test id>" and a reason (docs/security/PHASE3_5_SECURITY_HARDENING.md).
++skips = ["B101"]
+ 
+diff --git a/ragbot/api/dependencies.py b/ragbot/api/dependencies.py
+index 065a56d..37c6ad2 100644
+--- a/ragbot/api/dependencies.py
++++ b/ragbot/api/dependencies.py
+@@ -1,6 +1,5 @@
+ import inspect
+-from typing import Optional
+-from unittest.mock import MagicMock
++from typing import Any, Optional
+ 
+ from fastapi import Depends, Header, HTTPException, Request, status
+ 
+@@ -145,11 +144,83 @@ async def enforce_rate_limit(
+     await count_request(request, principal)
+ 
+ 
++# Security (C7): the detail of the HTTP 503 answer when the tenant registry
++# cannot answer. It names no internal error; the exception is in the log.
++TENANT_VERIFICATION_UNAVAILABLE_DETAIL = "Tenant verification is temporarily unavailable"
++
++
++async def get_tenant_registry(
++    rag_service: RAGService = Depends(get_rag_service_dep),
++) -> Any:
++    """Return the tenant registry that checks that a tenant exists and is active.
++
++    The registry is the tenant manager of the RAG service, or None when the
++    service has none. Security (C8): tests replace this dependency with
++    ``app.dependency_overrides`` or give the RAG service a fake tenant
++    manager; production code has no branch for test framework objects.
++    """
++    return getattr(rag_service, "tenant_manager", None)
++
++
++def _tenant_status(tenant: Any) -> Optional[str]:
++    """Return the status of a tenant record, or None when it has no known status."""
++    value = getattr(tenant, "status", None)
++    if isinstance(value, TenantStatus):
++        return value.value
++    if isinstance(value, str):
++        return value.strip().lower()
++    return None
++
++
++async def verify_tenant_is_active(registry: Any, tenant_id: str) -> None:
++    """Allow the request only when the tenant exists and is active.
++
++    Security (C7): unknown or error is never authorized.
++    - No registry, or a registry without get_tenant: HTTP 503.
++    - The lookup raises: HTTP 503 without internal details; the exception is
++      logged for operators.
++    - The tenant does not exist: HTTP 403.
++    - The status is not ``active``, or cannot be read: HTTP 403.
++    """
++    get_tenant = getattr(registry, "get_tenant", None)
++    if registry is None or not callable(get_tenant):
++        logger.error(
++            f"Tenant verification unavailable for tenant {tenant_id!r}: "
++            "no tenant registry is configured"
++        )
++        raise HTTPException(
++            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
++            detail=TENANT_VERIFICATION_UNAVAILABLE_DETAIL,
++        )
++    try:
++        result = get_tenant(tenant_id)
++        tenant = await result if inspect.isawaitable(result) else result
++    except Exception as exc:
++        logger.error(
++            f"Tenant verification failed for tenant {tenant_id!r}: "
++            f"{type(exc).__name__}: {exc}"
++        )
++        raise HTTPException(
++            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
++            detail=TENANT_VERIFICATION_UNAVAILABLE_DETAIL,
++        ) from None
++    if tenant is None:
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail=f"Tenant '{tenant_id}' does not exist",
++        )
++    if _tenant_status(tenant) != TenantStatus.ACTIVE.value:
++        raise HTTPException(
++            status_code=status.HTTP_403_FORBIDDEN,
++            detail=f"Tenant '{tenant_id}' is not active",
++        )
++
++
+ async def get_authorized_tenant_context(
+     request: Request,
+     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+     principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
+-    rag_service: RAGService = Depends(get_rag_service_dep),
++    tenant_registry: Any = Depends(get_tenant_registry),
+ ) -> Optional[str]:
+     """
+     Retrieve and authorize tenant context.
+@@ -161,7 +232,8 @@ async def get_authorized_tenant_context(
+         tenant unless the principal is a system_admin (role super_admin).
+         Key permissions such as manage_tenant never grant cross-tenant access.
+       - If X-Tenant-ID is omitted, defaults to principal.tenant_id.
+-      - Verifies target tenant exists and is active.
++      - Security (C7): the target tenant must exist and be active; the check
++        fails closed when the tenant registry cannot answer.
+     """
+     if not _multi_tenant_enabled():
+         return None
+@@ -191,34 +263,8 @@ async def get_authorized_tenant_context(
+             detail=f"Forbidden: Access to requested tenant '{target_tenant}' is denied",
+         )
+ 
+-    # Check if target tenant exists and is active
+-    tenant_mgr = getattr(rag_service, "tenant_manager", None)
+-    if tenant_mgr and hasattr(tenant_mgr, "get_tenant"):
+-        try:
+-            tenant_res = tenant_mgr.get_tenant(target_tenant)
+-            tenant = await tenant_res if inspect.isawaitable(tenant_res) else tenant_res
+-            if tenant is None and not isinstance(tenant_mgr, MagicMock):
+-                raise HTTPException(
+-                    status_code=status.HTTP_403_FORBIDDEN,
+-                    detail=f"Tenant '{target_tenant}' does not exist",
+-                )
+-            if tenant is not None:
+-                status_attr = getattr(tenant, "status", None)
+-                if status_attr is not None and not isinstance(status_attr, MagicMock):
+-                    status_str = (
+-                        status_attr.value
+-                        if hasattr(status_attr, "value")
+-                        else str(status_attr)
+-                    )
+-                    if status_str.lower() != "active":
+-                        raise HTTPException(
+-                            status_code=status.HTTP_403_FORBIDDEN,
+-                            detail=f"Tenant '{target_tenant}' is not active",
+-                        )
+-        except HTTPException:
+-            raise
+-        except Exception as t_err:
+-            logger.debug(f"Tenant verification note: {t_err}")
++    # Security (C7): the target tenant must exist and be active (fail closed).
++    await verify_tenant_is_active(tenant_registry, target_tenant)
+ 
+     return target_tenant
+ 
+diff --git a/ragbot/caching/base.py b/ragbot/caching/base.py
+index 7299b39..8592fee 100644
+--- a/ragbot/caching/base.py
++++ b/ragbot/caching/base.py
+@@ -224,7 +224,10 @@ class CacheKey:
+             Cache key
+         """
+         import hashlib
+-        text_hash = hashlib.md5(text.encode()).hexdigest()
++        # Security: SHA-256. These keys name entries of a cache that every
++        # tenant shares; with MD5, a crafted text could collide with another
++        # text and receive its cached value.
++        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+         return f"embedding:{model}:{text_hash}"
+     
+     @staticmethod
+@@ -242,7 +245,7 @@ class CacheKey:
+             Cache key
+         """
+         import hashlib
+-        question_hash = hashlib.md5(question.encode()).hexdigest()
++        question_hash = hashlib.sha256(question.encode("utf-8")).hexdigest()  # see embedding()
+         return f"query:{model}:{lang}:{question_hash}:{context_hash}"
+     
+     @staticmethod
+@@ -259,7 +262,7 @@ class CacheKey:
+             Cache key
+         """
+         import hashlib
+-        source_hash = hashlib.md5(source.encode()).hexdigest()
++        source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()  # see embedding()
+         return f"chunks:{chunk_size}:{overlap}:{source_hash}"
+     
+     @staticmethod
+diff --git a/ragbot/caching/cache_codec.py b/ragbot/caching/cache_codec.py
+new file mode 100644
+index 0000000..5a7e203
+--- /dev/null
++++ b/ragbot/caching/cache_codec.py
+@@ -0,0 +1,119 @@
++"""Safe value encoding for the Redis cache (no pickle).
++
++Security (Phase 3.5, Bandit B301): the Redis cache stored values with pickle.
++Anyone who could write to the Redis database (a shared or exposed Redis, or
++another service with the same credentials) could store a crafted value and run
++code in the application when it read the cache.
++
++A cache entry is now UTF-8 JSON in a versioned envelope::
++
++    {"format": "tenant-rag/cache", "version": 1, "value": <JSON value>}
++
++Only JSON values are stored: None, bool, int, finite float, str, and lists and
++objects with string keys. Tuples are stored as lists, NumPy arrays as lists and
++NumPy scalars as numbers. Any other value raises CacheEncodeError when it is
++stored, so it is not cached.
++
++decode_cache_value accepts only this envelope. A legacy pickle entry of an
++earlier version, an entry of another format or version, and malformed data
++raise CacheDecodeError, and the cache treats them as misses. Nothing is ever
++unpickled, so legacy entries need no migration: they are replaced when the
++value is cached again, or they expire with their TTL.
++"""
++
++from __future__ import annotations
++
++import json
++import math
++from typing import Any
++
++import numpy as np
++
++FORMAT = "tenant-rag/cache"
++VERSION = 1
++MAX_DEPTH = 64
++_ENVELOPE_KEYS = frozenset({"format", "version", "value"})
++# The first byte of a pickle of protocol 2 or later (PROTO opcode).
++_PICKLE_MARKER = b"\x80"
++
++
++class CacheCodecError(ValueError):
++    """A value cannot be stored in, or read from, the cache."""
++
++
++class CacheEncodeError(CacheCodecError):
++    """The value has no JSON form."""
++
++
++class CacheDecodeError(CacheCodecError):
++    """The cache entry is not a valid entry of this format and version."""
++
++
++class LegacyPickleEntryError(CacheDecodeError):
++    """The cache entry was written with pickle by an earlier version; it is not read."""
++
++
++def _plain(value: Any, depth: int = 0) -> Any:
++    """Return ``value`` as JSON types, or raise CacheEncodeError."""
++    if depth > MAX_DEPTH:
++        raise CacheEncodeError("the value is nested too deeply")
++    if value is None or isinstance(value, (bool, str)):
++        return value
++    if isinstance(value, int):
++        return value
++    if isinstance(value, float):
++        if not math.isfinite(value):
++            raise CacheEncodeError("NaN and infinite numbers cannot be cached")
++        return value
++    if isinstance(value, (list, tuple)):
++        return [_plain(item, depth + 1) for item in value]
++    if isinstance(value, dict):
++        plain: dict[str, Any] = {}
++        for key, item in value.items():
++            if not isinstance(key, str):
++                raise CacheEncodeError(f"object keys must be strings, not {type(key).__name__}")
++            plain[key] = _plain(item, depth + 1)
++        return plain

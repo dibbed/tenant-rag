@@ -1,0 +1,53 @@
++            # Extract archive. Security (Bandit B202): safe_extract_tar checks
++            # every member first and refuses the archive when a member is a
++            # link or a special file, or points outside temp_restore_dir.
+             with tarfile.open(decrypted_backup, "r:*") as tar:
+-                tar.extractall(temp_restore_dir)
++                safe_extract_tar(tar, temp_restore_dir)
+ 
+             # Restore each store
+             restored_stores = []
+diff --git a/ragbot/services/document_service.py b/ragbot/services/document_service.py
+index 137f19b..1ccd940 100644
+--- a/ragbot/services/document_service.py
++++ b/ragbot/services/document_service.py
+@@ -244,8 +244,11 @@ class DocumentService:
+                 if not parsed_url.netloc:
+                     errors.append("Invalid URL: missing domain")
+ 
+-                # Security checks for URLs
+-                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]
++                # Security checks for URLs. This list only adds a warning; the URL
++                # loader blocks internal targets (SSRF guard, C6). The entry for
++                # the unspecified address is a host name to warn about, not a
++                # bind address, so Bandit B104 does not apply to this line.
++                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]  # nosec B104
+                 if parsed_url.netloc.lower() in suspicious_domains:
+                     warnings.append(f"Potentially unsafe domain: {parsed_url.netloc}")
+ 
+@@ -381,9 +384,12 @@ class DocumentService:
+                 source=file_path,
+                 document_type=document.metadata.get("type", "unknown"),
+                 processing_stats=processing_stats,
+-                document_id=hashlib.md5(file_path.encode()).hexdigest(),
++                # Stored document id, not a security value: MD5
++                # (usedforsecurity=False) keeps the ids of stored documents.
++                document_id=hashlib.md5(file_path.encode(), usedforsecurity=False).hexdigest(),
+                 created_at=datetime.now(),
+-                file_hash=hashlib.md5(document.text.encode()).hexdigest(),
++                # Content fingerprint: SHA-256, so it can serve as an integrity hash.
++                file_hash=hashlib.sha256(document.text.encode("utf-8")).hexdigest(),
+             )
+ 
+             logger.info(
+@@ -416,7 +422,9 @@ class DocumentService:
+             str: Unique document ID
+         """
+         timestamp = int(time.time() * 1000)  # milliseconds
+-        source_hash = hashlib.md5(source.encode()).hexdigest()[:8]
++        # Readable id prefix, not a security value (the timestamp makes the id
++        # unique): MD5 with usedforsecurity=False.
++        source_hash = hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]
+         return f"{source_type}_{source_hash}_{timestamp}"
+ 
+     def calculate_content_hash(self, content: str) -> str:

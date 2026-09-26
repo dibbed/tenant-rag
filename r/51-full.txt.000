@@ -1,0 +1,20 @@
+exit=1
+status: fail | summary: 1174 passed, 2 failed, 0 errors, 11 skipped
+counts: {'collected': 1187, 'error': 0, 'failed': 2, 'passed': 1174, 'skipped': 11, 'xfailed': 0, 'xpassed': 0} | duration: 167.45 | python: 3.12.14
+problem: 2 test(s) failed or had an error
+FAILED tests/api/test_api.py::TestApiRealIntegration::test_real_text_ingest_and_query_flow :: assert 422 == 200
+ +  where 422 = <Response [422 Unprocessable Entity]>.status_code
+ +  and   200 = status.HTTP_200_OK
+FAILED tests/e2e/test_project_e2e_complete.py::TestRAGServiceE2E::test_rag_ingest_and_query_mocked :: AssertionError: assert False
+ +  where False = IngestResult(success=False, document_id='text_5841461867451553722_1790448925', chunks_created=0, processing_time=0.020...es cannot be stored (Details: the documents cannot be stored: a value of type bytes cannot be stored))', metadata=None).success
+skipped tests/e2e/test_vector_store_e2e_comprehensive.py::TestCompleteWorkflowE2E::test_chroma_complete_workflow :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/e2e/test_vector_store_e2e_comprehensive.py::TestErrorHandlingE2E::test_search_failure_recovery :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/e2e/test_vector_store_e2e_comprehensive.py::TestPerformanceE2E::test_concurrent_operations_performance :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/integration/test_migrate_faiss_to_chroma.py::test_migrate_faiss_to_chroma :: Skipped: chromadb not installed
+skipped tests/integration/test_phase4_quality_integration.py::TestPhase4QualityIntegration::test_qa_chain_quality_metrics_integration :: Skipped: Requires OpenAI API key
+skipped tests/integration/test_vector_store_integrations.py::test_chroma_store_ingest_and_search :: Skipped: chromadb not installed
+skipped tests/integration/test_vector_store_rag_integration.py::TestVectorStoreEmbeddingIntegration::test_chroma_with_embeddings :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/integration/test_vector_store_rag_integration.py::TestVectorStoreLoaderIntegration::test_store_with_url_loader :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/integration/test_vector_store_rag_integration.py::TestVectorStorePerformanceIntegration::test_concurrent_operations :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/integration/test_vector_store_rag_integration.py::TestVectorStoreQAIntegration::test_store_with_qa_generator :: Skipped: chromadb is optional (vectorstores extra) and not installed
+skipped tests/unit/test_chroma_hybrid.py::test_chroma_hybrid_search_returns_results :: Skipped: chromadb not installed

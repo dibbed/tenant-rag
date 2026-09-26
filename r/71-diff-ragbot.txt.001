@@ -1,0 +1,264 @@
++    if isinstance(value, (np.ndarray, np.generic)):
++        return _plain(value.tolist(), depth + 1)
++    raise CacheEncodeError(f"a value of type {type(value).__name__} cannot be cached")
++
++
++def encode_cache_value(value: Any) -> bytes:
++    """Encode ``value`` as a versioned JSON cache entry."""
++    envelope = {"format": FORMAT, "version": VERSION, "value": _plain(value)}
++    text = json.dumps(envelope, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
++    return text.encode("utf-8")
++
++
++def _reject_constant(name: str) -> Any:
++    raise CacheDecodeError(f"the cache entry contains {name}")
++
++
++def decode_cache_value(data: Any) -> Any:
++    """Decode a cache entry written by encode_cache_value."""
++    if isinstance(data, str):
++        data = data.encode("utf-8")
++    if not isinstance(data, (bytes, bytearray, memoryview)):
++        raise CacheDecodeError(f"a cache entry must be bytes, not {type(data).__name__}")
++    raw = bytes(data)
++    if raw.startswith(_PICKLE_MARKER):
++        raise LegacyPickleEntryError(
++            "the cache entry has the legacy pickle format; it is ignored and never unpickled"
++        )
++    try:
++        envelope = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
++    except CacheDecodeError:
++        raise
++    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
++        raise CacheDecodeError(f"the cache entry is not valid JSON: {exc}") from None
++    if (
++        not isinstance(envelope, dict)
++        or set(envelope) != _ENVELOPE_KEYS
++        or envelope["format"] != FORMAT
++    ):
++        raise CacheDecodeError("the cache entry is not a tenant-rag cache entry")
++    version = envelope["version"]
++    if type(version) is not int or version != VERSION:
++        raise CacheDecodeError(f"unsupported cache entry version {version!r}")
++    return envelope["value"]
+diff --git a/ragbot/caching/redis_cache.py b/ragbot/caching/redis_cache.py
+index b922c1b..bba9e7e 100644
+--- a/ragbot/caching/redis_cache.py
++++ b/ragbot/caching/redis_cache.py
+@@ -5,40 +5,60 @@ This module provides a Redis-based cache implementation with connection
+ pooling, serialization, and comprehensive error handling.
+ """
+ 
+-import json
+-import pickle
+ from typing import Any, Dict, List, Optional
++from urllib.parse import urlsplit
+ 
+ from ragbot.caching.base import BaseCache
++from ragbot.caching.cache_codec import decode_cache_value, encode_cache_value
+ from ragbot.configs.settings import settings
+ from ragbot.outputs.logger import logger
+ 
+ 
++def _redacted_url(url: str) -> str:
++    """Return the Redis URL without its password, for logs."""
++    try:
++        password = urlsplit(url).password
++    except ValueError:
++        return "<invalid Redis URL>"
++    return url.replace(f":{password}@", ":***@", 1) if password else url
++
++
+ class RedisCache(BaseCache):
+     """
+     Redis cache implementation with connection pooling and serialization.
+-    
+-    This cache uses Redis as the backend storage with automatic serialization
+-    and deserialization of Python objects.
++
++    Values are stored as versioned JSON (ragbot/caching/cache_codec.py).
++    Security (Bandit B301): pickle is not used, because a writer with access to
++    the Redis database could otherwise run code in the application. Legacy
++    pickle entries and malformed entries are cache misses.
+     """
+-    
+-    def __init__(self, redis_url: Optional[str] = None, default_ttl: int = 3600, 
+-                 serialization: str = "pickle"):
++
++    def __init__(self, redis_url: Optional[str] = None, default_ttl: int = 3600,
++                 serialization: str = "json"):
+         """
+         Initialize the Redis cache.
+-        
++
+         Args:
+             redis_url: Redis connection URL (uses settings if None)
+             default_ttl: Default time-to-live in seconds
+-            serialization: Serialization method ("pickle" or "json")
++            serialization: Must be "json" (the default). "pickle" was removed
++                for security and raises ValueError.
+         """
++        if serialization != "json":
++            raise ValueError(
++                f"Unsupported cache serialization {serialization!r}: only 'json' is "
++                "supported (pickle was removed because unpickling can run code)"
++            )
+         super().__init__(default_ttl)
+         self.redis_url = redis_url or settings.redis.url
+         self.serialization = serialization
+         self._redis = None
+         self._connection_pool = None
+-        
+-        logger.info(f"RedisCache initialized with URL={self.redis_url}, serialization={serialization}")
++
++        logger.info(
++            f"RedisCache initialized with URL={_redacted_url(self.redis_url)}, "
++            f"serialization={serialization}"
++        )
+     
+     async def _get_redis(self):
+         """Get Redis connection, creating it if necessary."""
+@@ -81,10 +101,7 @@ class RedisCache(BaseCache):
+             Serialized bytes
+         """
+         try:
+-            if self.serialization == "json":
+-                return json.dumps(value, ensure_ascii=False).encode('utf-8')
+-            else:  # pickle
+-                return pickle.dumps(value)
++            return encode_cache_value(value)
+         except Exception as e:
+             logger.error(f"Serialization error: {str(e)}")
+             raise
+@@ -100,10 +117,9 @@ class RedisCache(BaseCache):
+             Deserialized value
+         """
+         try:
+-            if self.serialization == "json":
+-                return json.loads(data.decode('utf-8'))
+-            else:  # pickle
+-                return pickle.loads(data)
++            # Security (Bandit B301): never unpickled. A legacy pickle entry or
++            # malformed data raises CacheDecodeError and is a cache miss.
++            return decode_cache_value(data)
+         except Exception as e:
+             logger.error(f"Deserialization error: {str(e)}")
+             raise
+diff --git a/ragbot/caching/semantic_cache.py b/ragbot/caching/semantic_cache.py
+index 3ca0c8d..59d3e5d 100644
+--- a/ragbot/caching/semantic_cache.py
++++ b/ragbot/caching/semantic_cache.py
+@@ -196,7 +196,10 @@ class SemanticCache:
+             لیست اعداد float که جاسازی پرسش را نشان می‌دهد
+         """
+         # بررسی کش جاسازی
+-        query_hash = hashlib.md5(query.encode()).hexdigest()
++        # Security: SHA-256, because this embedding cache is shared by every
++        # tenant; with MD5, a crafted query could collide with another query
++        # and receive its cached embedding.
++        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+         if query_hash in self.embedding_cache:
+             return self.embedding_cache[query_hash]
+ 
+@@ -258,7 +261,9 @@ class SemanticCache:
+                 # fallback نهایی: بردار شبه‌تصادفیِ قطعی تا مسیر از کار نیفتد
+                 import numpy as _np  # type: ignore
+ 
+-                h = int(hashlib.md5(query.encode()).hexdigest()[:8], 16)
++                # Only the seed of a deterministic fallback vector, not a security
++                # value: MD5 with usedforsecurity=False keeps the old vectors.
++                h = int(hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()[:8], 16)
+                 _np.random.seed(h)
+                 query_embedding = _np.random.rand(384).astype(float).tolist()
+ 
+diff --git a/ragbot/main.py b/ragbot/main.py
+index e08b20f..b332a84 100644
+--- a/ragbot/main.py
++++ b/ragbot/main.py
+@@ -27,8 +27,11 @@ def main() -> None:
+     parser.add_argument(
+         "--host",
+         type=str,
+-        default=os.getenv("HOST", "0.0.0.0"),
+-        help="Host IP to bind the HTTP server to (default: 0.0.0.0)",
++        # Security (Bandit B104): the loopback interface unless HOST or --host
++        # selects another one. The container image and docker-compose.yml bind
++        # all interfaces explicitly.
++        default=os.getenv("HOST", "127.0.0.1"),
++        help="Host IP to bind the HTTP server to (default: HOST, else 127.0.0.1)",
+     )
+     parser.add_argument(
+         "--port",
+diff --git a/ragbot/monitoring/alert_manager.py b/ragbot/monitoring/alert_manager.py
+index a088938..1e01bd5 100644
+--- a/ragbot/monitoring/alert_manager.py
++++ b/ragbot/monitoring/alert_manager.py
+@@ -7,9 +7,137 @@ Persian developer notes:
+ 
+ from __future__ import annotations
+ 
++import ast
++import logging
++import numbers
++import operator
+ from dataclasses import dataclass
+ from datetime import datetime
+-from typing import Any, Dict
++from typing import Any, Callable, Dict, Mapping
++
++_log = logging.getLogger(__name__)
++
++# Security (Bandit B307): an alert condition is parsed into a checked syntax
++# tree and evaluated by this module; it is never passed to eval(). Grammar:
++# comparisons (>, >=, <, <=, ==, !=) between metric names, ``threshold`` and
++# numbers, joined with ``and`` / ``or``.
++MAX_CONDITION_LENGTH = 200
++_COMPARISONS: Dict[type, Callable[[Any, Any], bool]] = {
++    ast.Gt: operator.gt,
++    ast.GtE: operator.ge,
++    ast.Lt: operator.lt,
++    ast.LtE: operator.le,
++    ast.Eq: operator.eq,
++    ast.NotEq: operator.ne,
++}
++
++
++class UnsupportedConditionError(ValueError):
++    """An alert condition is outside the supported grammar, or a value is not a number."""
++
++
++class _MissingMetric(LookupError):
++    """The condition names a metric that is not in the metrics."""
++
++
++def parse_condition(condition: str) -> ast.expr:
++    """Parse an alert condition and check it against the supported grammar.
++
++    Examples: ``cpu_usage > threshold``, ``0 < response_time <= 5``,
++    ``error_rate >= threshold and cpu_usage > 50``. Calls, attributes,
++    subscripts, arithmetic, strings, booleans and all other constructs raise
++    UnsupportedConditionError.
++    """
++    if not isinstance(condition, str) or not condition.strip():
++        raise UnsupportedConditionError("an alert condition must be a non-empty string")
++    if len(condition) > MAX_CONDITION_LENGTH:
++        raise UnsupportedConditionError(
++            f"an alert condition has at most {MAX_CONDITION_LENGTH} characters"
++        )
++    try:
++        tree = ast.parse(condition.strip(), mode="eval")
++    except SyntaxError as exc:
++        raise UnsupportedConditionError(f"invalid alert condition {condition!r}") from exc
++    _check_condition(tree.body, condition)
++    return tree.body
++
++
++def _check_condition(node: ast.expr, condition: str) -> None:
++    if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
++        for value in node.values:
++            _check_condition(value, condition)
++        return
++    if isinstance(node, ast.Compare):
++        if not all(type(op) in _COMPARISONS for op in node.ops):
++            raise UnsupportedConditionError(f"unsupported comparison in {condition!r}")
++        for operand in (node.left, *node.comparators):

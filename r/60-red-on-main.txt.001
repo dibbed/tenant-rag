@@ -1,0 +1,91 @@
+  (pytest_assertion plugin: representation of details failed: /tmp/v312/lib/python3.12/site-packages/_pytest/assertion/util.py:508: ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all().
+   Probably an object has a faulty __repr__.)
+FAILED tests/security/test_phase35_cache_serialization.py::test_an_entry_is_versioned_json - UnicodeDecodeError: 'utf-8' codec can't decode byte 0x80 in position 0: invalid start byte
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[set] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[object] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[bytes] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[nan] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[infinity] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[int-key] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_value_without_a_json_form_is_not_cached[datetime] - assert True is False
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_legacy_pickle_entry_is_never_unpickled - AssertionError: assert {'key': None} == {}
+  
+  Left contains 1 more item:
+  {'key': None}
+  
+  Full diff:
+  - {}
+  + {
+  +     'key': None,
+  + }
+FAILED tests/security/test_phase35_cache_serialization.py::test_a_benign_legacy_pickle_entry_is_a_miss - AssertionError: assert {'answer': 'cached by an earlier version'} is None
+FAILED tests/security/test_phase35_cache_serialization.py::test_pickle_serialization_is_refused - Failed: DID NOT RAISE <class 'ValueError'>
+FAILED tests/security/test_phase35_cache_serialization.py::test_the_redis_password_is_not_logged - assert False
+ +  where False = all(<generator object test_the_redis_password_is_not_logged.<locals>.<genexpr> at 0x7f2cc4094450>)
+FAILED tests/security/test_phase35_cache_serialization.py::test_the_cache_modules_do_not_import_pickle - AssertionError: ragbot/caching/redis_cache.py
+assert not ({'json', 'pickle', 'ragbot', 'redis', 'typing'} & {'cPickle', 'cloudpickle', 'dill', 'jsonpickle', 'pickle', 'shelve'})
+FAILED tests/security/test_phase35_faiss_persistence.py::test_documents_round_trip_through_documents_npz - AssertionError: assert False
+ +  where False = exists()
+ +    where exists = ((PosixPath('/tmp/pytest-of-runner/pytest-3/test_documents_round_trip_thro0') / 'store') / 'documents.npz').exists
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_document_file_holds_no_python_objects - FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-runner/pytest-3/test_the_document_file_holds_n0/store/documents.npz'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[not-an-archive] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[npy-instead-of-npz] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[pickled-object-array] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[extra-array] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[missing-array] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[integer-embeddings] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[invalid-json] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[wrong-format] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[future-version] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[boolean-version] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[extra-top-level-field] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[missing-field] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[extra-field] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[empty-id] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[numeric-content] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[list-metadata] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[boolean-score] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[embedding-out-of-range] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[negative-offset] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[embedding-not-a-pair] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_malformed_document_file_is_refused[duplicate-key] - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_store_with_a_malformed_document_file_does_not_open - Failed: DID NOT RAISE <class 'Exception'>
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_legacy_pickle_file_is_never_unpickled - AssertionError: assert not True
+ +  where True = exists()
+ +    where exists = PosixPath('/tmp/pytest-of-runner/pytest-3/test_a_legacy_pickle_file_is_n0/p35-faiss-marker').exists
+FAILED tests/security/test_phase35_faiss_persistence.py::test_a_store_with_only_a_legacy_pickle_file_fails_closed - ModuleNotFoundError: No module named 'ragbot.rag.store.document_persistence'
+FAILED tests/security/test_phase35_faiss_persistence.py::test_documents_npz_is_used_and_a_leftover_legacy_file_is_ignored - AssertionError: assert ['doc'] == ['doc-1', 'doc-2']
+  
+  At index 0 diff: 'doc' != 'doc-1'
+  Right contains one more item: 'doc-2'
+  
+  Full diff:
+    [
+  -     'doc-1',
+  ?         --
+  +     'doc',
+  -     'doc-2',
+    ]
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_converts_a_trusted_legacy_store - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_reads_numpy_and_datetime_values - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_needs_the_trust_flag - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_refuses_functions_and_foreign_objects[path-touch] - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_refuses_functions_and_foreign_objects[os-system] - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_refuses_functions_and_foreign_objects[builtins-eval] - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_refuses_functions_and_foreign_objects[not-a-mapping] - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_the_migration_refuses_functions_and_foreign_objects[foreign-object] - ImportError: cannot import name 'legacy_pickle_migration' from 'ragbot.rag.store' (/tmp/main-wt/ragbot/rag/store/__init__.py)
+FAILED tests/security/test_phase35_faiss_persistence.py::test_only_the_migration_command_imports_pickle - AssertionError: assert ['ragbot/cach...iss_store.py'] == ['ragbot/rag/...migration.py']
+  
+  At index 0 diff: 'ragbot/caching/redis_cache.py' != 'ragbot/rag/store/legacy_pickle_migration.py'
+  Left contains one more item: 'ragbot/rag/store/faiss_store.py'
+  
+  Full diff:
+    [
+  -     'ragbot/rag/store/legacy_pickle_migration.py',
+  +     'ragbot/caching/redis_cache.py',
+  +     'ragbot/rag/store/faiss_store.py',
+    ]
+FAILED tests/security/test_phase35_hash_usage.py::test_every_weak_hash_is_a_reviewed_non_security_use - AssertionError: ('ragbot/caching/base.py', 'embedding')
+assert (False)
+ +  where False = isinstance(None, <class 'ast.Constant'>)
+ +    where <class 'ast.Constant'> = ast.Constant

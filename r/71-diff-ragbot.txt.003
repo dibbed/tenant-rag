@@ -1,0 +1,265 @@
+                 cached_results.append((uncached_indices[i], embedding))
+ 
+@@ -115,7 +125,7 @@ class STEmbedder(BaseEmbedder):
+             uncached_indices = []
+ 
+             for i, text in enumerate(texts):
+-                text_hash = hashlib.md5(text.encode()).hexdigest()
++                text_hash = _embedding_cache_key(text)
+                 if text_hash in self._cache:
+                     cached_results.append((i, self._cache[text_hash]))
+                 else:
+@@ -137,7 +147,7 @@ class STEmbedder(BaseEmbedder):
+                 for i, (text, embedding) in enumerate(
+                     zip(uncached_texts, new_embeddings)
+                 ):
+-                    text_hash = hashlib.md5(text.encode()).hexdigest()
++                    text_hash = _embedding_cache_key(text)
+                     self._cache[text_hash] = embedding
+                     cached_results.append((uncached_indices[i], embedding))
+ 
+diff --git a/ragbot/rag/store/document_persistence.py b/ragbot/rag/store/document_persistence.py
+new file mode 100644
+index 0000000..93404fe
+--- /dev/null
++++ b/ragbot/rag/store/document_persistence.py
+@@ -0,0 +1,285 @@
++"""Safe persistence of the documents of a FAISS vector store (no pickle).
++
++Security (Phase 3.5, Bandit B301): the documents were stored with pickle
++(``documents.pkl``). Loading a pickle file can run arbitrary code, so anyone who
++could write to a store directory (a shared volume, a copied or restored store)
++could run code in the application. This module stores the documents without
++pickle and never reads ``documents.pkl``.
++
++A store directory holds three files:
++
++- ``faiss.index``: the FAISS index (FAISS native format, unchanged)
++- ``metadata.json``: store settings and the id mappings (JSON, unchanged)
++- ``documents.npz``: the documents (this module)
++
++``documents.npz`` is a NumPy archive with exactly two arrays and no Python
++objects:
++
++- ``documents_json`` (uint8): UTF-8 JSON with the key, id, content, metadata
++  and score of every document, and the position of its embedding
++- ``embedding_values`` (float64): the embedding values of all documents, one
++  after the other
++
++It is read with ``numpy.load(allow_pickle=False)``, which cannot run code, and
++the JSON is checked against a strict schema before a document is created.
++Float64 keeps the embedding values exactly.
++
++Legacy stores: a directory that has ``documents.pkl`` but no ``documents.npz``
++raises :class:`LegacyPickleDocumentsError` (fail closed). Convert it once with
++``python -m ragbot.rag.store.legacy_pickle_migration`` (only for a file that
++TenantRAG wrote on a system you control), or delete the store directory and
++ingest the documents again.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import zipfile
++from collections.abc import Mapping
++from datetime import date, datetime
++from enum import Enum
++from pathlib import Path
++from typing import Any
++
++import numpy as np
++
++from ragbot.outputs.logger import logger
++from ragbot.rag.exceptions import VectorStoreError
++from ragbot.rag.store.base import VectorDocument
++
++DOCUMENTS_FILE = "documents.npz"
++LEGACY_PICKLE_FILE = "documents.pkl"
++FORMAT = "tenant-rag/vector-documents"
++VERSION = 1
++MIGRATION_COMMAND = "python -m ragbot.rag.store.legacy_pickle_migration --trust-legacy-pickle"
++_ARRAYS = frozenset({"documents_json", "embedding_values"})
++_TOP_LEVEL = frozenset({"format", "version", "documents"})
++_FIELDS = frozenset({"key", "id", "content", "metadata", "score", "embedding"})
++
++
++class DocumentFileError(VectorStoreError):
++    """The document file is unreadable, or its format, version or schema is wrong."""
++
++    def __init__(self, message: str, path: Path | None = None) -> None:
++        super().__init__(message, operation="documents", store_type="faiss")
++        self.path = path
++
++
++class LegacyPickleDocumentsError(DocumentFileError):
++    """The store directory has only the legacy pickle file, which is never loaded."""
++
++
++def documents_file(directory: str | os.PathLike[str]) -> Path:
++    """Return the path of the document file of a store directory."""
++    return Path(directory) / DOCUMENTS_FILE
++
++
++def _json_default(value: Any) -> Any:
++    """Return the JSON value of a metadata value that is not a JSON type."""
++    if isinstance(value, (datetime, date)):
++        return value.isoformat()
++    if isinstance(value, Enum):
++        return value.value
++    if isinstance(value, np.generic):
++        return value.item()
++    if isinstance(value, np.ndarray):
++        return value.tolist()
++    if isinstance(value, (set, frozenset)):
++        return sorted(value, key=repr)
++    if isinstance(value, Path):
++        return str(value)
++    raise TypeError(f"a value of type {type(value).__name__} cannot be stored")
++
++
++def _embedding_values(document: VectorDocument) -> np.ndarray:
++    try:
++        values = np.asarray(document.embedding, dtype=np.float64)
++    except (TypeError, ValueError) as exc:
++        raise DocumentFileError(
++            f"document {document.id!r}: the embedding is not a list of numbers"
++        ) from exc
++    if values.ndim != 1:
++        raise DocumentFileError(
++            f"document {document.id!r}: the embedding is not a flat list of numbers"
++        )
++    return values
++
++
++def save_documents(
++    directory: str | os.PathLike[str],
++    documents: Mapping[str, VectorDocument],
++    *,
++    keep_embeddings: bool = True,
++) -> Path:
++    """Write ``documents`` to documents.npz in ``directory``.
++
++    The file is written to a temporary file and then replaces the old file,
++    which is kept as documents.npz.bak. Without ``keep_embeddings`` the
++    embeddings are not stored (the FAISS index still has the vectors).
++    """
++    directory = Path(directory)
++    target = documents_file(directory)
++    entries: list[dict[str, Any]] = []
++    parts: list[np.ndarray] = []
++    offset = 0
++    for key, document in documents.items():
++        values = _embedding_values(document) if keep_embeddings else np.zeros(0, dtype=np.float64)
++        entries.append(
++            {
++                "key": str(key),
++                "id": document.id,
++                "content": document.content,
++                "metadata": document.metadata if document.metadata is not None else {},
++                "score": document.score,
++                "embedding": [offset, int(values.size)],
++            }
++        )
++        if values.size:
++            parts.append(values)
++            offset += int(values.size)
++    try:
++        text = json.dumps(
++            {"format": FORMAT, "version": VERSION, "documents": entries},
++            ensure_ascii=False,
++            default=_json_default,
++        )
++    except (TypeError, ValueError) as exc:
++        raise DocumentFileError(f"the documents cannot be stored: {exc}", target) from exc
++    embedding_values = np.concatenate(parts) if parts else np.zeros(0, dtype=np.float64)
++    temporary = target.with_name(target.name + ".tmp")
++    with open(temporary, "wb") as handle:
++        np.savez(
++            handle,
++            documents_json=np.frombuffer(text.encode("utf-8"), dtype=np.uint8),
++            embedding_values=embedding_values,
++        )
++        handle.flush()
++        os.fsync(handle.fileno())
++    if target.exists():
++        try:
++            os.replace(target, target.with_name(target.name + ".bak"))
++        except OSError:
++            pass
++    os.replace(temporary, target)
++    return target
++
++
++def load_documents(directory: str | os.PathLike[str]) -> dict[str, VectorDocument]:
++    """Return the documents of a store directory; an empty dict when it has none.
++
++    Raises LegacyPickleDocumentsError when the directory has only the legacy
++    documents.pkl, and DocumentFileError when documents.npz is not valid.
++    """
++    directory = Path(directory)
++    target = documents_file(directory)
++    legacy = directory / LEGACY_PICKLE_FILE
++    if not target.exists():
++        if legacy.exists():
++            raise LegacyPickleDocumentsError(
++                f"{legacy} uses the legacy pickle document format. It is not loaded, "
++                "because loading a pickle file can run arbitrary code. If TenantRAG "
++                "wrote this file on a system you control, convert it once with: "
++                f"{MIGRATION_COMMAND} {directory}. Otherwise delete the store "
++                "directory and ingest the documents again.",
++                legacy,
++            )
++        return {}
++    if legacy.exists():
++        logger.warning(
++            f"{legacy} is a legacy pickle file and is not loaded; {target} is used. "
++            f"Delete {legacy} after you have checked the store."
++        )
++    return read_documents_file(target)
++
++
++def read_documents_file(path: str | os.PathLike[str]) -> dict[str, VectorDocument]:
++    """Read and check one documents.npz file."""
++    path = Path(path)
++    try:
++        archive = np.load(path, allow_pickle=False)
++    except (OSError, ValueError, EOFError) as exc:
++        raise DocumentFileError(f"{path} cannot be read: {exc}", path) from exc
++    files = getattr(archive, "files", None)
++    if not isinstance(files, list):
++        raise DocumentFileError(f"{path} is not a NumPy archive (.npz)", path)
++    try:
++        if set(files) != _ARRAYS:
++            raise DocumentFileError(
++                f"{path} has the arrays {sorted(files)}; expected {sorted(_ARRAYS)}", path
++            )
++        raw = archive["documents_json"]
++        values = archive["embedding_values"]
++    except DocumentFileError:
++        raise
++    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile) as exc:
++        raise DocumentFileError(f"{path} cannot be read: {exc}", path) from exc
++    finally:
++        archive.close()
++    if raw.dtype != np.uint8 or raw.ndim != 1:
++        raise DocumentFileError(f"{path}: documents_json is not a uint8 array", path)
++    if values.dtype != np.float64 or values.ndim != 1:
++        raise DocumentFileError(f"{path}: embedding_values is not a float64 array", path)
++    try:
++        data = json.loads(raw.tobytes().decode("utf-8"))
++    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
++        raise DocumentFileError(f"{path}: documents_json is not valid JSON: {exc}", path) from exc
++    return _documents_from_json(data, values, path)
++
++
++def _documents_from_json(data: Any, values: np.ndarray, path: Path) -> dict[str, VectorDocument]:
++    if not isinstance(data, dict) or data.get("format") != FORMAT:
++        raise DocumentFileError(f"{path} is not a {FORMAT} file", path)
++    version = data.get("version")
++    if type(version) is not int or version != VERSION:
++        raise DocumentFileError(
++            f"{path} has the unsupported version {version!r} (supported: {VERSION})", path
++        )
++    if set(data) != _TOP_LEVEL:
++        raise DocumentFileError(f"{path} has unexpected fields {sorted(set(data) - _TOP_LEVEL)}", path)
