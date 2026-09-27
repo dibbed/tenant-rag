@@ -196,7 +196,7 @@ class SemanticCache:
             لیست اعداد float که جاسازی پرسش را نشان می‌دهد
         """
         # بررسی کش جاسازی
-        query_hash = hashlib.md5(query.encode()).hexdigest()
+        query_hash = hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()
         if query_hash in self.embedding_cache:
             return self.embedding_cache[query_hash]
 
@@ -258,7 +258,7 @@ class SemanticCache:
                 # fallback نهایی: بردار شبه‌تصادفیِ قطعی تا مسیر از کار نیفتد
                 import numpy as _np  # type: ignore
 
-                h = int(hashlib.md5(query.encode()).hexdigest()[:8], 16)
+                h = int(hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()[:8], 16)
                 _np.random.seed(h)
                 query_embedding = _np.random.rand(384).astype(float).tolist()
 
