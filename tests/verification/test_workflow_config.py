@@ -137,4 +137,4 @@ def test_dependency_gate_checks_lock_and_export_drift(workflow):
     run_text = _run_text(workflow["jobs"]["dependency-audit"])
     assert "uv lock --check" in run_text
     assert "uv export --frozen" in run_text
-    assert "diff -u requirements.txt" in run_text
+    assert "tail -n +3 requirements.txt" in run_text
