@@ -709,7 +709,7 @@ class SemanticChunker(BaseChunker):
         chunk_string = (
             f"{document_id}_semantic_{chunk_index}_{self.similarity_threshold}"
         )
-        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
+        return hashlib.md5(chunk_string.encode(), usedforsecurity=False).hexdigest()[:12]
 
     def estimate_chunks(self, text: str) -> int:
         """Estimate the number of chunks that will be created."""

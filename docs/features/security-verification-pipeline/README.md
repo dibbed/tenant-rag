@@ -1,6 +1,6 @@
 # Security Verification Pipeline
 
-The Verification Pipeline checks every change to `main` for security regressions. It runs on every pull request to `main` and on every push to `main`, on Python 3.10, 3.11 and 3.12. It makes the security controls of Phases 2 and 3 (authentication, authorization, tenant isolation, SSRF protection, edge protection) testable in CI, so that a change cannot remove or weaken them without a failed, visible check.
+`main` is protected and changes land through a pull request under the configured protection rules. The Verification Pipeline checks every proposed and merged change to `main` for security regressions. It runs on every pull request to `main` and on every push to `main`, on Python 3.10, 3.11 and 3.12. It makes the security controls of Phases 2 and 3 (authentication, authorization, tenant isolation, SSRF protection, edge protection) testable in CI, so that a change cannot remove or weaken them without a failed, visible check.
 
 Requirements: REQ-MTS-CI-001 to REQ-MTS-CI-005 (Multi-Tenant Security, Security Verification Pipeline).
 
@@ -14,14 +14,15 @@ The workflow is `.github/workflows/ci.yml` (workflow name "Verification Pipeline
 | `Security Regression Suite (Python 3.10)`, `(Python 3.11)`, `(Python 3.12)` | Blocking | The security tests of `tests/security/suite_manifest.json`, in their own job, with Redis | A security test fails, has an error, is skipped or is marked xfail. A security test file is skipped or cannot be collected. A test of the manifest is missing, or a collected test is not in the manifest. |
 | `Static Analysis (ruff, report-only)` | Report-only | The Ruff rules of `pyproject.toml` (Ruff 0.12.12, `ruff check .`) | Ruff reports findings. The run is not blocked. |
 | `Static Analysis (mypy, report-only)` | Report-only | Types in `ragbot` (MyPy 1.10.1, `mypy ragbot --ignore-missing-imports`, as `make type-check`) | MyPy reports errors. The run is not blocked. |
-| `Static Analysis (bandit, report-only)` | Report-only | Insecure code patterns in `ragbot` (Bandit 1.7.9 with the `[tool.bandit]` settings) | Bandit reports findings. The run is not blocked. |
-| `Dependency Vulnerability Check` | Blocking | Known advisories for every installed package (pip-audit 2.10.1 with the OSV database) | An advisory is HIGH, CRITICAL or of unknown severity and has no accepted exception. An exception entry is not valid. A package cannot be audited. |
+| `Static Analysis (bandit, blocking)` | Blocking | Insecure code patterns in `ragbot` (Bandit 1.7.9 with the `[tool.bandit]` settings) | A HIGH or MEDIUM finding remains, or Bandit cannot run. LOW findings stay visible but do not fail the gate. |
+| `Dependency Vulnerability Check` | Blocking | `uv.lock` is current, the generated `requirements.txt` export has no drift, and the locked default production environment has no blocking advisory (pip-audit 2.10.1 with OSV) | The lock/export drifts, the locked install fails, an advisory is HIGH, CRITICAL or of unknown severity without an accepted exception, an exception is invalid, or a package cannot be audited. |
+| `Optional Extra Audit (<extra>)` | Report-only | Each declared optional extra (`dev`, `test`, `full`, `offline`, `ocr`, `ml`, `hf`, `vectorstores`, `docs`) is resolved from `uv.lock`, installed in isolation and audited | Findings keep the audit step failed/visible but do not weaken the blocking default-install dependency gate. |
 | `Container Build Check` | Blocking | The Docker image, started with its default settings | The build fails. The container stops or does not answer `GET /health` with HTTP 200 within 300 seconds. A health endpoint or the image HEALTHCHECK is not healthy. A request without credentials is not refused with HTTP 401. A process runs as UID 0. |
 | `Verification Summary` | Blocking | The results of all checks above | A Blocking Check failed, had an error or has no report. |
 
 The workflow runs on `ubuntu-24.04` with read-only repository permissions. Every action is pinned to a commit SHA, and checkout does not keep the token. Runs of the same pull request cancel older runs. Pushes to `main` are never cancelled.
 
-A Report-Only Check keeps the exit status of its tool: findings mark the check as failed, and `continue-on-error` keeps the workflow result green. So the findings are visible in every run and in the Verification Summary, but they do not block a merge.
+A Report-Only Check keeps a visible failed step when findings are present and uses `continue-on-error` only at the policy boundary. Ruff and MyPy remain report-only. Optional-extra dependency audits are also report-only because some extras can carry upstream advisories without weakening the default-install gate. Bandit is no longer report-only: HIGH and MEDIUM findings are blocking, while LOW findings remain in its JSON report and logs.
 
 ## Required status checks
 
@@ -33,7 +34,9 @@ Branch protection of `main` requires these checks, from GitHub Actions:
 - `Container Build Check`
 - `Verification Summary`
 
-The branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. The static analysis checks are not required.
+`Static Analysis (bandit, blocking)` is enforced transitively by the required `Verification Summary`: the summary waits for the static-analysis matrix and fails when the Bandit report is not `pass`. A separate required-check entry is optional if branch protection is later changed to require every constituent job directly.
+
+The branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. Ruff and MyPy are not required checks; Bandit is blocking through the required Verification Summary.
 
 If you rename a job or change the Python versions, update the required checks in the branch protection settings in the same change. Otherwise a pull request waits for a check that never reports.
 
@@ -46,7 +49,7 @@ The suite is the set of tests that verify the security controls:
 - `tests/integration/test_edge_rate_limit_redis.py` (real Redis) and `tests/integration/test_edge_uvicorn_server.py`
 - `tests/integration/test_multi_tenant_isolation.py`
 
-`tests/security/suite_manifest.json` lists these paths and the node id of each of the 322 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
+`tests/security/suite_manifest.json` lists these paths and the node id of each of the 345 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
 
 Rules:
 
@@ -63,24 +66,31 @@ To add, rename or remove a security test:
 
 The manifest diff then shows the change in review. A pull request that removes a security test must explain why.
 
-## Static analysis (Report-Only)
+## Static analysis policy
 
-Ruff, MyPy and Bandit use the versions pinned in the `dev` extra of `pyproject.toml` and the settings in `pyproject.toml`. Each run shows the number of findings, the most frequent codes and, for Bandit, file annotations for the HIGH findings.
+Ruff, MyPy and Bandit use the versions pinned in the `dev` extra of `pyproject.toml` and resolved by `uv.lock`. Ruff and MyPy remain Report-Only under the currently approved policy. Bandit runs in Blocking mode.
 
-To promote a check to a Blocking Check:
+Bandit's blocking policy is severity-aware: HIGH and MEDIUM findings fail the check; LOW findings stay visible in the report and job log. Suppressions must be narrow and justified. The repository does not use a broad Bandit skip to make the gate green.
 
-1. Fix the findings, or suppress each one with a justification.
-2. Set `mode: blocking` for the tool in the `static-analysis` matrix of `.github/workflows/ci.yml`.
-3. Add `Static Analysis (<tool>, blocking)` to the required status checks of `main`.
+If another static tool is promoted later, first remediate or narrowly justify its findings, then change its matrix mode. If branch protection is changed to require constituent static jobs directly, update the required check names at the same time.
 
 ## Dependency Vulnerability Check
 
 - **Tool:** pip-audit 2.10.1 (`scripts/verification/requirements-audit.txt`) in its own virtual environment, so its own dependencies are not audited. Advisories come from the OSV database.
-- **Scope:** every package that `pip install -r requirements.txt` and `pip install -e ".[dev]"` install on Python 3.11, the Python version of the container image. The project itself is installed in editable mode and is not audited. A package that pip-audit cannot audit fails the check.
+- **Scope:** the default production dependency set selected from committed `uv.lock` on Python 3.11, the Python version of the container image. The project itself is omitted from that audit environment. A package that pip-audit cannot audit fails the check.
 - **Severity:** the severity of the GitHub-reviewed advisory (GHSA) in OSV; without one, the CVSS v3 base score in OSV. Findings of one advisory under several ids (for example PYSEC and GHSA) count once.
 - **Blocking:** HIGH, CRITICAL and unknown severity. An unknown severity blocks, so an advisory cannot pass because its record is incomplete. If the OSV lookup fails, the check reports an error.
 - **Non-blocking:** MODERATE and LOW advisories. The Verification Summary lists them.
-- **Optional extras** (`vectorstores`, `full`, `ocr`, `offline`, `ml`, `hf`, `docs`) are not installed and not audited.
+- **Optional extras:** every declared extra (`dev`, `test`, `full`, `offline`, `ocr`, `ml`, `hf`, `vectorstores`, `docs`) is installed from the same lock in its own CI matrix entry and audited separately. Those audits are report-only so an unresolved optional-backend advisory cannot weaken or be confused with the blocking default-install gate. Chroma remains optional.
+
+### Reproducible dependency locking
+
+- `pyproject.toml` is the dependency source of truth.
+- `uv.lock` is the committed transitive lock. The project currently pins the lock tool as `uv==0.12.19` in CI and local setup instructions.
+- `requirements.txt` is a generated, hash-bearing production export used by the Docker build. Do not edit it by hand.
+- CI runs `uv lock --check`, regenerates the production export with `uv export --frozen --no-emit-project`, and diffs it against `requirements.txt`.
+- Tests and the Security Regression Suite use `uv sync --frozen --extra dev --extra test` on Python 3.10, 3.11 and 3.12.
+- To update dependencies intentionally, run `make update-deps`; review both `uv.lock` and `requirements.txt`, then run the full verification pipeline.
 
 ### Accepted exceptions
 
@@ -161,8 +171,9 @@ Each check also uploads its JSON report as an artifact named `verification-*`. G
 make verify             # every check; the container check needs Docker
 make verify-tests       # full test suite
 make verify-security    # Security Regression Suite
-make verify-static      # Ruff, MyPy and Bandit (report-only)
-make verify-deps        # Dependency Vulnerability Check
+make verify-static      # Ruff/MyPy report-only; Bandit HIGH/MEDIUM blocking
+make bandit             # Bandit blocking policy only
+make verify-deps        # lock drift + locked default Dependency Vulnerability Check
 make verify-container   # Container Build Check
 make security-manifest  # update the manifest after a security test change
 ```

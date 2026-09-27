@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument(
         "--host",
         type=str,
-        default=os.getenv("HOST", "0.0.0.0"),
+        default=os.getenv("HOST", "0.0.0.0"),  # nosec B104 - intentional public API bind
         help="Host IP to bind the HTTP server to (default: 0.0.0.0)",
     )
     parser.add_argument(

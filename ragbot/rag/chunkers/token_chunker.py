@@ -538,7 +538,7 @@ class TokenChunker(BaseChunker):
         chunk_string = (
             f"{document_id}_{chunk_index}_{self.chunk_size}_{self.chunk_overlap}"
         )
-        return hashlib.md5(chunk_string.encode()).hexdigest()[:12]
+        return hashlib.md5(chunk_string.encode(), usedforsecurity=False).hexdigest()[:12]
 
     def estimate_chunks(self, text: str) -> int:
         """

@@ -100,6 +100,7 @@ The level comes from the user's role only. Permissions attached to an API key ne
 - `get_authorized_tenant_context` (in `ragbot/api/dependencies.py`) rejects a request with `HTTP 403 Forbidden` when `X-Tenant-ID` names another tenant, unless the principal is `system_admin`.
 - If `X-Tenant-ID` is omitted, the principal's own tenant is used.
 - Unknown, suspended or inactive tenants are rejected with `HTTP 403 Forbidden`.
+- Tenant lookup is an authorization boundary and fails closed. If the tenant manager is unavailable, a tenant record has no trustworthy status, or the storage/backend lookup raises an unexpected exception, the request gets `HTTP 503 Service Unavailable` with a generic detail. The request never continues as authorized, while the internal failure is kept in server logs.
 
 ### 3.3 Store reset and tenant management
 
@@ -127,7 +128,14 @@ The level comes from the user's role only. Permissions attached to an API key ne
 - There is no fallback to the shared default store or to another tenant's store. Tenant stores are created with `VectorStoreFactory.create_store(..., allow_fallback=False)`. The legacy FAISS fallback remains only for the non-tenant default store.
 - Before Phase 2, a tenant storage failure silently used the shared default store and the shared retriever. Queries could return other data, ingestion could write into the shared index, and a tenant reset could wipe the shared index.
 
-### 4.3 Semantic cache partitioning
+### 4.3 Persistence formats
+
+- FAISS's native index file remains in FAISS's own format. Application document data is stored separately in a versioned `documents.json` schema instead of Python pickle.
+- Runtime loading never deserializes legacy `documents.pkl`. If a legacy file is present without the safe JSON replacement, startup/load fails with a migration error. Rebuild the index from its trusted source data or migrate a trusted legacy file offline in a controlled environment.
+- Redis cache values use a versioned JSON envelope with schema validation. Legacy pickle cache entries are rejected and should be expired or deleted; they are never inspected by unpickling.
+- These rules remove executable deserialization from the production trust boundary.
+
+### 4.4 Semantic cache partitioning
 
 - The semantic cache stores `tenant_id` with every query-answer pair and prefixes cache keys with it.
 - Lookups compare query embeddings only with entries of the requesting tenant.
@@ -192,8 +200,8 @@ Phase 3 hardening for audit findings C9, C10 and C11. Configuration, migration n
 3. **Rate limiting:** without `SECURITY_RATE_LIMIT_STORAGE_URL`, each instance and worker process counts on its own, and during a shared store outage the effective limit is multiplied by the number of instances. A request with a credential is counted only after its body has been received (bounded by the request size limit). A failed credential check runs scrypt before it is counted.
 4. **Request parsing:** FastAPI 0.141.1 and Starlette 1.7.0 are pinned. Starlette 0.40.0 fixed CVE-2024-47874: a multipart form field without a file name is limited by `max_part_size` (1 MiB by default) and is no longer kept in memory without a limit. The Phase 3 measurement (a 40 MiB field took 2.2 seconds and raised peak memory by 79 MiB) was made with Starlette 0.37.2 and was not repeated with Starlette 1.7.0. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is still not bounded by the upload limit.
 5. **In-process plugins:** plugins run in-process. Exceptions are contained, but a faulty plugin can block the event loop or use too much CPU or memory. Do not install untrusted plugins.
-6. **Encryption at rest:** documents and embeddings are stored on disk in plaintext or pickle format. Production deployments must use full-disk or volume encryption (for example LUKS, BitLocker, or cloud volume encryption).
-7. **Open findings:** the risks found in the Phase 3 verification review, with their severity and the recommended actions, are listed in `docs/security/PHASE3_EDGE_SECURITY_REVIEW.md`.
+6. **Encryption at rest:** documents and embeddings are stored on disk in plaintext application formats (including versioned JSON metadata and native vector-index files). Production deployments must use full-disk or volume encryption (for example LUKS, BitLocker, or cloud volume encryption). Runtime pickle deserialization is not used.
+7. **Open findings:** the Phase 3 edge review is recorded in `docs/security/PHASE3_EDGE_SECURITY_REVIEW.md`; Phase 3.5 residual risks and dependency follow-ups are recorded in `docs/security/PHASE3_5_SECURITY_HARDENING.md`.
 
 ---
 
@@ -215,9 +223,9 @@ If you discover a potential security vulnerability in TenantRAG:
 Every pull request to `main` and every push to `main` runs the Verification Pipeline (`.github/workflows/ci.yml`). Details: `docs/features/security-verification-pipeline/README.md`.
 
 - **Security Regression Suite:** the security tests (authentication, authorization, tenant isolation, SSRF, edge protection) run in their own job on Python 3.10, 3.11 and 3.12, with Redis. A skipped security test fails the check. `tests/security/suite_manifest.json` lists the tests: a removed or renamed security test fails the check until the manifest is updated, and the Verification Summary lists the security tests that a change removes.
-- **Dependency Vulnerability Check:** pip-audit with the OSV database audits the default installation (`requirements.txt` and the `dev` extra). An advisory of severity HIGH or CRITICAL, or of unknown severity, fails the check unless an accepted exception with an owner and a review date is recorded in `.github/dependency-audit-exceptions.json`. There are no accepted exceptions.
+- **Dependency Vulnerability Check:** `uv lock --check` and export-drift verification run first, then pip-audit with OSV audits the locked default production environment. HIGH, CRITICAL, and unknown-severity advisories block unless a reviewed exception exists. Optional extras are installed from the same lock and audited in separate report-only jobs. There are no accepted exceptions.
 - **Container Build Check:** the Docker image is built and started with its default settings. The check needs a healthy HEALTHCHECK, HTTP 200 from `/health` and `/api/v1/health`, HTTP 401 for requests without credentials, and no process that runs as root.
-- **Static analysis:** Ruff, MyPy and Bandit run as Report-Only Checks. Every run shows their findings. They do not block a merge.
+- **Static analysis:** Ruff and MyPy remain report-only. Bandit is blocking for HIGH and MEDIUM findings; LOW findings remain visible. The required Verification Summary propagates the Bandit gate.
 - **Required checks:** branch protection of `main` requires the Blocking Checks. The list is in the feature documentation.
 
-chromadb is no longer installed by default. chromadb 1.5.9, the latest release, has two CRITICAL and two HIGH advisories without a fix (GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-2wm9-hf6c-p5cr, GHSA-xph7-9rjv-w5fr). They affect the Chroma server HTTP API. TenantRAG uses only the embedded client. A deployment that installs the `vectorstores` extra accepts this risk.
+chromadb is no longer installed by default. The locked optional `vectorstores` environment currently resolves chromadb 1.5.9, which has two CRITICAL and two HIGH advisories without a fix (GHSA-f4j7-r4q5-qw2c, GHSA-36p7-vc44-83pf, GHSA-2wm9-hf6c-p5cr, GHSA-xph7-9rjv-w5fr). They affect the Chroma server HTTP API. TenantRAG uses only the embedded client. A deployment that installs the `vectorstores` extra accepts this risk.

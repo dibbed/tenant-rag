@@ -245,7 +245,7 @@ class DocumentService:
                     errors.append("Invalid URL: missing domain")
 
                 # Security checks for URLs
-                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]
+                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]  # nosec B104 - deny-list value, not a bind address
                 if parsed_url.netloc.lower() in suspicious_domains:
                     warnings.append(f"Potentially unsafe domain: {parsed_url.netloc}")
 
@@ -381,9 +381,9 @@ class DocumentService:
                 source=file_path,
                 document_type=document.metadata.get("type", "unknown"),
                 processing_stats=processing_stats,
-                document_id=hashlib.md5(file_path.encode()).hexdigest(),
+                document_id=hashlib.md5(file_path.encode(), usedforsecurity=False).hexdigest(),
                 created_at=datetime.now(),
-                file_hash=hashlib.md5(document.text.encode()).hexdigest(),
+                file_hash=hashlib.md5(document.text.encode(), usedforsecurity=False).hexdigest(),
             )
 
             logger.info(
@@ -416,7 +416,7 @@ class DocumentService:
             str: Unique document ID
         """
         timestamp = int(time.time() * 1000)  # milliseconds
-        source_hash = hashlib.md5(source.encode()).hexdigest()[:8]
+        source_hash = hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()[:8]
         return f"{source_type}_{source_hash}_{timestamp}"
 
     def calculate_content_hash(self, content: str) -> str:

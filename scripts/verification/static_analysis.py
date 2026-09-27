@@ -205,12 +205,24 @@ def run_check(
         problems.extend(details.get("errors_without_code", [])[:5])
     elif proc.returncode == 1 and count == 0:
         problems.append(f"{tool} exited with code 1 but reported no finding")
+    if tool == "bandit":
+        blocking_findings = (
+            int(details["by_severity"].get("HIGH", 0))
+            + int(details["by_severity"].get("MEDIUM", 0))
+        )
+        details["blocking_findings"] = blocking_findings
+        details["blocking_policy"] = "HIGH and MEDIUM severities block; LOW remains visible"
+    else:
+        blocking_findings = count
+
     if problems:
         status = "error"
     elif count == 0:
         status = "pass"
+    elif mode == "blocking":
+        status = "fail" if blocking_findings else "pass"
     else:
-        status = "fail" if mode == "blocking" else "findings"
+        status = "findings"
     report.update(
         status=status,
         findings=count,
@@ -225,7 +237,7 @@ def run_check(
 
 
 def exit_code(report: dict[str, Any]) -> int:
-    """Keep the exit status of the tool: 0 no finding, 1 findings, 2 could not run."""
+    """Return the policy result: report-only preserves findings; blocking applies its gate."""
     return {"pass": 0, "findings": 1, "fail": 1}.get(report["status"], 2)
 
 

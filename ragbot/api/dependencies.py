@@ -1,7 +1,5 @@
 import inspect
 from typing import Optional
-from unittest.mock import MagicMock
-
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from ragbot.api.access_mode import ANONYMOUS_DISABLED_DETAIL, anonymous_access_allowed
@@ -103,7 +101,7 @@ async def get_current_principal(
         tenant_mgr = getattr(rag_service, "tenant_manager", None)
         tenant_auth = TenantAuth(tenant_mgr)
 
-    # Authenticate credential (supporting awaitable or sync mock)
+    # Authenticate credential (TenantAuth may expose an async or sync adapter).
     auth_res = tenant_auth.authenticate_principal(credential)
     if inspect.isawaitable(auth_res):
         auth_ok, principal, error_msg = await auth_res
@@ -191,34 +189,61 @@ async def get_authorized_tenant_context(
             detail=f"Forbidden: Access to requested tenant '{target_tenant}' is denied",
         )
 
-    # Check if target tenant exists and is active
+    # Security (C7/C8): tenant verification is a production authorization
+    # boundary. Missing managers, unexpected backend failures, or unknown tenant
+    # state must never be treated as authorization success.
     tenant_mgr = getattr(rag_service, "tenant_manager", None)
-    if tenant_mgr and hasattr(tenant_mgr, "get_tenant"):
-        try:
-            tenant_res = tenant_mgr.get_tenant(target_tenant)
-            tenant = await tenant_res if inspect.isawaitable(tenant_res) else tenant_res
-            if tenant is None and not isinstance(tenant_mgr, MagicMock):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Tenant '{target_tenant}' does not exist",
-                )
-            if tenant is not None:
-                status_attr = getattr(tenant, "status", None)
-                if status_attr is not None and not isinstance(status_attr, MagicMock):
-                    status_str = (
-                        status_attr.value
-                        if hasattr(status_attr, "value")
-                        else str(status_attr)
-                    )
-                    if status_str.lower() != "active":
-                        raise HTTPException(
-                            status_code=status.HTTP_403_FORBIDDEN,
-                            detail=f"Tenant '{target_tenant}' is not active",
-                        )
-        except HTTPException:
-            raise
-        except Exception as t_err:
-            logger.debug(f"Tenant verification note: {t_err}")
+    if tenant_mgr is None or not callable(getattr(tenant_mgr, "get_tenant", None)):
+        logger.error(
+            "Tenant verification unavailable",
+            target_tenant=target_tenant,
+            principal_id=principal.principal_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tenant verification is temporarily unavailable",
+        )
+
+    try:
+        tenant_res = tenant_mgr.get_tenant(target_tenant)
+        tenant = await tenant_res if inspect.isawaitable(tenant_res) else tenant_res
+        if tenant is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tenant '{target_tenant}' does not exist",
+            )
+
+        status_attr = getattr(tenant, "status", None)
+        if status_attr is None:
+            logger.error(
+                "Tenant verification returned a tenant without status",
+                target_tenant=target_tenant,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Tenant verification is temporarily unavailable",
+            )
+
+        status_str = (
+            status_attr.value if isinstance(status_attr, TenantStatus) else str(status_attr)
+        )
+        if status_str.lower() != TenantStatus.ACTIVE.value.lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Tenant '{target_tenant}' is not active",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Tenant verification failed",
+            target_tenant=target_tenant,
+            principal_id=principal.principal_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tenant verification is temporarily unavailable",
+        ) from None
 
     return target_tenant
 

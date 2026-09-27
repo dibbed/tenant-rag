@@ -14,7 +14,7 @@ VERSIONS = ("3.10", "3.11", "3.12")
 MANIFEST = {
     "path": "tests/security/suite_manifest.json",
     "paths": ["tests/security"],
-    "expected": 322,
+    "expected": 345,
     "missing": [],
     "unexpected": [],
     "base_available": True,
@@ -38,12 +38,22 @@ def reports(tmp_path, monkeypatch) -> Path:
     for version in VERSIONS:
         _write(directory, f"tests-py{version}.json", _tests(version))
         _write(directory, f"security-py{version}.json", _security(version))
-    for tool in ("ruff", "mypy", "bandit"):
+    for tool in ("ruff", "mypy"):
         _write(
             directory,
             f"static-{tool}.json",
             {"check": f"static-{tool}", "mode": "report-only", "status": "findings", "summary": f"12 {tool} findings"},
         )
+    _write(
+        directory,
+        "static-bandit.json",
+        {
+            "check": "static-bandit",
+            "mode": "blocking",
+            "status": "pass",
+            "summary": "12 findings: 0 high, 0 medium, 12 low severity",
+        },
+    )
     _write(directory, "dependency-audit.json", _audit())
     _write(
         directory,
@@ -81,7 +91,7 @@ def _security(version: str, **overrides: Any) -> dict[str, Any]:
         "mode": "blocking",
         "status": "pass",
         "python": f"{version}.1",
-        "summary": "322 passed, 0 failed, 0 errors, 0 skipped",
+        "summary": "345 passed, 0 failed, 0 errors, 0 skipped",
         "manifest": dict(MANIFEST),
         "failed_tests": [],
         "skipped_tests": [],

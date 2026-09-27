@@ -89,6 +89,37 @@ def test_blocking_mode_fails_on_findings(static):
     assert static.exit_code(report) == 1
 
 
+def test_bandit_blocking_fails_on_high_or_medium(static):
+    report = static.run_check("bandit", "blocking", runner=_runner(BANDIT, 1))
+    assert report["status"] == "fail"
+    assert report["details"]["blocking_findings"] == 1
+    assert static.exit_code(report) == 1
+
+
+def test_bandit_blocking_allows_low_findings_but_keeps_them_visible(static):
+    low_only = json.dumps(
+        {
+            "results": [
+                {
+                    "issue_severity": "LOW",
+                    "issue_confidence": "HIGH",
+                    "test_id": "B110",
+                    "test_name": "try_except_pass",
+                    "filename": "ragbot/b.py",
+                    "line_number": 7,
+                    "issue_text": "Try, Except, Pass detected.",
+                }
+            ],
+            "errors": [],
+        }
+    )
+    report = static.run_check("bandit", "blocking", runner=_runner(low_only, 1))
+    assert report["status"] == "pass"
+    assert report["findings"] == 1
+    assert report["details"]["blocking_findings"] == 0
+    assert static.exit_code(report) == 0
+
+
 def test_no_finding_passes(static):
     report = static.run_check("ruff", "report-only", runner=_runner("[]", 0))
     assert report["status"] == "pass"

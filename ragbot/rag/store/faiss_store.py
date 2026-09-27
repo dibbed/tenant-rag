@@ -6,9 +6,9 @@ and document storage with proper persistence and atomic operations.
 """
 
 import asyncio
+import base64
 import json
 import os
-import pickle
 import threading
 import time
 from pathlib import Path
@@ -28,6 +28,141 @@ from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager
 from ragbot.rag.exceptions import VectorStoreError
 from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
+
+
+_DOCUMENTS_SCHEMA_VERSION = 1
+_DOCUMENTS_FILENAME = "documents.json"
+_LEGACY_DOCUMENTS_FILENAME = "documents.pkl"
+_JSON_TYPE_KEY = "__tenant_rag_type__"
+
+
+def _encode_json_value(value: Any, *, path: str = "value") -> Any:
+    """Convert supported document data to an explicit JSON-safe representation."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, bytes):
+        return {
+            _JSON_TYPE_KEY: "bytes",
+            "base64": base64.b64encode(value).decode("ascii"),
+        }
+    if isinstance(value, list):
+        return [
+            _encode_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if isinstance(value, tuple):
+        return {
+            _JSON_TYPE_KEY: "tuple",
+            "items": [
+                _encode_json_value(item, path=f"{path}[{index}]")
+                for index, item in enumerate(value)
+            ],
+        }
+    if isinstance(value, dict):
+        if _JSON_TYPE_KEY in value:
+            raise ValueError(f"{path} uses reserved key {_JSON_TYPE_KEY!r}")
+        encoded: Dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{path} contains non-string key {key!r}")
+            encoded[key] = _encode_json_value(item, path=f"{path}.{key}")
+        return encoded
+    raise TypeError(f"{path} contains unsupported type {type(value).__name__}")
+
+
+def _decode_json_value(value: Any, *, path: str = "value") -> Any:
+    """Decode the safe tagged JSON representation used by document persistence."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, list):
+        return [
+            _decode_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if not isinstance(value, dict):
+        raise TypeError(f"{path} contains unsupported decoded type {type(value).__name__}")
+
+    tag = value.get(_JSON_TYPE_KEY)
+    if tag is None:
+        return {
+            key: _decode_json_value(item, path=f"{path}.{key}")
+            for key, item in value.items()
+        }
+    if tag == "bytes" and set(value) == {_JSON_TYPE_KEY, "base64"}:
+        encoded = value["base64"]
+        if not isinstance(encoded, str):
+            raise ValueError(f"{path} has invalid bytes encoding")
+        try:
+            return base64.b64decode(encoded.encode("ascii"), validate=True)
+        except (ValueError, UnicodeEncodeError) as exc:
+            raise ValueError(f"{path} has invalid base64 data") from exc
+    if tag == "tuple" and set(value) == {_JSON_TYPE_KEY, "items"}:
+        items = value["items"]
+        if not isinstance(items, list):
+            raise ValueError(f"{path} has invalid tuple encoding")
+        return tuple(
+            _decode_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(items)
+        )
+    raise ValueError(f"{path} contains an invalid tagged JSON object")
+
+
+def _documents_payload(
+    documents: Dict[str, VectorDocument], *, keep_embeddings: bool = True
+) -> Dict[str, Any]:
+    items = []
+    for document in documents.values():
+        data = document.to_dict()
+        if not keep_embeddings:
+            data["embedding"] = []
+        items.append(_encode_json_value(data, path=f"document[{document.id}]"))
+    return {"version": _DOCUMENTS_SCHEMA_VERSION, "documents": items}
+
+
+def _write_documents_file(
+    path: Path, documents: Dict[str, VectorDocument], *, keep_embeddings: bool = True
+) -> None:
+    payload = _documents_payload(documents, keep_embeddings=keep_embeddings)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+
+
+def _load_documents_file(path: Path) -> Dict[str, VectorDocument]:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict) or set(payload) != {"version", "documents"}:
+        raise ValueError("FAISS documents payload has an invalid schema")
+    if payload["version"] != _DOCUMENTS_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported FAISS documents schema version: {payload['version']!r}"
+        )
+    raw_documents = payload["documents"]
+    if not isinstance(raw_documents, list):
+        raise ValueError("FAISS documents payload must contain a list")
+
+    documents: Dict[str, VectorDocument] = {}
+    for index, raw in enumerate(raw_documents):
+        raw = _decode_json_value(raw, path=f"documents[{index}]")
+        if not isinstance(raw, dict):
+            raise ValueError(f"FAISS document at index {index} is not an object")
+        required = {"id", "content", "embedding", "metadata"}
+        if not required.issubset(raw):
+            raise ValueError(f"FAISS document at index {index} is missing required fields")
+        document = VectorDocument.from_dict(raw)
+        if document.id in documents:
+            raise ValueError(f"Duplicate FAISS document id: {document.id!r}")
+        documents[document.id] = document
+    return documents
+
+
+def _legacy_pickle_error(path: Path) -> VectorStoreError:
+    return VectorStoreError(
+        "Legacy FAISS documents.pkl is not loaded because pickle can execute code. "
+        "Rebuild the index or migrate the trusted legacy file offline before starting this version.",
+        store_type="faiss",
+        operation="load",
+        details=f"legacy pickle rejected: {path}",
+    )
 
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
@@ -65,7 +200,7 @@ def _generate_deterministic_embeddings(texts: List[str]) -> List[List[float]]:
     embeddings = []
     for i, text in enumerate(texts):
         # Create deterministic but unique embedding
-        hash_obj = hashlib.md5(f"{text}_{i}".encode())
+        hash_obj = hashlib.md5(f"{text}_{i}".encode(), usedforsecurity=False)
         hash_bytes = hash_obj.digest()
 
         # Convert to 768-dim vector (normalize to [-1, 1])
@@ -137,7 +272,8 @@ class FAISSVectorStore(BaseVectorStore):
 
         # File paths
         self.faiss_index_path = self.index_path / "faiss.index"
-        self.documents_path = self.index_path / "documents.pkl"
+        self.documents_path = self.index_path / _DOCUMENTS_FILENAME
+        self.legacy_documents_path = self.index_path / _LEGACY_DOCUMENTS_FILENAME
         self.metadata_path = self.index_path / "metadata.json"
 
         # Initialize storage
@@ -152,7 +288,13 @@ class FAISSVectorStore(BaseVectorStore):
         self._lock = threading.RLock()
         self._async_lock_instance: Optional[asyncio.Lock] = None
 
-        # Load existing data if available, otherwise initialize new index
+        # Never deserialize legacy pickle at runtime. Reject it even when the
+        # corresponding FAISS index is absent so a crafted documents.pkl cannot
+        # hide behind a partially populated store directory.
+        if self.legacy_documents_path.exists() and not self.documents_path.exists():
+            raise _legacy_pickle_error(self.legacy_documents_path)
+
+        # Load existing data if available, otherwise initialize new index.
         if self.faiss_index_path.exists():
             self._load_from_disk()
         else:
@@ -702,27 +844,18 @@ class FAISSVectorStore(BaseVectorStore):
                             pass
                     os.replace(str(faiss_tmp), str(faiss_path))
 
-            # Save documents atomically (optionally drop embeddings)
-            documents_path = save_path / "documents.pkl"
-            documents_tmp = save_path / "documents.pkl.tmp"
-            with open(documents_tmp, "wb") as f:
-                if not self.keep_embeddings:
-                    slim_docs = {
-                        k: VectorDocument(
-                            id=v.id,
-                            content=v.content,
-                            embedding=[],
-                            metadata=v.metadata,
-                        )
-                        for k, v in self.documents.items()
-                    }
-                    pickle.dump(slim_docs, f)
-                else:
-                    pickle.dump(self.documents, f)
+            # Save document data in a non-executable, versioned JSON format.
+            documents_path = save_path / _DOCUMENTS_FILENAME
+            documents_tmp = save_path / f"{_DOCUMENTS_FILENAME}.tmp"
+            _write_documents_file(
+                documents_tmp,
+                self.documents,
+                keep_embeddings=self.keep_embeddings,
+            )
             if documents_path.exists():
                 try:
                     os.replace(
-                        str(documents_path), str(save_path / "documents.pkl.bak")
+                        str(documents_path), str(save_path / f"{_DOCUMENTS_FILENAME}.bak")
                     )
                 except Exception:
                     pass
@@ -823,15 +956,22 @@ class FAISSVectorStore(BaseVectorStore):
             # No existing index, create new one
             self._initialize_index()
 
-        # Load documents
-        documents_path = load_path / "documents.pkl"
+        # Load document data only from the safe JSON format. Legacy pickle
+        # is rejected before any deserialization can occur.
+        documents_path = load_path / _DOCUMENTS_FILENAME
+        legacy_documents_path = load_path / _LEGACY_DOCUMENTS_FILENAME
         if documents_path.exists():
             try:
-                with open(documents_path, "rb") as f:
-                    self.documents = pickle.load(f)
-            except (EOFError, pickle.UnpicklingError, TypeError) as e:
-                logger.warning(f"Failed to load documents from pickle: {e}")
-                self.documents = {}
+                self.documents = _load_documents_file(documents_path)
+            except (OSError, ValueError, TypeError, KeyError) as e:
+                raise VectorStoreError(
+                    f"Failed to load FAISS document data: {e}",
+                    store_type="faiss",
+                    operation="load",
+                    details=str(e),
+                ) from e
+        elif legacy_documents_path.exists():
+            raise _legacy_pickle_error(legacy_documents_path)
 
         # Load metadata
         metadata_path = load_path / "metadata.json"
@@ -1454,6 +1594,11 @@ class FAISSStore(FAISSVectorStore):
     def _sync_load(self) -> None:
         """Synchronous load method for legacy compatibility."""
         try:
+            if (
+                self.legacy_documents_path.exists()
+                and not self.documents_path.exists()
+            ):
+                raise _legacy_pickle_error(self.legacy_documents_path)
             if not all(
                 p.exists()
                 for p in [
@@ -1468,9 +1613,8 @@ class FAISSStore(FAISSVectorStore):
             # Load FAISS index
             self.index = faiss.read_index(str(self.faiss_index_path))
 
-            # Load documents
-            with open(self.documents_path, "rb") as f:
-                self.documents = pickle.load(f)
+            # Load documents from the versioned JSON representation.
+            self.documents = _load_documents_file(self.documents_path)
 
             # Load metadata
             with open(self.metadata_path, "r") as f:
@@ -1493,6 +1637,7 @@ class FAISSStore(FAISSVectorStore):
 
         except Exception as e:
             logger.error(f"Error loading FAISS store: {e}")
+            raise
 
     def _sync_save(self) -> None:
         """Synchronous save method for legacy compatibility."""
@@ -1507,13 +1652,15 @@ class FAISSStore(FAISSVectorStore):
                     faiss_path = save_path / "faiss.index"
                     faiss.write_index(self.index, str(faiss_path))
 
-            # Save documents
-            documents_path = save_path / "documents.pkl"
-            with open(documents_path, "wb") as f:
-                pickle.dump(self.documents, f)
+            # Save documents in the versioned JSON representation.
+            documents_path = save_path / _DOCUMENTS_FILENAME
+            _write_documents_file(
+                documents_path,
+                self.documents,
+                keep_embeddings=self.keep_embeddings,
+            )
 
             # Save metadata
-            import json
 
             metadata = {
                 "embedding_dimension": self.embedding_dimension,
@@ -1642,20 +1789,23 @@ if not FAISS_AVAILABLE:
             # Try to load existing data
             try:
                 self.index_path.mkdir(parents=True, exist_ok=True)
-                # Best-effort load
-                import pickle
-
-                docs_path = self.index_path / "documents.pkl"
+                # Best-effort safe load. Legacy pickle is rejected instead
+                # of being executed.
+                docs_path = self.index_path / _DOCUMENTS_FILENAME
+                legacy_docs_path = self.index_path / _LEGACY_DOCUMENTS_FILENAME
                 if docs_path.exists():
-                    with open(docs_path, "rb") as f:
-                        self.documents = pickle.load(f)
+                    self.documents = _load_documents_file(docs_path)
                     # Rebuild arrays
                     for i, doc in enumerate(self.documents.values()):
                         self.id_to_pos[doc.id] = i
                         self.embeddings.append(doc.embedding)
                         self.texts.append(doc.content)
+                elif legacy_docs_path.exists():
+                    raise _legacy_pickle_error(legacy_docs_path)
+            except VectorStoreError:
+                raise
             except Exception:
-                # Start clean if loading fails
+                # Start clean if safe-format loading fails in the no-FAISS fallback.
                 self.documents = {}
                 self.id_to_pos = {}
                 self.embeddings = []
@@ -1779,11 +1929,12 @@ if not FAISS_AVAILABLE:
         async def save(self, path: Optional[str] = None) -> None:
             save_path = Path(path) if path else self.index_path
             save_path.mkdir(parents=True, exist_ok=True)
-            import json
-            import pickle
 
-            with open(save_path / "documents.pkl", "wb") as f:
-                pickle.dump(self.documents, f)
+            _write_documents_file(
+                save_path / _DOCUMENTS_FILENAME,
+                self.documents,
+                keep_embeddings=True,
+            )
             meta = {
                 "embedding_dimension": self.embedding_dimension,
                 "count": len(self.documents),
@@ -1793,13 +1944,13 @@ if not FAISS_AVAILABLE:
 
         async def load(self, path: Optional[str] = None) -> None:
             load_path = Path(path) if path else self.index_path
-            import pickle
-
-            docs_path = load_path / "documents.pkl"
+            docs_path = load_path / _DOCUMENTS_FILENAME
+            legacy_docs_path = load_path / _LEGACY_DOCUMENTS_FILENAME
+            if legacy_docs_path.exists() and not docs_path.exists():
+                raise _legacy_pickle_error(legacy_docs_path)
             if docs_path.exists():
                 try:
-                    with open(docs_path, "rb") as f:
-                        self.documents = pickle.load(f)
+                    self.documents = _load_documents_file(docs_path)
                     # rebuild arrays
                     self.id_to_pos = {}
                     self.embeddings = []
@@ -1808,8 +1959,7 @@ if not FAISS_AVAILABLE:
                         self.id_to_pos[doc.id] = i
                         self.embeddings.append(doc.embedding)
                         self.texts.append(doc.content)
-                except Exception:
-                    # Ignore load errors for tests
+                except (OSError, ValueError, TypeError, KeyError):
                     self.documents = {}
                     self.id_to_pos = {}
                     self.embeddings = []

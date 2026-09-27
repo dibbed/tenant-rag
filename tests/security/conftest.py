@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -75,6 +76,13 @@ def _mock_integration() -> MagicMock:
     return integration
 
 
+class _ActiveTenantManager:
+    """Minimal production-like tenant lookup fake for security route tests."""
+
+    async def get_tenant(self, tenant_id: str) -> Any:
+        return SimpleNamespace(tenant_id=tenant_id, status="active")
+
+
 def _provider(value: Any) -> Callable[[], Any]:
     def provide() -> Any:
         return value
@@ -122,6 +130,8 @@ def edge_app(monkeypatch: pytest.MonkeyPatch) -> Callable[..., tuple[Any, MagicM
 
         app = create_app(lifespan_context=None)
         rag = _mock_rag()
+        if multi_tenant:
+            rag.tenant_manager = _ActiveTenantManager()
         if principals is not None:
             known = dict(principals)
 
