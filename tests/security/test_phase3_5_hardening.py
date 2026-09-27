@@ -157,7 +157,11 @@ def test_faiss_document_json_round_trip(tmp_path: Path):
         id="doc-1",
         content="content",
         embedding=[0.1, 0.2],
-        metadata={"tenant_id": "tenant_a"},
+        metadata={
+            "tenant_id": "tenant_a",
+            "binary": b"\x00\xff",
+            "tuple_value": ("a", 2),
+        },
     )
     _write_documents_file(path, {"doc-1": document})
     loaded = _load_documents_file(path)
@@ -204,6 +208,18 @@ async def test_alert_condition_supports_documented_comparisons():
         "cpu_usage > threshold and error_rate < 5",
         80.0,
         {"cpu_usage": 90.0, "error_rate": 1.0},
+    )
+    # Preserve the short-circuit semantics that eval previously provided:
+    # the unsafe division must never run once the OR result is already true.
+    assert await manager._evaluate_condition(
+        "threshold == 0 or cpu_usage / threshold > 1",
+        0.0,
+        {"cpu_usage": 90.0},
+    )
+    assert not await manager._evaluate_condition(
+        "threshold != 0 and cpu_usage / threshold > 1",
+        0.0,
+        {"cpu_usage": 90.0},
     )
 
 
