@@ -7,6 +7,8 @@ Persian developer notes:
 
 from __future__ import annotations
 
+import ast
+import operator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict
@@ -85,13 +87,81 @@ class AlertManager:
     async def _evaluate_condition(
         self, condition: str, threshold: float, metrics: Dict[str, Any]
     ) -> bool:
+        """Evaluate a constrained alert expression without executing Python code.
+
+        Supported expressions may reference numeric/boolean metric names and
+        the threshold value and may use comparisons, boolean operators, and
+        basic arithmetic. Executable Python constructs are rejected.
+        """
+        compare_ops = {
+            ast.Eq: operator.eq,
+            ast.NotEq: operator.ne,
+            ast.Lt: operator.lt,
+            ast.LtE: operator.le,
+            ast.Gt: operator.gt,
+            ast.GtE: operator.ge,
+        }
+        binary_ops = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.Mod: operator.mod,
+        }
+
+        def resolve(node: ast.AST) -> Any:
+            if isinstance(node, ast.Expression):
+                return resolve(node.body)
+            if isinstance(node, ast.Constant) and isinstance(
+                node.value, (int, float, bool)
+            ):
+                return node.value
+            if isinstance(node, ast.Name):
+                if node.id == "threshold":
+                    return threshold
+                if node.id not in metrics:
+                    raise ValueError(f"Unknown alert metric: {node.id}")
+                value = metrics[node.id]
+                if not isinstance(value, (int, float, bool)):
+                    raise ValueError(f"Alert metric {node.id!r} is not numeric")
+                return value
+            if isinstance(node, ast.UnaryOp):
+                value = resolve(node.operand)
+                if isinstance(node.op, ast.Not):
+                    return not bool(value)
+                if isinstance(node.op, ast.USub):
+                    return -value
+                if isinstance(node.op, ast.UAdd):
+                    return +value
+                raise ValueError("Unsupported unary operator")
+            if isinstance(node, ast.BinOp) and type(node.op) in binary_ops:
+                return binary_ops[type(node.op)](resolve(node.left), resolve(node.right))
+            if isinstance(node, ast.BoolOp):
+                values = [bool(resolve(value)) for value in node.values]
+                if isinstance(node.op, ast.And):
+                    return all(values)
+                if isinstance(node.op, ast.Or):
+                    return any(values)
+                raise ValueError("Unsupported boolean operator")
+            if isinstance(node, ast.Compare):
+                left = resolve(node.left)
+                for op_node, comparator in zip(node.ops, node.comparators):
+                    operation = compare_ops.get(type(op_node))
+                    if operation is None:
+                        raise ValueError("Unsupported comparison operator")
+                    right = resolve(comparator)
+                    if not operation(left, right):
+                        return False
+                    left = right
+                return True
+            raise ValueError(
+                f"Unsupported alert expression node: {type(node).__name__}"
+            )
+
         try:
-            expr = condition
-            for k, v in metrics.items():
-                expr = expr.replace(k, str(v))
-            expr = expr.replace("threshold", str(threshold))
-            return bool(eval(expr))
-        except Exception:
+            tree = ast.parse(condition, mode="eval")
+            return bool(resolve(tree))
+        except (SyntaxError, TypeError, ValueError, ZeroDivisionError, OverflowError):
             return False
 
     async def _send_alert(
