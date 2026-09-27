@@ -6,6 +6,7 @@ and document storage with proper persistence and atomic operations.
 """
 
 import asyncio
+import base64
 import json
 import os
 import threading
@@ -32,6 +33,78 @@ from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
 _DOCUMENTS_SCHEMA_VERSION = 1
 _DOCUMENTS_FILENAME = "documents.json"
 _LEGACY_DOCUMENTS_FILENAME = "documents.pkl"
+_JSON_TYPE_KEY = "__tenant_rag_type__"
+
+
+def _encode_json_value(value: Any, *, path: str = "value") -> Any:
+    """Convert supported document data to an explicit JSON-safe representation."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, bytes):
+        return {
+            _JSON_TYPE_KEY: "bytes",
+            "base64": base64.b64encode(value).decode("ascii"),
+        }
+    if isinstance(value, list):
+        return [
+            _encode_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if isinstance(value, tuple):
+        return {
+            _JSON_TYPE_KEY: "tuple",
+            "items": [
+                _encode_json_value(item, path=f"{path}[{index}]")
+                for index, item in enumerate(value)
+            ],
+        }
+    if isinstance(value, dict):
+        if _JSON_TYPE_KEY in value:
+            raise ValueError(f"{path} uses reserved key {_JSON_TYPE_KEY!r}")
+        encoded: Dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{path} contains non-string key {key!r}")
+            encoded[key] = _encode_json_value(item, path=f"{path}.{key}")
+        return encoded
+    raise TypeError(f"{path} contains unsupported type {type(value).__name__}")
+
+
+def _decode_json_value(value: Any, *, path: str = "value") -> Any:
+    """Decode the safe tagged JSON representation used by document persistence."""
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, list):
+        return [
+            _decode_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if not isinstance(value, dict):
+        raise TypeError(f"{path} contains unsupported decoded type {type(value).__name__}")
+
+    tag = value.get(_JSON_TYPE_KEY)
+    if tag is None:
+        return {
+            key: _decode_json_value(item, path=f"{path}.{key}")
+            for key, item in value.items()
+        }
+    if tag == "bytes" and set(value) == {_JSON_TYPE_KEY, "base64"}:
+        encoded = value["base64"]
+        if not isinstance(encoded, str):
+            raise ValueError(f"{path} has invalid bytes encoding")
+        try:
+            return base64.b64decode(encoded.encode("ascii"), validate=True)
+        except (ValueError, UnicodeEncodeError) as exc:
+            raise ValueError(f"{path} has invalid base64 data") from exc
+    if tag == "tuple" and set(value) == {_JSON_TYPE_KEY, "items"}:
+        items = value["items"]
+        if not isinstance(items, list):
+            raise ValueError(f"{path} has invalid tuple encoding")
+        return tuple(
+            _decode_json_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(items)
+        )
+    raise ValueError(f"{path} contains an invalid tagged JSON object")
 
 
 def _documents_payload(
@@ -42,7 +115,7 @@ def _documents_payload(
         data = document.to_dict()
         if not keep_embeddings:
             data["embedding"] = []
-        items.append(data)
+        items.append(_encode_json_value(data, path=f"document[{document.id}]"))
     return {"version": _DOCUMENTS_SCHEMA_VERSION, "documents": items}
 
 
@@ -69,6 +142,7 @@ def _load_documents_file(path: Path) -> Dict[str, VectorDocument]:
 
     documents: Dict[str, VectorDocument] = {}
     for index, raw in enumerate(raw_documents):
+        raw = _decode_json_value(raw, path=f"documents[{index}]")
         if not isinstance(raw, dict):
             raise ValueError(f"FAISS document at index {index} is not an object")
         required = {"id", "content", "embedding", "metadata"}
