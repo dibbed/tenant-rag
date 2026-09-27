@@ -103,7 +103,7 @@ if wants deps; then
     blocking "$UV_BIN" lock --check
     LOCK_EXPORT="$OUT/requirements.locked.txt"
     blocking "$UV_BIN" export --frozen --no-emit-project --format requirements.txt --output-file "$LOCK_EXPORT"
-    if ! diff -u requirements.txt "$LOCK_EXPORT"; then
+    if ! diff -u <(tail -n +3 requirements.txt) <(tail -n +3 "$LOCK_EXPORT"); then
       echo "error: requirements.txt has drifted from uv.lock" >&2
       BLOCKING_FAILED=1
     fi
