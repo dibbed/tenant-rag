@@ -287,6 +287,16 @@ def test_secure_tar_rejects_links(tmp_path: Path):
         assert not (tmp_path / "outside.txt").exists()
 
 
+def test_secure_tar_rejects_device_entries(tmp_path: Path):
+    destination = tmp_path / "restore"
+    for type_ in (tarfile.CHRTYPE, tarfile.BLKTYPE, tarfile.FIFOTYPE):
+        with pytest.raises(ValueError, match="Unsupported archive member type"):
+            _extract_bytes(
+                _archive_with_member("backup/device", type_=type_),
+                destination,
+            )
+
+
 def test_cache_key_md5_behavior_is_compatibility_stable():
     text = "hello"
     expected = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
