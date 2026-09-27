@@ -11,8 +11,8 @@
 #              collected tests match tests/security/suite_manifest.json (Blocking).
 #              The Redis tests need a Redis server and TEST_REDIS_URL, for
 #              example TEST_REDIS_URL=redis://localhost:6379/15.
-#   static     Ruff, MyPy and Bandit (Report-Only)
-#   deps       Dependency Vulnerability Check with pip-audit (Blocking)
+#   static     Ruff and MyPy (Report-Only); Bandit HIGH/MEDIUM gate (Blocking)
+#   deps       Locked default install + Dependency Vulnerability Check (Blocking)
 #   container  Container Build Check: build, start, health, auth, non-root (Blocking, needs Docker)
 #   all        every check above
 #
@@ -22,6 +22,7 @@
 #   VERIFY_OUT_DIR  report directory (default: $TMPDIR/tenant-rag-verification-<timestamp>)
 #   PIP_AUDIT       pip-audit executable. By default a virtual environment is created
 #                   in $TMPDIR/tenant-rag-pip-audit from scripts/verification/requirements-audit.txt.
+#   UV              uv executable used for dependency-lock verification (default: uv).
 #
 # Exit code: 0 when every Blocking Check that ran passed, 1 otherwise.
 
@@ -85,24 +86,46 @@ if wants security; then
 fi
 
 if wants static; then
-  for tool in ruff mypy bandit; do
-    # Report-Only Checks: the summary shows the findings; they do not change the exit code.
+  for tool in ruff mypy; do
+    # Report-Only Checks: findings remain visible and do not change the gate.
     "$PY" scripts/verification/static_analysis.py "$tool" --mode report-only --report "$OUT/static-$tool.json" || true
   done
+  # Bandit is blocking on HIGH/MEDIUM findings. LOW findings stay visible.
+  blocking "$PY" scripts/verification/static_analysis.py bandit --mode blocking --report "$OUT/static-bandit.json"
 fi
 
 if wants deps; then
-  AUDIT="${PIP_AUDIT:-}"
-  if [ -z "$AUDIT" ]; then
-    VENV="$TMP_BASE/tenant-rag-pip-audit"
-    if [ ! -x "$VENV/bin/pip-audit" ]; then
-      "$PY" -m venv "$VENV" &&
-        "$VENV/bin/python" -m pip install --quiet --upgrade pip &&
-        "$VENV/bin/python" -m pip install --quiet -r scripts/verification/requirements-audit.txt
+  UV_BIN="${UV:-uv}"
+  if ! command -v "$UV_BIN" >/dev/null 2>&1; then
+    echo "error: uv is required for locked dependency verification (install uv==0.12.19)" >&2
+    BLOCKING_FAILED=1
+  else
+    blocking "$UV_BIN" lock --check
+    LOCK_EXPORT="$OUT/requirements.locked.txt"
+    blocking "$UV_BIN" export --frozen --no-emit-project --format requirements.txt --output-file "$LOCK_EXPORT"
+    if ! diff -u requirements.txt "$LOCK_EXPORT"; then
+      echo "error: requirements.txt has drifted from uv.lock" >&2
+      BLOCKING_FAILED=1
     fi
-    AUDIT="$VENV/bin/pip-audit"
+
+    LOCK_VENV="$TMP_BASE/tenant-rag-locked-default"
+    rm -rf "$LOCK_VENV"
+    if UV_PROJECT_ENVIRONMENT="$LOCK_VENV" "$UV_BIN" sync --frozen --no-install-project --python "$PY"; then
+      AUDIT="${PIP_AUDIT:-}"
+      if [ -z "$AUDIT" ]; then
+        VENV="$TMP_BASE/tenant-rag-pip-audit"
+        if [ ! -x "$VENV/bin/pip-audit" ]; then
+          "$PY" -m venv "$VENV" &&
+            "$VENV/bin/python" -m pip install --quiet --upgrade pip &&
+            "$VENV/bin/python" -m pip install --quiet -r scripts/verification/requirements-audit.txt
+        fi
+        AUDIT="$VENV/bin/pip-audit"
+      fi
+      blocking "$PY" scripts/verification/dependency_audit.py run         --pip-audit "$AUDIT" --python "$LOCK_VENV/bin/python"         --report "$OUT/dependency-audit.json"
+    else
+      BLOCKING_FAILED=1
+    fi
   fi
-  blocking "$PY" scripts/verification/dependency_audit.py run --pip-audit "$AUDIT" --report "$OUT/dependency-audit.json"
 fi
 
 if wants container; then
