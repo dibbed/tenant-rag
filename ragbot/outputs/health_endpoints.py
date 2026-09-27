@@ -393,12 +393,16 @@ def create_health_app() -> Optional[Any]:
     return app
 
 
-def start_health_server(port: int = 8081) -> None:
+def start_health_server(port: int = 8081, host: str = "127.0.0.1") -> None:
     """
     Start standalone health check server.
 
+    The standalone diagnostics server binds to loopback by default. Callers
+    that intentionally expose it must opt in by passing an explicit host.
+
     Args:
         port: Port to run the health server on
+        host: Interface to bind. Defaults to loopback.
     """
     if not FASTAPI_AVAILABLE:
         logger.error("Cannot start health server - FastAPI not available")
@@ -411,9 +415,9 @@ def start_health_server(port: int = 8081) -> None:
         if app is None:
             return
 
-        logger.info(f"Starting health server on port {port}")
+        logger.info(f"Starting health server on {host}:{port}")
 
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+        uvicorn.run(app, host=host, port=port, log_level="info")
 
     except ImportError:
         logger.error("Cannot start health server - uvicorn not available")
