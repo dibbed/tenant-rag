@@ -119,19 +119,17 @@ def test_redis_cache_json_round_trip():
     assert cache._deserialize(encoded) == value
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
+def test_redis_cache_rejects_malformed_or_wrong_schema():
+    cache = RedisCache(redis_url="redis://localhost:6379/15")
+    payloads = [
         b"not-json",
         b"[]",
         b'{"version":2,"value":{}}',
         b'{"version":1,"value":{},"extra":true}',
-    ],
-)
-def test_redis_cache_rejects_malformed_or_wrong_schema(payload):
-    cache = RedisCache(redis_url="redis://localhost:6379/15")
-    with pytest.raises(Exception):
-        cache._deserialize(payload)
+    ]
+    for payload in payloads:
+        with pytest.raises(Exception):
+            cache._deserialize(payload)
 
 
 def test_redis_cache_never_executes_legacy_pickle(tmp_path: Path):
@@ -166,20 +164,18 @@ def test_faiss_document_json_round_trip(tmp_path: Path):
     assert loaded["doc-1"].to_dict() == document.to_dict()
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
+def test_faiss_document_json_rejects_invalid_schema(tmp_path: Path):
+    payloads = [
         {"documents": []},
         {"version": 999, "documents": []},
         {"version": 1, "documents": {}},
         {"version": 1, "documents": [{"id": "x"}]},
-    ],
-)
-def test_faiss_document_json_rejects_invalid_schema(tmp_path: Path, payload):
-    path = tmp_path / "documents.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    with pytest.raises((ValueError, TypeError, KeyError)):
-        _load_documents_file(path)
+    ]
+    for index, payload in enumerate(payloads):
+        path = tmp_path / f"documents-{index}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises((ValueError, TypeError, KeyError)):
+            _load_documents_file(path)
 
 
 def test_faiss_store_rejects_legacy_pickle_without_executing_it(tmp_path: Path):
@@ -262,21 +258,17 @@ def test_secure_tar_rejects_path_escape(tmp_path: Path, member: str):
     assert not (tmp_path / "outside.txt").exists()
 
 
-@pytest.mark.parametrize(
-    ("type_", "linkname"),
-    [
-        (tarfile.SYMTYPE, "../../outside.txt"),
-        (tarfile.LNKTYPE, "../../outside.txt"),
-    ],
-)
-def test_secure_tar_rejects_links(tmp_path: Path, type_: bytes, linkname: str):
+def test_secure_tar_rejects_links(tmp_path: Path):
     destination = tmp_path / "restore"
-    with pytest.raises(ValueError, match="Unsupported archive member type"):
-        _extract_bytes(
-            _archive_with_member("backup/link", type_=type_, linkname=linkname),
-            destination,
-        )
-    assert not (tmp_path / "outside.txt").exists()
+    for type_ in (tarfile.SYMTYPE, tarfile.LNKTYPE):
+        with pytest.raises(ValueError, match="Unsupported archive member type"):
+            _extract_bytes(
+                _archive_with_member(
+                    "backup/link", type_=type_, linkname="../../outside.txt"
+                ),
+                destination,
+            )
+        assert not (tmp_path / "outside.txt").exists()
 
 
 def test_cache_key_md5_behavior_is_compatibility_stable():
