@@ -321,7 +321,7 @@ class BaseEmbedder(ABC):
         key_components = [self.model_name, text, str(sorted(kwargs.items()))]
 
         key_string = "|".join(key_components)
-        return hashlib.md5(key_string.encode()).hexdigest()
+        return hashlib.md5(key_string.encode(), usedforsecurity=False).hexdigest()
 
     # Optional cache hooks (no-op by default)
     async def get_cached_embedding(
