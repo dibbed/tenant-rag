@@ -224,7 +224,7 @@ class CacheKey:
             Cache key
         """
         import hashlib
-        text_hash = hashlib.md5(text.encode()).hexdigest()
+        text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
         return f"embedding:{model}:{text_hash}"
     
     @staticmethod
@@ -242,7 +242,7 @@ class CacheKey:
             Cache key
         """
         import hashlib
-        question_hash = hashlib.md5(question.encode()).hexdigest()
+        question_hash = hashlib.md5(question.encode(), usedforsecurity=False).hexdigest()
         return f"query:{model}:{lang}:{question_hash}:{context_hash}"
     
     @staticmethod
@@ -259,7 +259,7 @@ class CacheKey:
             Cache key
         """
         import hashlib
-        source_hash = hashlib.md5(source.encode()).hexdigest()
+        source_hash = hashlib.md5(source.encode(), usedforsecurity=False).hexdigest()
         return f"chunks:{chunk_size}:{overlap}:{source_hash}"
     
     @staticmethod
