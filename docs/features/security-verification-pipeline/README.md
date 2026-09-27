@@ -16,7 +16,8 @@ The workflow is `.github/workflows/ci.yml` (workflow name "Verification Pipeline
 | `Static Analysis (mypy, report-only)` | Report-only | Types in `ragbot` (MyPy 1.10.1, `mypy ragbot --ignore-missing-imports`, as `make type-check`) | MyPy reports errors. The run is not blocked. |
 | `Static Analysis (bandit, blocking)` | Blocking | Insecure code patterns in `ragbot` (Bandit 1.7.9 with the `[tool.bandit]` settings) | A HIGH or MEDIUM finding remains, or Bandit cannot run. LOW findings stay visible but do not fail the gate. |
 | `Dependency Vulnerability Check` | Blocking | `uv.lock` is current, the generated `requirements.txt` export has no drift, and the locked default production environment has no blocking advisory (pip-audit 2.10.1 with OSV) | The lock/export drifts, the locked install fails, an advisory is HIGH, CRITICAL or of unknown severity without an accepted exception, an exception is invalid, or a package cannot be audited. |
-| `Optional Extra Audit (<extra>)` | Report-only | Each declared optional extra (`dev`, `test`, `full`, `offline`, `ocr`, `ml`, `hf`, `vectorstores`, `docs`) is resolved from `uv.lock`, installed in isolation and audited | Findings keep the audit step failed/visible but do not weaken the blocking default-install dependency gate. |\n| `Container Build Check` | Blocking | The Docker image, started with its default settings | The build fails. The container stops or does not answer `GET /health` with HTTP 200 within 300 seconds. A health endpoint or the image HEALTHCHECK is not healthy. A request without credentials is not refused with HTTP 401. A process runs as UID 0. |
+| `Optional Extra Audit (<extra>)` | Report-only | Each declared optional extra (`dev`, `test`, `full`, `offline`, `ocr`, `ml`, `hf`, `vectorstores`, `docs`) is resolved from `uv.lock`, installed in isolation and audited | Findings keep the audit step failed/visible but do not weaken the blocking default-install dependency gate. |
+| `Container Build Check` | Blocking | The Docker image, started with its default settings | The build fails. The container stops or does not answer `GET /health` with HTTP 200 within 300 seconds. A health endpoint or the image HEALTHCHECK is not healthy. A request without credentials is not refused with HTTP 401. A process runs as UID 0. |
 | `Verification Summary` | Blocking | The results of all checks above | A Blocking Check failed, had an error or has no report. |
 
 The workflow runs on `ubuntu-24.04` with read-only repository permissions. Every action is pinned to a commit SHA, and checkout does not keep the token. Runs of the same pull request cancel older runs. Pushes to `main` are never cancelled.
@@ -31,7 +32,11 @@ Branch protection of `main` requires these checks, from GitHub Actions:
 - `Security Regression Suite (Python 3.10)`, `Security Regression Suite (Python 3.11)`, `Security Regression Suite (Python 3.12)`
 - `Dependency Vulnerability Check`
 - `Container Build Check`
-- `Verification Summary`\n\n`Static Analysis (bandit, blocking)` is enforced transitively by the required `Verification Summary`: the summary waits for the static-analysis matrix and fails when the Bandit report is not `pass`. A separate required-check entry is therefore not needed unless the branch-protection design is changed to require every constituent job directly.\n\nThe branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. Ruff and MyPy are not required checks; Bandit is blocking through the required Verification Summary.
+- `Verification Summary`
+
+`Static Analysis (bandit, blocking)` is enforced transitively by the required `Verification Summary`: the summary waits for the static-analysis matrix and fails when the Bandit report is not `pass`. A separate required-check entry is optional if branch protection is later changed to require every constituent job directly.
+
+The branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. Ruff and MyPy are not required checks; Bandit is blocking through the required Verification Summary.
 
 If you rename a job or change the Python versions, update the required checks in the branch protection settings in the same change. Otherwise a pull request waits for a check that never reports.
 
@@ -44,7 +49,7 @@ The suite is the set of tests that verify the security controls:
 - `tests/integration/test_edge_rate_limit_redis.py` (real Redis) and `tests/integration/test_edge_uvicorn_server.py`
 - `tests/integration/test_multi_tenant_isolation.py`
 
-`tests/security/suite_manifest.json` lists these paths and the node id of each of the 341 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
+`tests/security/suite_manifest.json` lists these paths and the node id of each of the 344 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
 
 Rules:
 
@@ -166,7 +171,9 @@ Each check also uploads its JSON report as an artifact named `verification-*`. G
 make verify             # every check; the container check needs Docker
 make verify-tests       # full test suite
 make verify-security    # Security Regression Suite
-make verify-static      # Ruff/MyPy report-only; Bandit HIGH/MEDIUM blocking\nmake bandit             # Bandit blocking policy only\nmake verify-deps        # lock drift + locked default Dependency Vulnerability Check
+make verify-static      # Ruff/MyPy report-only; Bandit HIGH/MEDIUM blocking
+make bandit             # Bandit blocking policy only
+make verify-deps        # lock drift + locked default Dependency Vulnerability Check
 make verify-container   # Container Build Check
 make security-manifest  # update the manifest after a security test change
 ```
