@@ -65,6 +65,7 @@ def test_every_check_has_a_stable_name(workflow):
     assert jobs["static-analysis"]["name"] == "Static Analysis (${{ matrix.tool }}, ${{ matrix.mode }})"
     assert jobs["dependency-audit"]["name"] == "Dependency Vulnerability Check"
     assert jobs["container"]["name"] == "Container Build Check"
+    assert jobs["optional-extras-audit"]["name"] == "Optional Extra Audit (${{ matrix.extra }})"
     assert jobs["summary"]["name"] == "Verification Summary"
 
 
@@ -83,6 +84,9 @@ def test_static_checks_run_every_tool_and_keep_their_exit_status(workflow):
     assert {entry["mode"] for entry in include} <= {"report-only", "blocking"}
     assert job["continue-on-error"] == "${{ matrix.mode == 'report-only' }}"
     assert "--mode ${{ matrix.mode }}" in _run_text(job)
+    modes = {entry["tool"]: entry["mode"] for entry in include}
+    assert modes["bandit"] == "blocking"
+    assert modes["ruff"] == modes["mypy"] == "report-only"
 
 
 def test_the_summary_needs_every_check_and_always_runs(workflow):
@@ -117,3 +121,20 @@ def test_the_container_check_always_removes_its_containers(workflow):
     cleanup = [step for step in steps if "label=tenant-rag-verification" in str(step.get("run", ""))]
     assert cleanup, "no cleanup step"
     assert cleanup[0].get("if") == "always()"
+
+
+def test_optional_extras_are_audited_separately_and_non_blocking(workflow):
+    job = workflow["jobs"]["optional-extras-audit"]
+    assert set(job["strategy"]["matrix"]["extra"]) == {
+        "full", "offline", "ocr", "ml", "hf", "vectorstores", "docs"
+    }
+    audit_steps = [step for step in job["steps"] if step.get("name") == "Audit optional extra (report-only)"]
+    assert len(audit_steps) == 1
+    assert audit_steps[0].get("continue-on-error") is True
+
+
+def test_dependency_gate_checks_lock_and_export_drift(workflow):
+    run_text = _run_text(workflow["jobs"]["dependency-audit"])
+    assert "uv lock --check" in run_text
+    assert "uv export --frozen" in run_text
+    assert "diff -u requirements.txt" in run_text
