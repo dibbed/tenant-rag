@@ -68,7 +68,7 @@ class STEmbedder(BaseEmbedder):
         uncached_indices = []
 
         for i, text in enumerate(texts):
-            text_hash = hashlib.md5(text.encode()).hexdigest()
+            text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
             if text_hash in self._cache:
                 cached_results.append((i, self._cache[text_hash]))
             else:
@@ -92,7 +92,7 @@ class STEmbedder(BaseEmbedder):
 
             # Cache new embeddings
             for i, (text, embedding) in enumerate(zip(uncached_texts, new_embeddings)):
-                text_hash = hashlib.md5(text.encode()).hexdigest()
+                text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
                 self._cache[text_hash] = embedding
                 cached_results.append((uncached_indices[i], embedding))
 
@@ -115,7 +115,7 @@ class STEmbedder(BaseEmbedder):
             uncached_indices = []
 
             for i, text in enumerate(texts):
-                text_hash = hashlib.md5(text.encode()).hexdigest()
+                text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
                 if text_hash in self._cache:
                     cached_results.append((i, self._cache[text_hash]))
                 else:
@@ -137,7 +137,7 @@ class STEmbedder(BaseEmbedder):
                 for i, (text, embedding) in enumerate(
                     zip(uncached_texts, new_embeddings)
                 ):
-                    text_hash = hashlib.md5(text.encode()).hexdigest()
+                    text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
                     self._cache[text_hash] = embedding
                     cached_results.append((uncached_indices[i], embedding))
 
