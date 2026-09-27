@@ -380,7 +380,7 @@ class PluginMarketplace:
         try:
             cache_file = (
                 self.cache_dir
-                / f"search_{hashlib.md5(query.encode()).hexdigest()}.json"
+                / f"search_{hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()}.json"
             )
 
             cache_data = {
@@ -412,7 +412,7 @@ class PluginMarketplace:
         try:
             cache_file = (
                 self.cache_dir
-                / f"search_{hashlib.md5(query.encode()).hexdigest():.json}"
+                / f"search_{hashlib.md5(query.encode(), usedforsecurity=False).hexdigest():.json}"
             )
 
             if not cache_file.exists():
