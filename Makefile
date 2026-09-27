@@ -1,5 +1,5 @@
 # Makefile for TenantRAG Development
-.PHONY: help setup test lint format clean build deploy all
+.PHONY: help setup setup-dev test lint type-check bandit security format clean build deploy all verify verify-tests verify-security verify-static verify-deps verify-container security-manifest
 
 ## 📋 Help
 help:  ## Show this help message
@@ -9,18 +9,13 @@ help:  ## Show this help message
 	@echo ""
 
 ## 🚀 Setup & Development
-setup:  ## Install all dependencies and setup development environment
-	@echo "📦 Installing Python dependencies..."
-	@pip install --upgrade pip
-	@pip install -r requirements.txt
-	@pip install pytest pytest-asyncio pytest-cov mypy ruff coverage hypothesis
-	@echo "\n✅ Development environment ready!"
+setup:  ## Install the locked development/test environment
+	@echo "📦 Installing uv and locked Python dependencies..."
+	@python -m pip install "uv==0.12.19"
+	@uv sync --frozen --extra dev --extra test
+	@echo "\n✅ Locked development environment ready in .venv"
 
-setup-dev: ## Install with additional development tools
-	@echo "🛠️ Installing development dependencies..."
-	@pip install -r requirements.txt
-	@pip install pytest pytest-asyncio pytest-cov mypy ruff coverage hypothesis black isort
-	@echo "\n✅ Development environment with all tools ready!"
+setup-dev: setup  ## Alias for the locked development environment
 
 ## 🧪 Testing
 test:  ## Run all tests with coverage
@@ -45,10 +40,10 @@ test-coverage:  ## Generate detailed coverage report
 	@echo "\n📄 HTML report available at: htmlcov/index.html"
 
 ## 🔍 Code Quality
-lint:  ## Run linting checks
+lint:  ## Run Ruff and MyPy; return non-zero on findings
 	@echo "🔍 Running linters..."
-	@ruff check .
-	@mypy ragbot --ignore-missing-imports || true
+	@uv run --frozen --extra dev -- ruff check .
+	@uv run --frozen --extra dev -- mypy ragbot --ignore-missing-imports
 	@echo "\n✅ Linting completed!"
 
 format:  ## Format code using Ruff
@@ -59,12 +54,15 @@ format:  ## Format code using Ruff
 
 type-check:  ## Run MyPy type checking
 	@echo "🔧 Running type checking..."
-	@mypy ragbot --ignore-missing-imports
+	@uv run --frozen --extra dev -- mypy ragbot --ignore-missing-imports
 
-security:  ## Run security checks
-	@echo "🔒 Running security checks..."
-	@pip audit || echo "pip-audit not installed, run: pip install pip-audit"
-	@bandit -r ragbot/ || echo "bandit not installed, run: pip install bandit"
+bandit:  ## Run the blocking Bandit HIGH/MEDIUM policy
+	@uv run --frozen --extra dev -- python scripts/verification/static_analysis.py bandit --mode blocking
+
+security:  ## Run blocking security, Bandit, and dependency checks
+	@$(MAKE) verify-security
+	@$(MAKE) bandit
+	@$(MAKE) verify-deps
 
 ## Verification Pipeline: the checks of .github/workflows/ci.yml, run locally
 ## (docs/features/security-verification-pipeline/README.md)
@@ -78,7 +76,7 @@ verify-tests:  ## Run the full test suite with the pipeline gate
 verify-security:  ## Run the Security Regression Suite (the Redis tests need TEST_REDIS_URL)
 	@bash scripts/verify_pipeline.sh security
 
-verify-static:  ## Run Ruff, MyPy and Bandit as Report-Only Checks
+verify-static:  ## Run Ruff/MyPy report-only and Bandit as a Blocking Check
 	@bash scripts/verify_pipeline.sh static
 
 verify-deps:  ## Run the Dependency Vulnerability Check (pip-audit and OSV)
@@ -141,10 +139,9 @@ clean:  ## Clean up temporary files and caches
 	@docker image prune -f 2>/dev/null || true
 	@echo "\n✅ Cleanup complete!"
 
-clean-all: clean  ## Clean up everything including dependencies
+clean-all: clean  ## Clean up everything including the project virtual environment
 	@echo "🧽 Deep cleaning..."
-	@pip uninstall -r requirements.txt -y || true
-	@pip freeze | xargs pip uninstall -y || true
+	@rm -rf .venv/
 	@docker system prune -f 2>/dev/null || true
 	@echo "\n✅ Deep cleanup complete!"
 
@@ -194,11 +191,12 @@ reset-db:  ## Reset vector databases and clear cache
 	mkdir -p data/faiss_index
 	@echo "\n✅ Database reset complete!"
 
-update-deps:  ## Update all dependencies to latest versions
-	@echo "🔄 Updating dependencies..."
-	@pip install --upgrade pip
-	@pip install -r requirements.txt --upgrade
-	@echo "\n✅ Dependencies updated!"
+update-deps:  ## Update uv.lock and regenerate the pip-compatible production export
+	@echo "🔄 Updating locked dependencies..."
+	@uv lock --upgrade
+	@uv export --frozen --no-emit-project --format requirements.txt --output-file requirements.txt
+	@uv sync --frozen --extra dev --extra test
+	@echo "\n✅ uv.lock and requirements.txt updated"
 
 ## 🎯 Default Target
 all: setup test lint  ## Run setup, tests and linting
