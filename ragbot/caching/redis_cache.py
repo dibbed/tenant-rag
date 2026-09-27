@@ -6,7 +6,7 @@ pooling, serialization, and comprehensive error handling.
 """
 
 import json
-import pickle
+import math
 from typing import Any, Dict, List, Optional
 
 from ragbot.caching.base import BaseCache
@@ -23,17 +23,22 @@ class RedisCache(BaseCache):
     """
     
     def __init__(self, redis_url: Optional[str] = None, default_ttl: int = 3600, 
-                 serialization: str = "pickle"):
+                 serialization: str = "json"):
         """
         Initialize the Redis cache.
         
         Args:
             redis_url: Redis connection URL (uses settings if None)
             default_ttl: Default time-to-live in seconds
-            serialization: Serialization method ("pickle" or "json")
+            serialization: Serialization method. Only versioned JSON is supported.
         """
         super().__init__(default_ttl)
         self.redis_url = redis_url or settings.redis.url
+        if serialization != "json":
+            raise ValueError(
+                "RedisCache only supports safe JSON serialization. "
+                "Legacy pickle cache entries must be expired or deleted; they are never deserialized."
+            )
         self.serialization = serialization
         self._redis = None
         self._connection_pool = None
@@ -70,40 +75,64 @@ class RedisCache(BaseCache):
         
         return self._redis
     
+    _SERIALIZATION_VERSION = 1
+
+    @classmethod
+    def _validate_json_value(cls, value: Any, *, path: str = "value") -> None:
+        """Validate the cache payload against the supported JSON data model."""
+        if value is None or isinstance(value, (str, bool, int)):
+            return
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                raise ValueError(f"{path} contains a non-finite float")
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                cls._validate_json_value(item, path=f"{path}[{index}]")
+            return
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"{path} contains a non-string object key")
+                cls._validate_json_value(item, path=f"{path}.{key}")
+            return
+        raise TypeError(f"{path} contains unsupported type {type(value).__name__}")
+
     def _serialize(self, value: Any) -> bytes:
-        """
-        Serialize a value for storage.
-        
-        Args:
-            value: Value to serialize
-            
-        Returns:
-            Serialized bytes
-        """
+        """Serialize a cache value as a versioned, non-executable JSON payload."""
         try:
-            if self.serialization == "json":
-                return json.dumps(value, ensure_ascii=False).encode('utf-8')
-            else:  # pickle
-                return pickle.dumps(value)
+            self._validate_json_value(value)
+            envelope = {
+                "version": self._SERIALIZATION_VERSION,
+                "value": value,
+            }
+            return json.dumps(
+                envelope,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
         except Exception as e:
             logger.error(f"Serialization error: {str(e)}")
             raise
-    
+
     def _deserialize(self, data: bytes) -> Any:
-        """
-        Deserialize data from storage.
-        
-        Args:
-            data: Serialized bytes
-            
-        Returns:
-            Deserialized value
+        """Decode and validate a versioned JSON cache payload.
+
+        Legacy pickle bytes are intentionally rejected rather than inspected or
+        migrated in-process because deserializing them could execute code.
         """
         try:
-            if self.serialization == "json":
-                return json.loads(data.decode('utf-8'))
-            else:  # pickle
-                return pickle.loads(data)
+            payload = json.loads(data.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("Cache payload must be a JSON object")
+            if payload.get("version") != self._SERIALIZATION_VERSION:
+                raise ValueError("Unsupported cache payload version")
+            if set(payload) != {"version", "value"}:
+                raise ValueError("Cache payload has an invalid schema")
+            value = payload["value"]
+            self._validate_json_value(value)
+            return value
         except Exception as e:
             logger.error(f"Deserialization error: {str(e)}")
             raise
