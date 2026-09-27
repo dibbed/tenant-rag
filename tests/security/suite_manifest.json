@@ -230,6 +230,7 @@
     "tests/security/test_phase3_5_hardening.py::test_redis_cache_rejects_malformed_or_wrong_schema",
     "tests/security/test_phase3_5_hardening.py::test_redis_cache_rejects_pickle_configuration",
     "tests/security/test_phase3_5_hardening.py::test_secure_tar_extracts_valid_archive",
+    "tests/security/test_phase3_5_hardening.py::test_secure_tar_rejects_device_entries",
     "tests/security/test_phase3_5_hardening.py::test_secure_tar_rejects_links",
     "tests/security/test_phase3_5_hardening.py::test_secure_tar_rejects_path_escape[../../outside.txt]",
     "tests/security/test_phase3_5_hardening.py::test_secure_tar_rejects_path_escape[/absolute.txt]",
