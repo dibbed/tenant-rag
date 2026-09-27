@@ -259,6 +259,28 @@ jobs:
           --pip-audit "$RUNNER_TEMP/pip-audit/bin/pip-audit"
           --python ".venv/bin/python"
           --report "$REPORTS_DIR/optional-extra-${{ matrix.extra }}.json"
+      - name: Tag the optional-extra report separately from the default gate
+        if: always()
+        env:
+          EXTRA: ${{ matrix.extra }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          extra = os.environ["EXTRA"]
+          path = Path(os.environ["REPORTS_DIR"]) / f"optional-extra-{extra}.json"
+          if path.exists():
+              report = json.loads(path.read_text(encoding="utf-8"))
+              report["check"] = f"optional-extra-{extra}"
+              report["title"] = f"Optional Extra Audit ({extra})"
+              report["mode"] = "report-only"
+              path.write_text(
+                  json.dumps(report, indent=1, sort_keys=True) + "\n",
+                  encoding="utf-8",
+              )
+          PY
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
