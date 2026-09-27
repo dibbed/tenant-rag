@@ -126,7 +126,7 @@ def _generate_deterministic_embeddings(texts: List[str]) -> List[List[float]]:
     embeddings = []
     for i, text in enumerate(texts):
         # Create deterministic but unique embedding
-        hash_obj = hashlib.md5(f"{text}_{i}".encode())
+        hash_obj = hashlib.md5(f"{text}_{i}".encode(), usedforsecurity=False)
         hash_bytes = hash_obj.digest()
 
         # Convert to 768-dim vector (normalize to [-1, 1])
