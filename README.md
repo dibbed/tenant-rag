@@ -289,7 +289,7 @@ pytest -q
 **Verified Test Baseline** (Verification Pipeline, Python 3.10, 3.11 and 3.12):
 ```text
 Tests: 1035 passed, 11 skipped, 0 failed
-Security Regression Suite: 344 passed, 0 skipped, 0 failed
+Security Regression Suite: 345 passed, 0 skipped, 0 failed
 ```
 
 The skipped tests need an OpenAI API key or the optional chromadb package.
