@@ -17,12 +17,55 @@ import time
 import hashlib
 import sqlite3
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.security.encryption import EncryptionManager, EncryptionAlgorithm
 from ragbot.security.key_manager import KeyManager, KeyType
+
+
+def _extract_tar_safely(archive: tarfile.TarFile, destination: Path) -> None:
+    """Extract regular files/directories without delegating paths to tarfile.
+
+    Archive members that could escape the destination or create links/devices
+    are rejected before any unsafe member is written.
+    """
+    root = destination.resolve()
+    members = archive.getmembers()
+
+    validated: list[tuple[tarfile.TarInfo, Path]] = []
+    for member in members:
+        normalized_name = member.name.replace("\\", "/")
+        member_path = PurePosixPath(normalized_name)
+        if (
+            member_path.is_absolute()
+            or ".." in member_path.parts
+            or (member_path.parts and member_path.parts[0].endswith(":"))
+        ):
+            raise ValueError(f"Unsafe archive member path: {member.name!r}")
+
+        target = (root / Path(*member_path.parts)).resolve()
+        if target != root and root not in target.parents:
+            raise ValueError(f"Archive member escapes restore directory: {member.name!r}")
+
+        if not (member.isdir() or member.isfile()):
+            raise ValueError(
+                f"Unsupported archive member type for secure restore: {member.name!r}"
+            )
+        validated.append((member, target))
+
+    for member, target in validated:
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = archive.extractfile(member)
+        if source is None:
+            raise ValueError(f"Archive file member cannot be read: {member.name!r}")
+        with source, open(target, "wb") as output:
+            shutil.copyfileobj(source, output)
 
 
 class BackupStatus(Enum):
@@ -521,9 +564,10 @@ class SecureBackupManager:
         temp_restore_dir.mkdir(exist_ok=True)
 
         try:
-            # Extract archive
+            # Extract only validated regular files/directories. Links, devices,
+            # absolute paths and traversal components fail closed.
             with tarfile.open(decrypted_backup, "r:*") as tar:
-                tar.extractall(temp_restore_dir)
+                _extract_tar_safely(tar, temp_restore_dir)
 
             # Restore each store
             restored_stores = []
