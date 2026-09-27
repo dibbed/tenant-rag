@@ -134,25 +134,25 @@ Phase 3.5 adds security regressions for:
 - Redis JSON round trips and malicious pickle rejection;
 - FAISS JSON round trips, binary metadata, and malicious legacy pickle rejection;
 - allowed and malicious alert expressions, including short-circuit cases;
-- safe tar extraction, traversal, absolute paths, and link rejection;
+- safe tar extraction, traversal, absolute paths, link rejection, and device-entry rejection;
 - intended MD5 compatibility behavior.
 
 The Security Regression Suite manifest contains 345 tests.
 
 ## Verification evidence
 
-Code-complete PR run:
+Code-complete PR evidence before the final tar-device regression:
 
 - PR: #4, `Harden persistence and make Bandit blocking`
 - workflow run: `36315447766`
 - full suite: 1035 passed, 0 failed, 11 skipped on Python 3.10, 3.11 and 3.12;
-- security suite: 345 passed, 0 failed, 0 errors, 0 skipped on Python 3.10, 3.11 and 3.12;
+- security suite: 344 passed, 0 failed, 0 errors, 0 skipped on Python 3.10, 3.11 and 3.12;
 - Bandit: 0 HIGH, 0 MEDIUM, 177 LOW, blocking gate passed;
 - locked default dependency audit: passed;
 - container build/runtime check: passed as non-root;
 - Ruff and MyPy remain report-only technical debt.
 
-The latest PR workflow after documentation changes must also be green before merge. After merge, the push run on `main` must be green before Phase 3.5 is considered closed.
+The final PR workflow includes one additional security regression for tar device entries, so it must report 345 security tests with zero failures/skips before merge. After merge, the push run on `main` must be green before Phase 3.5 is considered closed.
 
 ## Remaining risks and follow-up
 
