@@ -158,6 +158,10 @@ test = [
     "hypothesis==6.104.2",
     "factory-boy==3.3.0",
     "aioresponses==0.7.9",
+    # The historical full-suite environment included these via requirements.txt.
+    # Keep them in the locked test environment without making them production deps.
+    "qdrant-client>=1.9.0",
+    "scikit-learn==1.4.2",
 ]
 
 [project.scripts]
