@@ -245,7 +245,7 @@ class DocumentService:
                     errors.append("Invalid URL: missing domain")
 
                 # Security checks for URLs
-                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]
+                suspicious_domains = ["localhost", "127.0.0.1", "0.0.0.0"]  # nosec B104 - deny-list value, not a bind address
                 if parsed_url.netloc.lower() in suspicious_domains:
                     warnings.append(f"Potentially unsafe domain: {parsed_url.netloc}")
 
