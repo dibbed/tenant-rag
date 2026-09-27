@@ -137,11 +137,16 @@ class AlertManager:
             if isinstance(node, ast.BinOp) and type(node.op) in binary_ops:
                 return binary_ops[type(node.op)](resolve(node.left), resolve(node.right))
             if isinstance(node, ast.BoolOp):
-                values = [bool(resolve(value)) for value in node.values]
                 if isinstance(node.op, ast.And):
-                    return all(values)
+                    for value in node.values:
+                        if not bool(resolve(value)):
+                            return False
+                    return True
                 if isinstance(node.op, ast.Or):
-                    return any(values)
+                    for value in node.values:
+                        if bool(resolve(value)):
+                            return True
+                    return False
                 raise ValueError("Unsupported boolean operator")
             if isinstance(node, ast.Compare):
                 left = resolve(node.left)
