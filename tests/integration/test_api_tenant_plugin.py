@@ -1,6 +1,7 @@
 """Integration tests for FastAPI routes with Multi-Tenant headers and Plugin lifecycle."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import status
@@ -25,6 +26,11 @@ def mock_integration_service():
     service.track_user_action = AsyncMock()
     service.record_document_type = AsyncMock()
     return service
+
+
+class _ActiveTenantManager:
+    async def get_tenant(self, tenant_id: str):
+        return SimpleNamespace(tenant_id=tenant_id, status="active")
 
 
 @pytest.fixture
@@ -52,6 +58,7 @@ def mock_multi_tenant_rag_service():
         )
     )
     mock_rag.reset_store = AsyncMock(return_value=True)
+    mock_rag.tenant_manager = _ActiveTenantManager()
     return mock_rag
 
 
