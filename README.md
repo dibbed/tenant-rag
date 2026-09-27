@@ -24,11 +24,12 @@ TenantRAG is an API-first Python microservice providing Retrieval-Augmented Gene
 git clone https://github.com/dibbed/tenant-rag.git
 cd tenant-rag
 
-# Create virtual environment and install
+# Create virtual environment and install the locked production dependencies
 python -m venv venv
 # On Windows: .\venv\Scripts\Activate.ps1 | On Linux/macOS: source venv/bin/activate
 pip install -r requirements.txt
-pip install -e .
+pip install -e . --no-deps
+# requirements.txt is generated from the committed uv.lock. Do not edit it by hand.
 
 # Configure environment
 cp env.example .env
