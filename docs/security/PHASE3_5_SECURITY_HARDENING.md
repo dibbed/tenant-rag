@@ -137,7 +137,7 @@ Phase 3.5 adds security regressions for:
 - safe tar extraction, traversal, absolute paths, and link rejection;
 - intended MD5 compatibility behavior.
 
-The Security Regression Suite manifest contains 344 tests.
+The Security Regression Suite manifest contains 345 tests.
 
 ## Verification evidence
 
@@ -146,7 +146,7 @@ Code-complete PR run:
 - PR: #4, `Harden persistence and make Bandit blocking`
 - workflow run: `36315447766`
 - full suite: 1035 passed, 0 failed, 11 skipped on Python 3.10, 3.11 and 3.12;
-- security suite: 344 passed, 0 failed, 0 errors, 0 skipped on Python 3.10, 3.11 and 3.12;
+- security suite: 345 passed, 0 failed, 0 errors, 0 skipped on Python 3.10, 3.11 and 3.12;
 - Bandit: 0 HIGH, 0 MEDIUM, 177 LOW, blocking gate passed;
 - locked default dependency audit: passed;
 - container build/runtime check: passed as non-root;
