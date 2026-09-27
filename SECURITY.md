@@ -100,6 +100,7 @@ The level comes from the user's role only. Permissions attached to an API key ne
 - `get_authorized_tenant_context` (in `ragbot/api/dependencies.py`) rejects a request with `HTTP 403 Forbidden` when `X-Tenant-ID` names another tenant, unless the principal is `system_admin`.
 - If `X-Tenant-ID` is omitted, the principal's own tenant is used.
 - Unknown, suspended or inactive tenants are rejected with `HTTP 403 Forbidden`.
+- Tenant lookup is an authorization boundary and fails closed. If the tenant manager is unavailable, a tenant record has no trustworthy status, or the storage/backend lookup raises an unexpected exception, the request gets `HTTP 503 Service Unavailable` with a generic detail. The request never continues as authorized, while the internal failure is kept in server logs.
 
 ### 3.3 Store reset and tenant management
 
@@ -126,6 +127,13 @@ The level comes from the user's role only. Permissions attached to an API key ne
   - A tenant reset returns an error and deletes nothing.
 - There is no fallback to the shared default store or to another tenant's store. Tenant stores are created with `VectorStoreFactory.create_store(..., allow_fallback=False)`. The legacy FAISS fallback remains only for the non-tenant default store.
 - Before Phase 2, a tenant storage failure silently used the shared default store and the shared retriever. Queries could return other data, ingestion could write into the shared index, and a tenant reset could wipe the shared index.
+
+### 4.3 Persistence formats
+
+- FAISS's native index file remains in FAISS's own format. Application document data is stored separately in a versioned `documents.json` schema instead of Python pickle.
+- Runtime loading never deserializes legacy `documents.pkl`. If a legacy file is present without the safe JSON replacement, startup/load fails with a migration error. Rebuild the index from its trusted source data or migrate a trusted legacy file offline in a controlled environment.
+- Redis cache values use a versioned JSON envelope with schema validation. Legacy pickle cache entries are rejected and should be expired or deleted; they are never inspected by unpickling.
+- These rules remove executable deserialization from the production trust boundary.
 
 ### 4.3 Semantic cache partitioning
 
