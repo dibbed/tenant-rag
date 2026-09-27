@@ -214,7 +214,13 @@ class FAISSVectorStore(BaseVectorStore):
         self._lock = threading.RLock()
         self._async_lock_instance: Optional[asyncio.Lock] = None
 
-        # Load existing data if available, otherwise initialize new index
+        # Never deserialize legacy pickle at runtime. Reject it even when the
+        # corresponding FAISS index is absent so a crafted documents.pkl cannot
+        # hide behind a partially populated store directory.
+        if self.legacy_documents_path.exists() and not self.documents_path.exists():
+            raise _legacy_pickle_error(self.legacy_documents_path)
+
+        # Load existing data if available, otherwise initialize new index.
         if self.faiss_index_path.exists():
             self._load_from_disk()
         else:
