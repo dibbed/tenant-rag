@@ -3,7 +3,7 @@
 **میکروسرویس RAG چندمستأجری مبتنی بر FastAPI برای توسعه‌دهندگان سامانه‌های ابری و سازمانی.**
 
 [![CI](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-1035%20Passed%2C%200%20Failed-success.svg)](#-تست‌ها-و-اعتبارسنجی)
+[![Tests](https://img.shields.io/badge/Tests-1036%20Passed%2C%200%20Failed-success.svg)](#-تست‌ها-و-اعتبارسنجی)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -281,7 +281,7 @@ pytest -q
 
 **وضعیت تأییدشده تست‌ها:**
 ```text
-Tests: 1035 passed, 11 skipped, 0 failed (Python 3.10, 3.11 and 3.12)
+Tests: 1036 passed, 11 skipped, 0 failed (Python 3.10, 3.11 and 3.12)
 Security Regression Suite: 345 passed, 0 skipped, 0 failed
 ```
 

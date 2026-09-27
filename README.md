@@ -3,7 +3,7 @@
 **Multi-tenant RAG infrastructure for SaaS backends.**
 
 [![Verification Pipeline](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/dibbed/tenant-rag/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/Tests-1035%20Passed%2C%200%20Failed-success.svg)](#-testing--verification)
+[![Tests](https://img.shields.io/badge/Tests-1036%20Passed%2C%200%20Failed-success.svg)](#-testing--verification)
 [![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141+-009688.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -288,7 +288,7 @@ pytest -q
 
 **Verified Test Baseline** (Verification Pipeline, Python 3.10, 3.11 and 3.12):
 ```text
-Tests: 1035 passed, 11 skipped, 0 failed
+Tests: 1036 passed, 11 skipped, 0 failed
 Security Regression Suite: 345 passed, 0 skipped, 0 failed
 ```
 

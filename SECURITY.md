@@ -135,7 +135,7 @@ The level comes from the user's role only. Permissions attached to an API key ne
 - Redis cache values use a versioned JSON envelope with schema validation. Legacy pickle cache entries are rejected and should be expired or deleted; they are never inspected by unpickling.
 - These rules remove executable deserialization from the production trust boundary.
 
-### 4.3 Semantic cache partitioning
+### 4.4 Semantic cache partitioning
 
 - The semantic cache stores `tenant_id` with every query-answer pair and prefixes cache keys with it.
 - Lookups compare query embeddings only with entries of the requesting tenant.
@@ -201,7 +201,7 @@ Phase 3 hardening for audit findings C9, C10 and C11. Configuration, migration n
 4. **Request parsing:** FastAPI 0.141.1 and Starlette 1.7.0 are pinned. Starlette 0.40.0 fixed CVE-2024-47874: a multipart form field without a file name is limited by `max_part_size` (1 MiB by default) and is no longer kept in memory without a limit. The Phase 3 measurement (a 40 MiB field took 2.2 seconds and raised peak memory by 79 MiB) was made with Starlette 0.37.2 and was not repeated with Starlette 1.7.0. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is still not bounded by the upload limit.
 5. **In-process plugins:** plugins run in-process. Exceptions are contained, but a faulty plugin can block the event loop or use too much CPU or memory. Do not install untrusted plugins.
 6. **Encryption at rest:** documents and embeddings are stored on disk in plaintext application formats (including versioned JSON metadata and native vector-index files). Production deployments must use full-disk or volume encryption (for example LUKS, BitLocker, or cloud volume encryption). Runtime pickle deserialization is not used.
-7. **Open findings:** the risks found in the Phase 3 verification review, with their severity and the recommended actions, are listed in `docs/security/PHASE3_EDGE_SECURITY_REVIEW.md`.
+7. **Open findings:** the Phase 3 edge review is recorded in `docs/security/PHASE3_EDGE_SECURITY_REVIEW.md`; Phase 3.5 residual risks and dependency follow-ups are recorded in `docs/security/PHASE3_5_SECURITY_HARDENING.md`.
 
 ---
 
