@@ -126,7 +126,7 @@ def test_the_container_check_always_removes_its_containers(workflow):
 def test_optional_extras_are_audited_separately_and_non_blocking(workflow):
     job = workflow["jobs"]["optional-extras-audit"]
     assert set(job["strategy"]["matrix"]["extra"]) == {
-        "full", "offline", "ocr", "ml", "hf", "vectorstores", "docs"
+        "dev", "test", "full", "offline", "ocr", "ml", "hf", "vectorstores", "docs"
     }
     audit_steps = [step for step in job["steps"] if step.get("name") == "Audit optional extra (report-only)"]
     assert len(audit_steps) == 1
