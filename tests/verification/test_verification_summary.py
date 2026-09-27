@@ -14,7 +14,7 @@ VERSIONS = ("3.10", "3.11", "3.12")
 MANIFEST = {
     "path": "tests/security/suite_manifest.json",
     "paths": ["tests/security"],
-    "expected": 341,
+    "expected": 344,
     "missing": [],
     "unexpected": [],
     "base_available": True,
@@ -91,7 +91,7 @@ def _security(version: str, **overrides: Any) -> dict[str, Any]:
         "mode": "blocking",
         "status": "pass",
         "python": f"{version}.1",
-        "summary": "341 passed, 0 failed, 0 errors, 0 skipped",
+        "summary": "344 passed, 0 failed, 0 errors, 0 skipped",
         "manifest": dict(MANIFEST),
         "failed_tests": [],
         "skipped_tests": [],
