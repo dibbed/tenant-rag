@@ -204,7 +204,7 @@ jobs:
           python -m pip install "uv==$UV_VERSION"
           uv lock --check
           uv export --frozen --no-emit-project --format requirements.txt --output-file "$RUNNER_TEMP/requirements.txt"
-          diff -u requirements.txt "$RUNNER_TEMP/requirements.txt"
+          diff -u <(tail -n +3 requirements.txt) <(tail -n +3 "$RUNNER_TEMP/requirements.txt")
           uv sync --frozen --no-install-project --python "3.11"
       - name: Install pip-audit in its own virtual environment
         run: |
