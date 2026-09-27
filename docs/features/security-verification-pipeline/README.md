@@ -49,7 +49,7 @@ The suite is the set of tests that verify the security controls:
 - `tests/integration/test_edge_rate_limit_redis.py` (real Redis) and `tests/integration/test_edge_uvicorn_server.py`
 - `tests/integration/test_multi_tenant_isolation.py`
 
-`tests/security/suite_manifest.json` lists these paths and the node id of each of the 344 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
+`tests/security/suite_manifest.json` lists these paths and the node id of each of the 345 tests. The suite runs in its own job and collects only these paths. It does not depend on the full test suite, and a failure in another test file cannot hide it. CI provides Redis, so the Redis tests run.
 
 Rules:
 
