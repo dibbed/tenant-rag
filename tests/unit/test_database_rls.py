@@ -41,7 +41,7 @@ def _offline_sql() -> str:
 
 def test_rls_migration_is_current_head() -> None:
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == ["phase5_0002"]
+    assert scripts.get_heads() == ["phase5_0003"]
 
 
 def test_all_tenant_tables_enable_row_level_security() -> None:
@@ -65,6 +65,14 @@ def test_rls_policy_checks_both_existing_and_new_rows() -> None:
         policy_sql = sql[policy_start : policy_start + 700]
         assert "USING" in policy_sql
         assert "WITH CHECK" in policy_sql
+
+
+
+
+
+def test_rls_policy_supports_explicit_system_admin_context() -> None:
+    sql = _offline_sql()
+    assert "pg_catalog.current_setting('app.is_system_admin', true) = 'true'" in sql
 
 
 def test_auth_bootstrap_functions_are_security_definer_and_not_public() -> None:
