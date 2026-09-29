@@ -294,7 +294,7 @@ Security Regression Suite: 345 passed, 0 skipped, 0 failed
 
 The skipped tests need an OpenAI API key or the optional chromadb package.
 
-The Verification Pipeline (`.github/workflows/ci.yml`) runs on every pull request to `main` and every push to `main`: the full test suite, the Security Regression Suite, the Dependency Vulnerability Check, optional-extra audits, the Container Build Check, report-only Ruff/MyPy checks, and a blocking Bandit HIGH/MEDIUM gate. Run the same checks locally with `make verify`. See [docs/features/security-verification-pipeline/README.md](docs/features/security-verification-pipeline/README.md).
+The Verification Pipeline (`.github/workflows/ci.yml`) runs on every pull request to `main` and every push to `main`: the full test suite, the Security Regression Suite, the Dependency Vulnerability Check, optional-extra audits, the Container Build Check, blocking Ruff and MyPy checks, and a blocking Bandit HIGH/MEDIUM gate. Run the same checks locally with `make verify`. See [docs/features/security-verification-pipeline/README.md](docs/features/security-verification-pipeline/README.md).
 
 ---
 

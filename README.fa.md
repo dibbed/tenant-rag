@@ -285,7 +285,7 @@ Tests: 1036 passed, 11 skipped, 0 failed (Python 3.10, 3.11 and 3.12)
 Security Regression Suite: 345 passed, 0 skipped, 0 failed
 ```
 
-پایپ‌لاین `Verification Pipeline` روی pull request و push به `main` اجرا می‌شود. Bandit برای یافته‌های HIGH/MEDIUM بلاک‌کننده است و Ruff/MyPy در حالت report-only باقی مانده‌اند. جزئیات در `docs/features/security-verification-pipeline/README.md` آمده است.
+پایپ‌لاین `Verification Pipeline` روی pull request و push به `main` اجرا می‌شود. تمامی ابزارهای تحلیل ایستای کد (Ruff، MyPy و یافته‌های HIGH/MEDIUM ابزار Bandit) بلاک‌کننده هستند. جزئیات در `docs/features/security-verification-pipeline/README.md` آمده است.
 
 ---
 

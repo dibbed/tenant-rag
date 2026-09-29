@@ -62,13 +62,17 @@ If you add, rename or remove a security test, run `make security-manifest` and c
 ---
 
 ## 3. Code Conventions & Standards
-
-- **Formatting & Linting:** We use `ruff` for linting and code formatting.
+ 
+- **Formatting & Linting:** We use `ruff` for linting and code formatting. Ruff is enforced as a **blocking** check in CI (`0` findings allowed).
   ```bash
   ruff check .
   ruff format .
   ```
-- **Type Annotations:** Use Python type annotations (`typing`) on all new functions and methods.
+- **Type Annotations:** Use Python type annotations (`typing`) on all functions and methods. MyPy type checking is enforced as a **blocking** check in CI (`0` errors allowed across `ragbot/`).
+  ```bash
+  mypy ragbot --ignore-missing-imports
+  ```
+- **Static Analysis & Security:** Run `make lint` and `make type-check` before submitting pull requests. Bandit is also blocking on HIGH/MEDIUM findings.
 - **Import Namespace:** Do not alter the internal package namespace. Core internal imports continue to resolve through `from ragbot...`.
 - **Async Concurrency:** Any operations reading or mutating shared indices must respect async lock patterns (`async with self.async_lock:`).
 - **Error Handling:** Avoid bare `except:`. Wrap failures with domain exceptions from `ragbot.rag.exceptions` or return structured API error responses.
