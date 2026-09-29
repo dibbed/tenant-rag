@@ -1219,6 +1219,8 @@ class TenantAuth:
                 else:
                     user_id = user.user_id
 
+            assert user_id is not None
+
             # 3. The key must allow API access.
             if (
                 not await self.has_permission(user, Permission.API_ACCESS)

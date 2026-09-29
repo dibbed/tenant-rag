@@ -47,6 +47,15 @@ from .models import (
 class TenantManager:
     """مدیریت tenant ها و جداسازی داده‌ها با پشتیبانی از ذخیره‌سازی پایدار"""
 
+    # Legacy SQLite attributes are declared for the test-only compatibility
+    # subclass. Production construction never initializes or selects them.
+    db_path: Any
+    _conn: sqlite3.Connection
+    tenants: dict[str, TenantConfig]
+    tenant_users: dict[str, list[TenantUser]]
+    tenant_usage: dict[str, list[TenantUsage]]
+    tenant_audit_logs: dict[str, list[TenantAuditLog]]
+
     def __init__(
         self,
         settings: Any | None = None,
