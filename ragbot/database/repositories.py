@@ -330,6 +330,102 @@ class UsageRepository:
             )
         )
 
+
+    @staticmethod
+    def release_statement(
+        *,
+        tenant_id: str,
+        usage_date: date,
+        operation: str,
+    ) -> Any:
+        if operation == "query":
+            values = {
+                "queries_count": func.greatest(TenantUsageRecord.queries_count - 1, 0),
+                "updated_at": func.now(),
+            }
+        elif operation == "document":
+            values = {
+                "documents_count": func.greatest(
+                    TenantUsageRecord.documents_count - 1, 0
+                ),
+                "updated_at": func.now(),
+            }
+        else:
+            raise ValueError(f"Unsupported reservable operation: {operation}")
+
+        return (
+            update(TenantUsageRecord)
+            .where(
+                TenantUsageRecord.tenant_id == tenant_id,
+                TenantUsageRecord.usage_date == usage_date,
+            )
+            .values(**values)
+        )
+
+    async def release(
+        self,
+        *,
+        tenant_id: str,
+        usage_date: date,
+        operation: str,
+    ) -> None:
+        await self.session.execute(
+            self.release_statement(
+                tenant_id=tenant_id,
+                usage_date=usage_date,
+                operation=operation,
+            )
+        )
+
+    @staticmethod
+    def finalize_statement(
+        *,
+        tenant_id: str,
+        usage_date: date,
+        operation: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        metadata = metadata or {}
+        values: dict[str, Any] = {"updated_at": func.now()}
+        if operation == "query":
+            values.update(
+                avg_response_time=float(metadata.get("response_time", 0.0)),
+                error_rate=float(metadata.get("error_rate", 0.0)),
+                satisfaction_score=float(metadata.get("satisfaction", 0.0)),
+            )
+        elif operation == "document":
+            size_gb = float(metadata.get("size_gb", 0.0))
+            if size_gb:
+                values["storage_used_gb"] = TenantUsageRecord.storage_used_gb + size_gb
+        else:
+            raise ValueError(f"Unsupported reservable operation: {operation}")
+
+        return (
+            update(TenantUsageRecord)
+            .where(
+                TenantUsageRecord.tenant_id == tenant_id,
+                TenantUsageRecord.usage_date == usage_date,
+            )
+            .values(**values)
+        )
+
+    async def finalize(
+        self,
+        *,
+        tenant_id: str,
+        usage_date: date,
+        operation: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        await self.session.execute(
+            self.finalize_statement(
+                tenant_id=tenant_id,
+                usage_date=usage_date,
+                operation=operation,
+                metadata=metadata,
+            )
+        )
+
     async def get(
         self, tenant_id: str, usage_date: date
     ) -> TenantUsageRecord | None:

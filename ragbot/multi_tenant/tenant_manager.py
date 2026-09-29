@@ -1094,6 +1094,99 @@ class TenantManager:
             logger.error(f"Error applying policies for tenant {tenant_id}: {e}")
             return query, {}
 
+
+    async def reserve_tenant_usage(self, tenant_id: str, operation: str) -> bool:
+        """Atomically reserve tenant quota before external work begins."""
+        if not self.uses_postgres:
+            return await self.check_tenant_limits(tenant_id, operation)
+
+        if operation not in {"query", "document", "storage"}:
+            return True
+
+        today = datetime.now(timezone.utc).date()
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            tenant = await TenantRepository(session).get(tenant_id)
+            if tenant is None or tenant.status != TenantStatus.ACTIVE.value:
+                return False
+
+            quota = await QuotaRepository(session).get_for_update(tenant_id)
+            if quota is None:
+                return False
+
+            usage_repo = UsageRepository(session)
+            usage = await usage_repo.get(tenant_id, today)
+
+            if operation == "query":
+                current = float(usage.queries_count if usage is not None else 0)
+                limit = float(quota.max_queries_per_day)
+                resource = "queries"
+            elif operation == "document":
+                current = float(usage.documents_count if usage is not None else 0)
+                limit = float(quota.max_documents)
+                resource = "documents"
+            else:
+                current = float(usage.storage_used_gb if usage is not None else 0.0)
+                limit = float(quota.max_storage_gb)
+                resource = "storage"
+
+            if current >= limit:
+                await AuditRepository(session).add(
+                    audit_to_record(
+                        TenantAuditLog(
+                            tenant_id=tenant_id,
+                            action="limit_exceeded",
+                            resource=resource,
+                            details={"limit": limit, "usage": current},
+                            timestamp=datetime.now(timezone.utc),
+                        )
+                    )
+                )
+                return False
+
+            if operation in {"query", "document"}:
+                await usage_repo.increment(
+                    tenant_id=tenant_id,
+                    usage_date=today,
+                    operation=operation,
+                )
+            return True
+
+    async def finalize_tenant_usage(
+        self,
+        tenant_id: str,
+        operation: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Finalize metadata for a successful reserved operation."""
+        if not self.uses_postgres:
+            await self.track_tenant_usage(tenant_id, operation, metadata)
+            return
+        if operation not in {"query", "document"}:
+            return
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            await UsageRepository(session).finalize(
+                tenant_id=tenant_id,
+                usage_date=datetime.now(timezone.utc).date(),
+                operation=operation,
+                metadata=metadata,
+            )
+
+    async def release_tenant_usage(self, tenant_id: str, operation: str) -> None:
+        """Compensate a reservation when the external operation fails."""
+        if not self.uses_postgres or operation not in {"query", "document"}:
+            return
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            await UsageRepository(session).release(
+                tenant_id=tenant_id,
+                usage_date=datetime.now(timezone.utc).date(),
+                operation=operation,
+            )
+
     async def check_tenant_limits(self, tenant_id: str, operation: str) -> bool:
         """بررسی محدودیت‌های tenant"""
         try:

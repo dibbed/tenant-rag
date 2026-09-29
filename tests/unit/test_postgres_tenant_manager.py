@@ -145,3 +145,84 @@ async def test_postgres_manager_aclose_disposes_owned_runtime() -> None:
     await manager.aclose()
 
     runtime.dispose.assert_awaited_once_with()
+
+
+
+@pytest.mark.asyncio
+async def test_postgres_query_quota_reservation_is_atomic_and_short_lived() -> None:
+
+
+    seed_manager = TenantManager(session_factory=_SessionFactory(_session()))
+    tenant = await seed_manager.create_tenant(
+        name="Quota Corp",
+        tier=TenantTier.FREE,
+        plan=TenantPlan.MONTHLY,
+        tenant_id="tenant_quota",
+    )
+    tenant_record, quota_record = tenant_to_record(tenant)
+
+    session = _session()
+    session.get.side_effect = [tenant_record, None]
+    quota_result = MagicMock()
+    quota_result.first.return_value = quota_record
+    session.scalars.return_value = quota_result
+    manager = TenantManager(session_factory=_SessionFactory(session))
+
+    allowed = await manager.reserve_tenant_usage("tenant_quota", "query")
+
+    assert allowed is True
+    statement = session.execute.await_args_list[-1].args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "ON CONFLICT" in compiled
+    assert "queries_count" in compiled
+    assert session.commit.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_postgres_query_quota_reservation_rejects_at_limit_with_audit() -> None:
+    from datetime import date
+
+    from ragbot.database.models import TenantUsageRecord
+
+    seed_manager = TenantManager(session_factory=_SessionFactory(_session()))
+    tenant = await seed_manager.create_tenant(
+        name="Quota Corp",
+        tier=TenantTier.FREE,
+        plan=TenantPlan.MONTHLY,
+        tenant_id="tenant_limit",
+    )
+    tenant_record, quota_record = tenant_to_record(tenant)
+    usage = TenantUsageRecord(
+        tenant_id="tenant_limit",
+        usage_date=date.today(),
+        queries_count=quota_record.max_queries_per_day,
+    )
+
+    session = _session()
+    session.get.side_effect = [tenant_record, usage]
+    quota_result = MagicMock()
+    quota_result.first.return_value = quota_record
+    session.scalars.return_value = quota_result
+    manager = TenantManager(session_factory=_SessionFactory(session))
+
+    allowed = await manager.reserve_tenant_usage("tenant_limit", "query")
+
+    assert allowed is False
+    added = [call.args[0] for call in session.add.call_args_list]
+    assert any(isinstance(record, TenantAuditLogRecord) for record in added)
+
+
+@pytest.mark.asyncio
+async def test_postgres_release_usage_compensates_failed_query() -> None:
+    session = _session()
+    result = MagicMock()
+    result.rowcount = 1
+    session.execute.side_effect = [MagicMock(), MagicMock(), result]
+    manager = TenantManager(session_factory=_SessionFactory(session))
+
+    await manager.release_tenant_usage("tenant_a", "query")
+
+    statement = session.execute.await_args_list[-1].args[0]
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    assert "UPDATE tenant_usage" in compiled
+    assert "queries_count" in compiled
