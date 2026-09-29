@@ -103,3 +103,39 @@ async def test_audit_repository_adds_without_committing() -> None:
 
     session.add.assert_called_once_with(record)
     session.commit.assert_not_awaited()
+
+
+
+def test_quota_for_update_uses_row_lock() -> None:
+    from ragbot.database.repositories import QuotaRepository
+
+    statement = QuotaRepository.for_update_statement("tenant_a")
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+
+    assert "tenant_quotas" in compiled
+    assert "FOR UPDATE" in compiled
+
+
+def test_user_count_is_scoped_to_tenant() -> None:
+    from ragbot.database.repositories import UserRepository
+
+    statement = UserRepository.count_statement("tenant_a")
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+
+    assert "count(" in compiled.lower()
+    assert "tenant_users.tenant_id = 'tenant_a'" in compiled
+
+
+def test_expired_api_key_cleanup_is_update_not_delete() -> None:
+    from datetime import datetime, timezone
+
+    from ragbot.database.repositories import ApiKeyRepository
+
+    statement = ApiKeyRepository.deactivate_expired_statement(
+        datetime(2026, 9, 29, tzinfo=timezone.utc)
+    )
+    compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+
+    assert compiled.startswith("UPDATE tenant_api_keys")
+    assert "is_active=" in compiled.replace(" ", "")
+    assert "expires_at" in compiled

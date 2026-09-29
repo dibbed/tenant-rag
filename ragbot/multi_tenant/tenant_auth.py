@@ -6,13 +6,28 @@ import hmac
 import secrets
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .tenant_manager import TenantManager
 
+from ragbot.database.mappers import (
+    api_key_to_record,
+    audit_to_record,
+    user_from_record,
+    user_to_record,
+)
+from ragbot.database.models import TenantSessionRecord
+from ragbot.database.repositories import (
+    ApiKeyRepository,
+    AuditRepository,
+    QuotaRepository,
+    SessionRepository,
+    UserRepository,
+)
+from ragbot.database.tenant_context import set_system_context, set_tenant_context
 from ragbot.outputs.logger import logger
 
 from .api_key_hashing import (
@@ -31,6 +46,7 @@ from .authorization import AuthorizationLevel, authorization_level_for_role
 from .models import (
     AuthenticatedPrincipal,
     TenantApiKey,
+    TenantAuditLog,
     TenantStatus,
     TenantUser,
 )
@@ -166,6 +182,463 @@ class TenantAuth:
             raise RuntimeError("Tenant manager is required for this operation")
         return manager
 
+
+    @property
+    def _uses_postgres(self) -> bool:
+        manager = self.tenant_manager
+        return bool(manager is not None and getattr(manager, "uses_postgres", False))
+
+    def _begin_postgres(self) -> Any:
+        manager = self._require_tenant_manager()
+        begin = getattr(manager, "_begin_postgres", None)
+        if begin is None:
+            raise RuntimeError("PostgreSQL transaction boundary is unavailable")
+        return begin()
+
+    async def _pg_create_user(
+        self,
+        *,
+        tenant_id: str,
+        username: str,
+        email: str,
+        password_hash: str,
+        role: UserRole,
+        created_by: str | None,
+    ) -> tuple[bool, TenantUser | None, str | None]:
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            quota = await QuotaRepository(session).get_for_update(tenant_id)
+            if quota is None:
+                return False, None, "Tenant not found"
+
+            users = UserRepository(session)
+            if await users.count_for_tenant(tenant_id) >= quota.max_users:
+                return False, None, "User limit exceeded"
+            if await users.find_by_username(tenant_id, username) is not None:
+                return False, None, "Username already exists"
+            if await users.find_by_email(tenant_id, email) is not None:
+                return False, None, "Email already exists"
+
+            user = TenantUser(
+                user_id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
+                username=username,
+                email=email,
+                password_hash=password_hash,
+                role=role.value,
+                permissions=[
+                    permission.value for permission in ROLE_PERMISSIONS.get(role, [])
+                ],
+                is_active=True,
+                created_at=now,
+            )
+            await users.add(user_to_record(user))
+            await AuditRepository(session).add(
+                audit_to_record(
+                    TenantAuditLog(
+                        tenant_id=tenant_id,
+                        user_id=created_by,
+                        action="user_created",
+                        resource="user",
+                        details={
+                            "user_id": user.user_id,
+                            "username": username,
+                            "role": role.value,
+                        },
+                        timestamp=now,
+                    )
+                )
+            )
+        return True, user, None
+
+    async def _pg_find_user_by_username(
+        self, tenant_id: str, username: str
+    ) -> TenantUser | None:
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            record = await UserRepository(session).find_by_username(tenant_id, username)
+            if record is None or not record.is_active:
+                return None
+            return user_from_record(record)
+
+    async def _pg_create_user_session(
+        self,
+        user: TenantUser,
+        ip_address: str | None,
+        user_agent: str | None,
+        *,
+        session: Any | None = None,
+    ) -> str:
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        now = datetime.now(timezone.utc)
+        record = TenantSessionRecord(
+            session_id=str(uuid.uuid4()),
+            tenant_id=user.tenant_id,
+            user_id=user.user_id,
+            token_hash=token_hash,
+            created_at=now,
+            expires_at=now + timedelta(hours=24),
+            last_used_at=now,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if session is not None:
+            await SessionRepository(session).add(record)
+            return raw_token
+
+        async with self._begin_postgres() as own_session:
+            await set_tenant_context(own_session, user.tenant_id)
+            await SessionRepository(own_session).add(record)
+        return raw_token
+
+    async def _pg_validate_session(
+        self, session_token: str
+    ) -> tuple[bool, TenantUser | None]:
+        token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            sessions = SessionRepository(session)
+            record = await sessions.lookup_auth(token_hash)
+            if record is None or record.get("revoked_at") is not None:
+                return False, None
+
+            expires_at = record.get("expires_at")
+            if expires_at is None or now > expires_at:
+                return False, None
+
+            tenant_id = record.get("tenant_id")
+            user_id = record.get("user_id")
+            if not isinstance(tenant_id, str) or not isinstance(user_id, str):
+                return False, None
+
+            await set_tenant_context(session, tenant_id)
+            user_record = await UserRepository(session).get(user_id)
+            if user_record is None or not user_record.is_active:
+                return False, None
+
+            await sessions.touch(record["session_id"], now)
+            return True, user_from_record(user_record)
+
+    async def _pg_logout_user(self, session_token: str) -> bool:
+        token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            sessions = SessionRepository(session)
+            record = await sessions.lookup_auth(token_hash)
+            if record is None or record.get("revoked_at") is not None:
+                return False
+
+            tenant_id = record.get("tenant_id")
+            if not isinstance(tenant_id, str):
+                return False
+            await set_tenant_context(session, tenant_id)
+            return await sessions.revoke(record["session_id"], now)
+
+
+    async def _pg_load_api_key_record(self, key_id: str) -> dict[str, Any] | None:
+        async with self._begin_postgres() as session:
+            record = await ApiKeyRepository(session).lookup_auth(key_id)
+            if record is not None:
+                record["persistent"] = True
+            return record
+
+    async def _pg_create_api_key(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str | None,
+        name: str,
+        expires_days: int,
+        permissions: list[str] | None,
+    ) -> tuple[bool, str | None, str | None]:
+        key_id, raw_key = generate_api_key()
+        key_hash = await asyncio.to_thread(hash_api_key_secret, raw_key)
+        key_prefix = raw_key[:12]
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(days=expires_days)
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            users = UserRepository(session)
+            owner: TenantUser | None = None
+
+            if user_id:
+                record = await users.get(user_id)
+                if (
+                    record is None
+                    or record.tenant_id != tenant_id
+                    or not record.is_active
+                ):
+                    return False, None, "User not found"
+                owner = user_from_record(record)
+            else:
+                records = await users.list_for_tenant(tenant_id)
+                owner_record = next(
+                    (
+                        record
+                        for record in records
+                        if record.is_active
+                        and authorization_level_for_role(record.role)
+                        is not AuthorizationLevel.SYSTEM_ADMIN
+                    ),
+                    None,
+                )
+                if owner_record is not None:
+                    owner = user_from_record(owner_record)
+                    user_id = owner.user_id
+                else:
+                    user_id = f"usr_{uuid.uuid4().hex[:8]}"
+                    owner = TenantUser(
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                        username=f"api_{name}",
+                        email=f"{name}@{tenant_id}.local",
+                        role=UserRole.ADMIN.value if not records else UserRole.USER.value,
+                        permissions=permissions
+                        or [
+                            Permission.API_ACCESS.value,
+                            Permission.VIEW_DOCUMENTS.value,
+                            Permission.UPLOAD_DOCUMENTS.value,
+                            Permission.ASK_QUESTIONS.value,
+                        ],
+                        is_active=True,
+                        created_at=now,
+                    )
+                    await users.add(user_to_record(owner))
+
+            assert owner is not None
+            if (
+                not await self.has_permission(owner, Permission.API_ACCESS)
+                and Permission.API_ACCESS.value
+                not in (permissions or owner.permissions or [])
+            ):
+                return False, None, "API access not permitted"
+
+            key_permissions = list(permissions or owner.permissions or [])
+            if Permission.API_ACCESS.value not in key_permissions:
+                key_permissions.append(Permission.API_ACCESS.value)
+
+            key = TenantApiKey(
+                key_id=key_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                name=name,
+                key_hash=key_hash,
+                key_prefix=key_prefix,
+                permissions=key_permissions,
+                created_at=now,
+                expires_at=expires_at,
+                is_active=True,
+            )
+            await ApiKeyRepository(session).add(api_key_to_record(key))
+            await AuditRepository(session).add(
+                audit_to_record(
+                    TenantAuditLog(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        action="api_key_created",
+                        resource="api_key",
+                        details={
+                            "name": name,
+                            "key_id": key_id,
+                            "expires_at": expires_at.isoformat(),
+                        },
+                        timestamp=now,
+                    )
+                )
+            )
+
+        self._verified_key_cache[key_id] = (
+            hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+            time.monotonic() + VERIFIED_KEY_CACHE_TTL_SECONDS,
+        )
+        return True, raw_key, None
+
+    async def _pg_key_user_and_touch(
+        self, record: dict[str, Any]
+    ) -> TenantUser | None:
+        tenant_id = record.get("tenant_id")
+        user_id = record.get("user_id")
+        if not isinstance(tenant_id, str) or not isinstance(user_id, str):
+            return None
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            user_record = await UserRepository(session).get(user_id)
+            if user_record is None or not user_record.is_active:
+                return None
+            await ApiKeyRepository(session).update_last_used(
+                record["key_id"], datetime.now(timezone.utc)
+            )
+            return user_from_record(user_record)
+
+    async def _pg_revoke_api_key(
+        self,
+        *,
+        tenant_id: str,
+        key_id: str,
+        revoked_by: str,
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            bootstrap = await ApiKeyRepository(session).lookup_auth(key_id)
+            if bootstrap is None or bootstrap.get("tenant_id") != tenant_id:
+                return False
+            await set_tenant_context(session, tenant_id)
+            key = await ApiKeyRepository(session).get(key_id, tenant_id)
+            if key is None:
+                return False
+            revoked = await ApiKeyRepository(session).revoke(key_id, tenant_id)
+            if not revoked:
+                return False
+            await AuditRepository(session).add(
+                audit_to_record(
+                    TenantAuditLog(
+                        tenant_id=tenant_id,
+                        user_id=revoked_by,
+                        action="api_key_revoked",
+                        resource="api_key",
+                        details={"api_key_name": key.name, "key_id": key_id},
+                        timestamp=now,
+                    )
+                )
+            )
+        self._verified_key_cache.pop(key_id, None)
+        return True
+
+    async def _pg_list_api_keys(self, tenant_id: str) -> list[dict[str, Any]]:
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            keys = await ApiKeyRepository(session).list_for_tenant(tenant_id)
+        return [
+            {
+                "key_id": key.key_id,
+                "tenant_id": key.tenant_id,
+                "user_id": key.user_id,
+                "name": key.name,
+                "key_prefix": key.key_prefix,
+                "created_at": key.created_at.isoformat(),
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                "last_used_at": (
+                    key.last_used_at.isoformat() if key.last_used_at else None
+                ),
+                "permissions": list(key.permissions or []),
+                "is_active": key.is_active,
+                "hash_scheme": describe_hash_scheme(key.key_hash),
+            }
+            for key in keys
+        ]
+
+
+    async def _pg_update_user_role(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        new_role: UserRole,
+        updated_by: str,
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            record = await UserRepository(session).get(user_id)
+            if record is None or record.tenant_id != tenant_id:
+                return False
+            old_role = record.role
+            record.role = new_role.value
+            record.permissions = [
+                permission.value for permission in ROLE_PERMISSIONS.get(new_role, [])
+            ]
+            await AuditRepository(session).add(
+                audit_to_record(
+                    TenantAuditLog(
+                        tenant_id=tenant_id,
+                        user_id=updated_by,
+                        action="user_role_updated",
+                        resource="user",
+                        details={
+                            "user_id": user_id,
+                            "old_role": old_role,
+                            "new_role": new_role.value,
+                        },
+                        timestamp=now,
+                    )
+                )
+            )
+        return True
+
+    async def _pg_deactivate_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        deactivated_by: str,
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            record = await UserRepository(session).get(user_id)
+            if record is None or record.tenant_id != tenant_id:
+                return False
+            record.is_active = False
+            await SessionRepository(session).revoke_for_user(
+                tenant_id, user_id, now
+            )
+            await AuditRepository(session).add(
+                audit_to_record(
+                    TenantAuditLog(
+                        tenant_id=tenant_id,
+                        user_id=deactivated_by,
+                        action="user_deactivated",
+                        resource="user",
+                        details={"user_id": user_id, "username": record.username},
+                        timestamp=now,
+                    )
+                )
+            )
+        return True
+
+    async def _pg_complete_login(
+        self,
+        user: TenantUser,
+        ip_address: str | None,
+        user_agent: str | None,
+    ) -> str:
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, user.tenant_id)
+            record = await UserRepository(session).get(user.user_id)
+            if record is None or not record.is_active:
+                raise RuntimeError("User no longer active")
+            token = await self._pg_create_user_session(
+                user,
+                ip_address,
+                user_agent,
+                session=session,
+            )
+            record.last_login = now
+            await AuditRepository(session).add(
+                audit_to_record(
+                    TenantAuditLog(
+                        tenant_id=user.tenant_id,
+                        action="auth_attempt",
+                        resource="authentication",
+                        details={
+                            "username": user.username,
+                            "result": "success",
+                            "ip_address": ip_address,
+                            "user_agent": user_agent,
+                        },
+                        success=True,
+                        timestamp=now,
+                    )
+                )
+            )
+        user.last_login = now
+        return token
+
     async def authenticate_user(
         self,
         tenant_id: str,
@@ -191,12 +664,15 @@ class TenantAuth:
                 return False, None, "Tenant is not active"
 
             # بررسی کاربر
-            tenant_users = manager.tenant_users.get(tenant_id, [])
-            user = None
-            for u in tenant_users:
-                if u.username == username and u.is_active:
-                    user = u
-                    break
+            if self._uses_postgres:
+                user = await self._pg_find_user_by_username(tenant_id, username)
+            else:
+                tenant_users = manager.tenant_users.get(tenant_id, [])
+                user = None
+                for u in tenant_users:
+                    if u.username == username and u.is_active:
+                        user = u
+                        break
 
             if not user:
                 await self._log_auth_attempt(
@@ -217,16 +693,21 @@ class TenantAuth:
                 return False, None, "Invalid password"
 
             # ایجاد session
-            session_token = await self._create_user_session(
-                user, ip_address, user_agent
-            )
+            if self._uses_postgres:
+                session_token = await self._pg_complete_login(
+                    user, ip_address, user_agent
+                )
+            else:
+                session_token = await self._create_user_session(
+                    user, ip_address, user_agent
+                )
 
-            # به‌روزرسانی آخرین ورود
-            user.last_login = datetime.now()
+                # به‌روزرسانی آخرین ورود
+                user.last_login = datetime.now()
 
-            await self._log_auth_attempt(
-                tenant_id, username, "success", True, ip_address, user_agent
-            )
+                await self._log_auth_attempt(
+                    tenant_id, username, "success", True, ip_address, user_agent
+                )
 
             logger.info(f"User authenticated: {username} in tenant {tenant_id}")
             return True, user, session_token
@@ -347,7 +828,11 @@ class TenantAuth:
                     return False, None, None, LEGACY_API_KEY_ERROR
                 return False, None, None, "Invalid API key"
 
-            record = self._load_api_key_record(parsed.key_id)
+            record = (
+                await self._pg_load_api_key_record(parsed.key_id)
+                if self._uses_postgres
+                else self._load_api_key_record(parsed.key_id)
+            )
             if record is None:
                 return False, None, None, "Invalid API key"
 
@@ -365,8 +850,10 @@ class TenantAuth:
                 return False, None, None, "API key has been revoked"
 
             expires_at = record.get("expires_at")
-            if expires_at and datetime.now() > expires_at:
-                return False, None, None, "API key expired"
+            if expires_at:
+                now = datetime.now(expires_at.tzinfo) if expires_at.tzinfo else datetime.now()
+                if now > expires_at:
+                    return False, None, None, "API key expired"
 
             actual_tenant_id = record.get("tenant_id")
             if not isinstance(actual_tenant_id, str):
@@ -380,19 +867,22 @@ class TenantAuth:
                     return False, None, None, "Tenant does not exist"
 
             key_permissions = list(record.get("permissions") or [])
-            tenant_users = (
-                self.tenant_manager.tenant_users.get(actual_tenant_id, [])
-                if self.tenant_manager
-                else []
-            )
-            user = next(
-                (
-                    u
-                    for u in tenant_users
-                    if u.user_id == record.get("user_id") and u.is_active
-                ),
-                None,
-            )
+            if self._uses_postgres:
+                user = await self._pg_key_user_and_touch(record)
+            else:
+                tenant_users = (
+                    self.tenant_manager.tenant_users.get(actual_tenant_id, [])
+                    if self.tenant_manager
+                    else []
+                )
+                user = next(
+                    (
+                        u
+                        for u in tenant_users
+                        if u.user_id == record.get("user_id") and u.is_active
+                    ),
+                    None,
+                )
             if not user:
                 key_name = record.get("name") or "api"
                 user = TenantUser(
@@ -412,8 +902,11 @@ class TenantAuth:
                 return False, None, None, "API access not permitted"
 
             manager = self.tenant_manager
-            if record.get("persistent") and manager is not None and hasattr(
-                manager, "update_api_key_last_used"
+            if (
+                not self._uses_postgres
+                and record.get("persistent")
+                and manager is not None
+                and hasattr(manager, "update_api_key_last_used")
             ):
                 manager.update_api_key_last_used(record["key_id"])
 
@@ -440,6 +933,17 @@ class TenantAuth:
             tenant = await manager.get_tenant(tenant_id)
             if not tenant:
                 return False, None, "Tenant not found"
+
+            if self._uses_postgres:
+                hashed_password = await self._hash_password(password)
+                return await self._pg_create_user(
+                    tenant_id=tenant_id,
+                    username=username,
+                    email=email,
+                    password_hash=hashed_password,
+                    role=role,
+                    created_by=created_by,
+                )
 
             # بررسی محدودیت کاربران
             current_users = len(manager.tenant_users.get(tenant_id, []))
@@ -510,6 +1014,13 @@ class TenantAuth:
         """به‌روزرسانی نقش کاربر"""
         try:
             manager = self._require_tenant_manager()
+            if self._uses_postgres:
+                return await self._pg_update_user_role(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    new_role=new_role,
+                    updated_by=updated_by,
+                )
             tenant_users = manager.tenant_users.get(tenant_id, [])
             user = None
             for u in tenant_users:
@@ -557,6 +1068,12 @@ class TenantAuth:
         """غیرفعال کردن کاربر"""
         try:
             manager = self._require_tenant_manager()
+            if self._uses_postgres:
+                return await self._pg_deactivate_user(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    deactivated_by=deactivated_by,
+                )
             tenant_users = manager.tenant_users.get(tenant_id, [])
             user = None
             for u in tenant_users:
@@ -645,6 +1162,15 @@ class TenantAuth:
                 tenant = await self.tenant_manager.get_tenant(tenant_id)
                 if not tenant:
                     return False, None, "Tenant not found"
+
+            if self._uses_postgres:
+                return await self._pg_create_api_key(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    name=name,
+                    expires_days=expires_days,
+                    permissions=permissions,
+                )
 
             # 2. Resolve the user that owns the key.
             tenant_users = (
@@ -791,6 +1317,12 @@ class TenantAuth:
             key_id = parsed.key_id if parsed else identifier
             key_name = "Unknown"
             effective_revoked_by = revoked_by or "system"
+            if self._uses_postgres:
+                return await self._pg_revoke_api_key(
+                    tenant_id=tenant_id,
+                    key_id=key_id,
+                    revoked_by=effective_revoked_by,
+                )
             revoked_in_db = False
 
             manager = self.tenant_manager
@@ -850,6 +1382,8 @@ class TenantAuth:
             return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
         try:
+            if self._uses_postgres:
+                return await self._pg_list_api_keys(tenant_id)
             if self.tenant_manager and hasattr(self.tenant_manager, "list_api_keys"):
                 keys = self.tenant_manager.list_api_keys(tenant_id)
                 return [
@@ -959,6 +1493,8 @@ class TenantAuth:
         """اعتبارسنجی session"""
         try:
             manager = self._require_tenant_manager()
+            if self._uses_postgres:
+                return await self._pg_validate_session(session_token)
             if session_token not in self.user_sessions:
                 return False, None
 
@@ -997,6 +1533,8 @@ class TenantAuth:
     async def logout_user(self, session_token: str) -> bool:
         """خروج کاربر"""
         try:
+            if self._uses_postgres:
+                return await self._pg_logout_user(session_token)
             if session_token in self.user_sessions:
                 del self.user_sessions[session_token]
                 logger.info("User logged out")
@@ -1010,8 +1548,12 @@ class TenantAuth:
     async def _hash_password(self, password: str) -> str:
         """هش کردن رمز عبور"""
         salt = secrets.token_hex(16)
-        password_hash = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+        password_hash = await asyncio.to_thread(
+            hashlib.pbkdf2_hmac,
+            "sha256",
+            password.encode("utf-8"),
+            salt.encode("utf-8"),
+            100000,
         )
         return f"{salt}:{password_hash.hex()}"
 
@@ -1029,10 +1571,14 @@ class TenantAuth:
                 return False
 
             salt, stored_hash = stored.split(":", 1)
-            candidate = hashlib.pbkdf2_hmac(
-                "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
-            ).hex()
-            return hmac.compare_digest(candidate, stored_hash)
+            candidate_bytes = await asyncio.to_thread(
+                hashlib.pbkdf2_hmac,
+                "sha256",
+                password.encode("utf-8"),
+                salt.encode("utf-8"),
+                100000,
+            )
+            return hmac.compare_digest(candidate_bytes.hex(), stored_hash)
 
         except Exception as e:
             logger.error(f"Error verifying password: {e}")
@@ -1045,6 +1591,9 @@ class TenantAuth:
         user_agent: str | None = None,
     ) -> str:
         """ایجاد session کاربر"""
+        if self._uses_postgres:
+            return await self._pg_create_user_session(user, ip_address, user_agent)
+
         session_token = secrets.token_urlsafe(32)
         expires_at = datetime.now() + timedelta(hours=24)
 
@@ -1096,6 +1645,13 @@ class TenantAuth:
 
     async def cleanup_expired_sessions(self) -> int:
         """پاکسازی session های منقضی شده"""
+        if self._uses_postgres:
+            async with self._begin_postgres() as session:
+                await set_system_context(session)
+                return await SessionRepository(session).delete_expired(
+                    datetime.now(timezone.utc)
+                )
+
         try:
             expired_count = 0
             current_time = datetime.now()
@@ -1121,6 +1677,13 @@ class TenantAuth:
 
     async def cleanup_expired_api_keys(self) -> int:
         """پاکسازی API key های منقضی شده"""
+        if self._uses_postgres:
+            async with self._begin_postgres() as session:
+                await set_system_context(session)
+                return await ApiKeyRepository(session).deactivate_expired(
+                    datetime.now(timezone.utc)
+                )
+
         try:
             expired_count = 0
             current_time = datetime.now()

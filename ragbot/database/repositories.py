@@ -66,8 +66,20 @@ class QuotaRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    @staticmethod
+    def for_update_statement(tenant_id: str) -> Any:
+        return (
+            select(TenantQuotaRecord)
+            .where(TenantQuotaRecord.tenant_id == tenant_id)
+            .with_for_update()
+        )
+
     async def get(self, tenant_id: str) -> TenantQuotaRecord | None:
         return await self.session.get(TenantQuotaRecord, tenant_id)
+
+    async def get_for_update(self, tenant_id: str) -> TenantQuotaRecord | None:
+        result = await self.session.scalars(self.for_update_statement(tenant_id))
+        return result.first()
 
     async def add(self, record: TenantQuotaRecord) -> None:
         self.session.add(record)
@@ -76,6 +88,16 @@ class QuotaRepository:
 class UserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    @staticmethod
+    def count_statement(tenant_id: str) -> Any:
+        return select(func.count()).select_from(TenantUserRecord).where(
+            TenantUserRecord.tenant_id == tenant_id
+        )
+
+    async def count_for_tenant(self, tenant_id: str) -> int:
+        value = await self.session.scalar(self.count_statement(tenant_id))
+        return int(value or 0)
 
     async def get(self, user_id: str) -> TenantUserRecord | None:
         return await self.session.get(TenantUserRecord, user_id)
@@ -117,6 +139,22 @@ class UserRepository:
 class ApiKeyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    @staticmethod
+    def deactivate_expired_statement(before: datetime) -> Any:
+        return (
+            update(TenantApiKeyRecord)
+            .where(
+                TenantApiKeyRecord.is_active.is_(True),
+                TenantApiKeyRecord.expires_at.is_not(None),
+                TenantApiKeyRecord.expires_at <= before,
+            )
+            .values(is_active=False)
+        )
+
+    async def deactivate_expired(self, before: datetime) -> int:
+        result = await self.session.execute(self.deactivate_expired_statement(before))
+        return int(result.rowcount or 0)
 
     async def lookup_auth(self, key_id: str) -> dict[str, Any] | None:
         result = await self.session.execute(
