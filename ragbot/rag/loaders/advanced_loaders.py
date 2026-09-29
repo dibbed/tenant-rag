@@ -3,11 +3,11 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from ragbot.configs.settings import settings
 
-from .base import Document
+from .base import BaseLoader, Document
 from .docx import DOCXLoader
 from .html_loader import HTMLLoader
 from .markdown_loader import MarkdownLoader
@@ -22,10 +22,10 @@ from .xlsx_loader import XLSXLoader
 class AdvancedDocumentLoader:
     """مدیر بارگذاری پیشرفته اسناد"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize advanced document loader"""
         # Initialize loaders based on allowed file types from settings
-        self.loaders = {}
+        self.loaders: dict[str, BaseLoader] = {}
 
         # PDF
         if "pdf" in settings.security.allowed_file_types:
@@ -91,7 +91,7 @@ class AdvancedDocumentLoader:
         else:
             raise ValueError(f"فرمت فایل {file_ext} پشتیبانی نمی‌شود")
 
-    async def get_supported_formats(self) -> Dict[str, str]:
+    async def get_supported_formats(self) -> dict[str, str]:
         """دریافت فرمت‌های پشتیبانی شده"""
         format_descriptions = {
             ".pdf": "PDF documents",
@@ -111,7 +111,7 @@ class AdvancedDocumentLoader:
         }
 
         # فقط فرمت‌های مجاز رو برگردون
-        allowed_formats = {}
+        allowed_formats: dict[str, str] = {}
         for fmt_ext, description in format_descriptions.items():
             if fmt_ext == "url":
                 allowed_formats[fmt_ext] = description
@@ -122,9 +122,9 @@ class AdvancedDocumentLoader:
 
         return allowed_formats
 
-    async def validate_file(self, file_path: str) -> Dict[str, Any]:
+    async def validate_file(self, file_path: str) -> dict[str, Any]:
         """اعتبارسنجی فایل"""
-        validation_result = {
+        validation_result: dict[str, Any] = {
             "is_valid": False,
             "format": None,
             "size": 0,

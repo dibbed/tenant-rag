@@ -6,46 +6,52 @@ including document ingestion, query processing, and health monitoring.
 """
 
 import asyncio
+import contextlib
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from ragbot.analytics import AnalyticsDashboard
 from ragbot.configs.settings import settings
+from ragbot.multi_tenant import TenantAnalytics, TenantAuth, TenantManager
+from ragbot.multi_tenant.isolation import validate_tenant_id
+from ragbot.multi_tenant.models import TenantPlan, TenantStatus, TenantTier
 from ragbot.outputs.logger import logger
+from ragbot.plugins import (
+    HookType,
+    PluginContext,
+    PluginManager,
+    PluginResult,
+)
+from ragbot.rag import (
+    AdvancedFilter,
+    AdvancedRetriever,
+    BaseChunker,
+    BaseEmbedder,
+    BaseLoader,
+    BaseVectorStore,
+    CustomScorer,
+    Document,
+    QAChain,
+    QueryAggregator,
+    QueryOptimizer,
+    SearchResult,
+    VectorDocument,
+)
+from ragbot.rag.error_handling import (
+    ErrorContext,
+)
 from ragbot.rag.exceptions import (
     DocumentProcessingError,
     EmbeddingError,
     LLMError,
     TenantStorageError,
 )
-from ragbot.rag.error_handling import (
-    ErrorContext,
-)
-from ragbot.rag import (
-    Document,
-    VectorDocument,
-    QueryAggregator,
-    AdvancedFilter,
-    CustomScorer,
-    QueryOptimizer,
-)
 from ragbot.security import EncryptionManager, KeyManager, SecureBackupManager
 from ragbot.services.document_service import DocumentService
-from ragbot.analytics import AnalyticsDashboard
 from ragbot.utils.debug_helpers import log_pydantic_error
-from ragbot.multi_tenant import TenantManager, TenantAuth, TenantAnalytics
-from ragbot.multi_tenant.models import TenantTier, TenantPlan, TenantStatus
-from ragbot.multi_tenant.isolation import validate_tenant_id
-from ragbot.plugins import (
-    PluginManager,
-    BasePlugin,
-    PluginContext,
-    PluginResult,
-    PluginStatus as PluginStatusEnum,
-    HookType,
-)
 
 
 @dataclass
@@ -56,8 +62,8 @@ class IngestResult:
     document_id: str
     chunks_created: int
     processing_time: float
-    error_message: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    error_message: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -65,12 +71,12 @@ class QueryResult:
     """Result of query operation."""
 
     answer: str
-    sources: List[str]
+    sources: list[str]
     confidence_score: float
     processing_time: float
     language: str
-    retrieved_chunks: Optional[List[str]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    retrieved_chunks: list[str] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -80,8 +86,8 @@ class ComponentHealth:
     status: str
     last_check: datetime
     error_count: int
-    response_time: Optional[float] = None
-    details: Optional[Dict[str, Any]] = None
+    response_time: float | None = None
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -89,11 +95,11 @@ class HealthStatus:
     """System health status."""
 
     overall_status: str
-    components: Dict[str, ComponentHealth]
+    components: dict[str, ComponentHealth]
     timestamp: datetime
     uptime: float
     document_count: int
-    last_query_time: Optional[datetime] = None
+    last_query_time: datetime | None = None
 
 
 class RAGService:
@@ -106,17 +112,17 @@ class RAGService:
 
     def __init__(
         self,
-        loaders=None,
-        chunker=None,
-        embedder=None,
-        vector_store=None,
-        qa_chain=None,
-        cache=None,
-        advanced_retriever=None,
-        semantic_cache=None,
-        performance_monitor=None,
-        document_service=None,
-        config=None,
+        loaders: dict[str, BaseLoader] | None = None,
+        chunker: BaseChunker | None = None,
+        embedder: BaseEmbedder | None = None,
+        vector_store: BaseVectorStore | None = None,
+        qa_chain: QAChain | None = None,
+        cache: Any | None = None,
+        advanced_retriever: AdvancedRetriever | None = None,
+        semantic_cache: Any | None = None,
+        performance_monitor: Any | None = None,
+        document_service: DocumentService | None = None,
+        config: Any | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the RAG service with provided components."""
@@ -124,8 +130,8 @@ class RAGService:
         self.extra_kwargs = kwargs
         self.start_time = datetime.now()
         self.performance_monitor = performance_monitor
-        self.last_query_time: Optional[datetime] = None
-        self.component_error_counts: Dict[str, int] = {
+        self.last_query_time: datetime | None = None
+        self.component_error_counts: dict[str, int] = {
             "loader": 0,
             "chunker": 0,
             "embedder": 0,
@@ -136,14 +142,14 @@ class RAGService:
         }
 
         # Advanced metrics tracking
-        self.metrics_history: Dict[str, List[float]] = {
+        self.metrics_history: dict[str, list[float]] = {
             "query_duration": [],
             "ingest_duration": [],
             "embedding_duration": [],
             "retrieval_duration": [],
             "qa_duration": [],
         }
-        self.request_counts: Dict[str, int] = {
+        self.request_counts: dict[str, int] = {
             "total_queries": 0,
             "successful_queries": 0,
             "failed_queries": 0,
@@ -153,6 +159,15 @@ class RAGService:
         }
 
         # Initialize components with error handling
+        self.loaders: dict[str, BaseLoader] | None = None
+        self.chunker: BaseChunker | None = None
+        self.embedder: BaseEmbedder | None = None
+        self.vector_store: BaseVectorStore | None = None
+        self.qa_chain: QAChain | None = None
+        self.advanced_retriever: AdvancedRetriever | None = None
+        self.semantic_cache: Any | None = None
+        self.document_service: DocumentService | None = None
+
         try:
             self.loaders = loaders or self._initialize_default_loaders()
         except Exception as e:
@@ -219,6 +234,10 @@ class RAGService:
         self.backup_manager = SecureBackupManager(self.encryption_manager)
 
         # Initialize query components with vector store (if available)
+        self.query_aggregator: QueryAggregator | None = None
+        self.advanced_filter: AdvancedFilter | None = None
+        self.custom_scorer: CustomScorer | None = None
+        self.query_optimizer: QueryOptimizer | None = None
         if self.vector_store:
             try:
                 self.query_aggregator = QueryAggregator(self.vector_store)
@@ -241,10 +260,13 @@ class RAGService:
         self.analytics_dashboard = AnalyticsDashboard(settings)
 
         # Multi-tenant vector store and retriever isolation caches
-        self._tenant_vector_stores: Dict[str, Any] = {}
-        self._tenant_retrievers: Dict[str, Any] = {}
+        self._tenant_vector_stores: dict[str, BaseVectorStore] = {}
+        self._tenant_retrievers: dict[str, AdvancedRetriever] = {}
 
         # Initialize multi-tenant components
+        self.tenant_manager: TenantManager | None = None
+        self.tenant_auth: TenantAuth | None = None
+        self.tenant_analytics: TenantAnalytics | None = None
         if getattr(settings, "enable_multi_tenant", False) or getattr(
             getattr(settings, "multi_tenant", object()), "enabled", False
         ):
@@ -277,7 +299,9 @@ class RAGService:
             plugin_manager=bool(self.plugin_manager),
         )
 
-    def get_vector_store(self, tenant_id: Optional[str] = None):
+    def get_vector_store(
+        self, tenant_id: str | None = None
+    ) -> BaseVectorStore | None:
         """Get the vector store for a tenant, or the default vector store.
 
         Security (C1/C2): in multi-tenant mode a tenant store is created with
@@ -303,14 +327,15 @@ class RAGService:
         ):
             return self.vector_store
 
-        from ragbot.rag.store.factory import VectorStoreFactory
         from pathlib import Path
+
+        from ragbot.rag.store.factory import VectorStoreFactory
 
         provider = str(getattr(settings, "vector_db", "faiss")).lower()
         cfg = getattr(settings, "store", object())
         vector_store_cfg = getattr(settings, "vector_store", object())
 
-        base_kwargs = {
+        base_kwargs: dict[str, Any] = {
             "similarity_metric": getattr(cfg, "similarity_metric", "cosine"),
             "config": vector_store_cfg,
         }
@@ -382,7 +407,9 @@ class RAGService:
         self._tenant_vector_stores[tenant_id] = store
         return store
 
-    def get_retriever(self, tenant_id: Optional[str] = None):
+    def get_retriever(
+        self, tenant_id: str | None = None
+    ) -> AdvancedRetriever | None:
         """Get the advanced retriever (default or tenant-specific).
 
         Security (C1): a tenant request never receives the shared default
@@ -439,7 +466,7 @@ class RAGService:
             )
             return None
 
-    def _initialize_plugin_manager(self):
+    def _initialize_plugin_manager(self) -> PluginManager | None:
         """Initialize plugin manager"""
         try:
             from ragbot.plugins import PluginManager
@@ -484,8 +511,8 @@ class RAGService:
             return False
 
     async def _trigger_plugin_hooks(
-        self, hook_type: HookType, data: Dict[str, Any]
-    ) -> List[PluginResult]:
+        self, hook_type: HookType, data: dict[str, Any]
+    ) -> list[PluginResult]:
         """Execute plugin hooks with observable error logging and failure isolation."""
         if not self.plugin_manager:
             return []
@@ -509,8 +536,8 @@ class RAGService:
             return []
 
     async def load_plugin(
-        self, plugin_path: str, config: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, plugin_path: str, config: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Load a plugin into the system"""
         try:
             if not self.plugin_manager:
@@ -525,7 +552,7 @@ class RAGService:
             logger.error(f"Error loading plugin: {e}")
             return {"success": False, "error": str(e)}
 
-    async def unload_plugin(self, plugin_id: str) -> Dict[str, Any]:
+    async def unload_plugin(self, plugin_id: str) -> dict[str, Any]:
         """Unload a plugin from the system"""
         try:
             if not self.plugin_manager:
@@ -541,7 +568,7 @@ class RAGService:
             logger.error(f"Error unloading plugin {plugin_id}: {e}")
             return {"success": False, "error": str(e)}
 
-    async def get_plugin_status(self, plugin_id: str) -> Dict[str, Any]:
+    async def get_plugin_status(self, plugin_id: str) -> dict[str, Any]:
         """Get status of a plugin"""
         try:
             if not self.plugin_manager:
@@ -560,7 +587,7 @@ class RAGService:
             logger.error(f"Error getting plugin status: {e}")
             return {"success": False, "error": str(e)}
 
-    async def list_plugins(self) -> Dict[str, Any]:
+    async def list_plugins(self) -> dict[str, Any]:
         """List all plugins"""
         try:
             if not self.plugin_manager:
@@ -572,7 +599,7 @@ class RAGService:
             logger.error(f"Error listing plugins: {e}")
             return {"success": False, "error": str(e)}
 
-    async def reload_plugin(self, plugin_id: str) -> Dict[str, Any]:
+    async def reload_plugin(self, plugin_id: str) -> dict[str, Any]:
         """Reload a plugin"""
         try:
             if not self.plugin_manager:
@@ -591,8 +618,8 @@ class RAGService:
             return {"success": False, "error": str(e)}
 
     async def create_secure_backup(
-        self, backup_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, backup_name: str | None = None
+    ) -> dict[str, Any]:
         """
         Create a secure backup of the vector store data.
 
@@ -639,7 +666,7 @@ class RAGService:
             logger.error(f"Secure backup creation failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def restore_from_backup(self, backup_path: str) -> Dict[str, Any]:
+    async def restore_from_backup(self, backup_path: str) -> dict[str, Any]:
         """
         Restore vector store data from a secure backup.
 
@@ -659,7 +686,7 @@ class RAGService:
             restore_result = await self.backup_manager.restore_from_backup(
                 backup_path=backup_path,
                 target_stores=[self.vector_store],
-                verify_integrity=True,
+                verify_before=True,
             )
 
             if restore_result.status == "completed":
@@ -684,7 +711,7 @@ class RAGService:
             logger.error(f"Restore from backup failed: {e}")
             return {"success": False, "error": str(e)}
 
-    async def rotate_encryption_keys(self) -> Dict[str, Any]:
+    async def rotate_encryption_keys(self) -> dict[str, Any]:
         """
         Rotate encryption keys for enhanced security.
 
@@ -737,9 +764,9 @@ class RAGService:
         if counter_name in self.request_counts:
             self.request_counts[counter_name] += 1
 
-    def get_advanced_metrics(self) -> Dict[str, Any]:
+    def get_advanced_metrics(self) -> dict[str, Any]:
         """Get comprehensive performance metrics."""
-        metrics = {
+        metrics: dict[str, Any] = {
             "uptime_seconds": (datetime.now() - self.start_time).total_seconds(),
             "request_counts": dict(self.request_counts),
             "component_error_counts": dict(self.component_error_counts),
@@ -785,7 +812,7 @@ class RAGService:
 
         return metrics
 
-    def _initialize_default_loaders(self):
+    def _initialize_default_loaders(self) -> dict[str, BaseLoader]:
         """Initialize default loaders."""
         from ragbot.rag import PDFLoader, TextLoader, URLLoader
 
@@ -805,7 +832,7 @@ class RAGService:
             loaders["docx"] = _docx
         return loaders
 
-    def _initialize_default_chunker(self):
+    def _initialize_default_chunker(self) -> BaseChunker:
         """Initialize default chunker with advanced strategy if configured."""
         try:
             strategy = getattr(settings.advanced_chunking, "chunking_strategy", "token")
@@ -827,7 +854,7 @@ class RAGService:
             chunk_size=settings.rag.chunk_size, chunk_overlap=settings.rag.chunk_overlap
         )
 
-    def _initialize_default_embedder(self):
+    def _initialize_default_embedder(self) -> BaseEmbedder:
         """Initialize default embedder based on settings.embedding.provider."""
         try:
             provider = getattr(settings.embedding, "provider", "openai")
@@ -875,7 +902,7 @@ class RAGService:
                 details=error_context.metadata,
             ) from e
 
-    def _initialize_default_vector_store(self):
+    def _initialize_default_vector_store(self) -> BaseVectorStore:
         """Initialize default vector store via provider factory aligned with settings.vector_db."""
         from ragbot.rag import VectorStoreFactory
 
@@ -885,7 +912,7 @@ class RAGService:
         cfg = getattr(settings, "store", object())
         vector_store_cfg = getattr(settings, "vector_store", object())
 
-        base_kwargs = {
+        base_kwargs: dict[str, Any] = {
             "similarity_metric": getattr(cfg, "similarity_metric", "cosine"),
             "config": vector_store_cfg,
         }
@@ -938,14 +965,12 @@ class RAGService:
                 }
             )
 
-        try:
+        with contextlib.suppress(Exception):
             logger.info(
                 "Initializing vector store",
                 provider=provider,
                 config={k: v for k, v in base_kwargs.items() if k != "url"},
             )
-        except Exception:
-            pass
 
         try:
             return VectorStoreFactory.create_store(provider, **base_kwargs)
@@ -958,15 +983,13 @@ class RAGService:
                 provider=provider,
             )
             # Fallback to FAISS on errors
-            try:
+            with contextlib.suppress(Exception):
                 logger.warning(f"Falling back to FAISS store due to: {e}")
-            except Exception:
-                pass
             from ragbot.rag.store.faiss_store import FAISSStore
 
             return FAISSStore(store_path=str(settings.data_dir / "vector_store"))
 
-    def _initialize_default_qa_chain(self):
+    def _initialize_default_qa_chain(self) -> QAChain:
         """Initialize default QA chain."""
         try:
             from ragbot.rag import QAChain
@@ -1016,7 +1039,7 @@ class RAGService:
                 details={"error": str(e), "traceback": str(e.__traceback__)},
             ) from e
 
-    def _initialize_document_service(self):
+    def _initialize_document_service(self) -> DocumentService:
         """Initialize default document service."""
         return DocumentService(
             loaders=self.loaders,
@@ -1029,9 +1052,9 @@ class RAGService:
     async def ingest_document(
         self,
         source: str,
-        source_type: str = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        source_type: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> IngestResult:
         """
         Ingest a document into the RAG system.
@@ -1096,6 +1119,8 @@ class RAGService:
             logger.info(f"Starting document ingestion: {source} (type: {source_type})")
 
             # Step 0: Validate document using DocumentService
+            if self.document_service is None:
+                raise DocumentProcessingError("Document service is not available")
             validation_result = await self.document_service.validate_document(
                 source, source_type
             )
@@ -1220,7 +1245,7 @@ class RAGService:
 
         except Exception as e:
             processing_time = time.time() - start_time
-            error_msg = f"Error during document ingestion: {str(e)}"
+            error_msg = f"Error during document ingestion: {e!s}"
             logger.error(error_msg, exc_info=True)
 
             # Increment error count for appropriate component
@@ -1261,6 +1286,8 @@ class RAGService:
     async def _load_document(self, source: str, source_type: str) -> Document:
         """Load document using appropriate loader."""
         try:
+            if self.loaders is None:
+                raise DocumentProcessingError("Document loaders are not available")
             if source_type in self.loaders:
                 loader = self.loaders[source_type]
                 return await loader.load(source)
@@ -1269,16 +1296,18 @@ class RAGService:
                     f"No loader available for type: {source_type}"
                 )
         except Exception as e:
-            raise DocumentProcessingError(f"Failed to load document: {str(e)}") from e
+            raise DocumentProcessingError(f"Failed to load document: {e!s}") from e
 
-    async def _chunk_document(self, document: Document) -> List[Document]:
+    async def _chunk_document(self, document: Document) -> list[Document]:
         """Chunk document into smaller pieces."""
         try:
+            if self.chunker is None:
+                raise DocumentProcessingError("Document chunker is not available")
             return await self.chunker.chunk_document(document)
         except Exception as e:
-            raise DocumentProcessingError(f"Failed to chunk document: {str(e)}") from e
+            raise DocumentProcessingError(f"Failed to chunk document: {e!s}") from e
 
-    async def _generate_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def _generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for text chunks."""
         if not self.embedder:
             logger.error("Embedder is not available")
@@ -1295,15 +1324,13 @@ class RAGService:
             res = await asyncio.wait_for(
                 self.embedder.embed_texts(texts), timeout=timeout
             )
-            try:
+            with contextlib.suppress(Exception):
                 logger.info(
                     "Embeddings generated",
                     count=len(res),
                     duration=f"{time.time() - started:.2f}s",
                     timeout_sec=timeout,
                 )
-            except Exception:
-                pass
 
             # Record embedding duration metric
             duration = time.time() - started
@@ -1311,15 +1338,15 @@ class RAGService:
 
             return res
         except Exception as e:
-            raise EmbeddingError(f"Failed to generate embeddings: {str(e)}") from e
+            raise EmbeddingError(f"Failed to generate embeddings: {e!s}") from e
 
     async def _store_chunks(
         self,
-        texts: List[str],
-        embeddings: List[List[float]],
-        metadata: List[Dict[str, Any]],
-        encrypted_embeddings: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        texts: list[str],
+        embeddings: list[list[float]],
+        metadata: list[dict[str, Any]],
+        encrypted_embeddings: list[dict[str, Any]] | None = None,
+        tenant_id: str | None = None,
     ) -> None:
         """Store chunks in vector store with optional encryption and tenant isolation."""
         try:
@@ -1341,7 +1368,7 @@ class RAGService:
                 target_store.add_texts(texts, embeddings, metadata),
                 timeout=timeout,
             )
-            try:
+            with contextlib.suppress(Exception):
                 logger.info(
                     "Vector add completed",
                     items=len(texts),
@@ -1349,18 +1376,16 @@ class RAGService:
                     timeout_sec=timeout,
                     tenant_id=tenant_id,
                 )
-            except Exception:
-                pass
         except Exception as e:
-            raise DocumentProcessingError(f"Failed to store chunks: {str(e)}") from e
+            raise DocumentProcessingError(f"Failed to store chunks: {e!s}") from e
 
     async def query_documents(
         self,
         question: str,
         lang: str = "en",
-        top_k: Optional[int] = None,
-        similarity_threshold: Optional[float] = None,
-        tenant_id: Optional[str] = None,
+        top_k: int | None = None,
+        similarity_threshold: float | None = None,
+        tenant_id: str | None = None,
     ) -> QueryResult:
         """
         Query documents and generate an answer.
@@ -1517,7 +1542,10 @@ class RAGService:
             if retrieved_chunks and settings.vector_store.enable_advanced_queries:
                 try:
                     # Apply query optimization
-                    if settings.vector_store.enable_query_optimization:
+                    if (
+                        settings.vector_store.enable_query_optimization
+                        and self.query_optimizer is not None
+                    ):
                         optimization_result = await self.query_optimizer.optimize_query(
                             question, context={"retrieved_docs": len(retrieved_chunks)}
                         )
@@ -1526,7 +1554,10 @@ class RAGService:
                         )
 
                     # Apply custom scoring
-                    if settings.vector_store.enable_custom_scoring:
+                    if (
+                        settings.vector_store.enable_custom_scoring
+                        and self.custom_scorer is not None
+                    ):
                         scored_chunks = await self.custom_scorer.hybrid_scoring(
                             retrieved_chunks,
                             strategy_weights={
@@ -1551,20 +1582,23 @@ class RAGService:
                         )
 
                     # Apply advanced filtering if needed
-                    if settings.vector_store.enable_aggregation:
-                        # Example: Filter by date range if question contains time references
-                        if any(
-                            word in question.lower()
-                            for word in [
-                                "recent",
-                                "latest",
-                                "new",
-                                "old",
-                                "today",
-                                "yesterday",
-                            ]
-                        ):
-                            try:
+                    # Example: Filter by date range if question contains time references
+                    if (
+                        settings.vector_store.enable_aggregation
+                        and self.advanced_filter is not None
+                        and any(
+                        word in question.lower()
+                        for word in [
+                            "recent",
+                            "latest",
+                            "new",
+                            "old",
+                            "today",
+                            "yesterday",
+                        ]
+                        )
+                    ):
+                        try:
                                 from datetime import timedelta
 
                                 recent_docs = (
@@ -1586,8 +1620,8 @@ class RAGService:
                                     logger.debug(
                                         f"Applied date filter, {len(retrieved_chunks)} recent chunks"
                                     )
-                            except Exception as e:
-                                logger.warning(f"Date filtering failed: {e}")
+                        except Exception as e:
+                            logger.warning(f"Date filtering failed: {e}")
 
                 except Exception as e:
                     logger.warning(f"Advanced query features failed: {e}")
@@ -1609,7 +1643,7 @@ class RAGService:
                 max_ctx_tokens = 0
             if max_ctx_tokens > 0 and context_texts:
                 try:
-                    import tiktoken as _tk  # type: ignore
+                    import tiktoken as _tk
 
                     enc = None
                     try:
@@ -1618,13 +1652,10 @@ class RAGService:
                         names = _tk.list_encoding_names()
                         enc = _tk.get_encoding(names[0]) if names else None
                     budget = max_ctx_tokens
-                    trimmed: List[str] = []
+                    trimmed: list[str] = []
                     total = 0
                     for t in context_texts:
-                        if not enc:
-                            toks = len(t.split())
-                        else:
-                            toks = len(enc.encode(t))
+                        toks = len(t.split()) if not enc else len(enc.encode(t))
                         if total + toks > budget:
                             # keep partial if it helps
                             remain = budget - total
@@ -1685,7 +1716,7 @@ class RAGService:
             )
 
             # Build citations/grounding metadata from retrieved chunks
-            citations: List[Dict[str, Any]] = []
+            citations: list[dict[str, Any]] = []
             try:
                 if retrieved_chunks:
                     for ch in retrieved_chunks[: top_k or len(retrieved_chunks)]:
@@ -1715,7 +1746,7 @@ class RAGService:
                 citations = []
 
             # Build human-friendly references from citations
-            references: List[str] = []
+            references: list[str] = []
             try:
                 for c in citations:
                     src = c.get("source") or "unknown"
@@ -1812,7 +1843,7 @@ class RAGService:
             raise
         except Exception as e:
             processing_time = time.time() - start_time
-            error_msg = f"Error processing query: {str(e)}"
+            error_msg = f"Error processing query: {e!s}"
 
             # Record performance metrics for failed request
             if self.performance_monitor:
@@ -1860,7 +1891,7 @@ class RAGService:
                 question, lang, start_time, "processing_failed"
             )
 
-    async def process_query(self, question: str, **kwargs: Any) -> Dict[str, Any]:
+    async def process_query(self, question: str, **kwargs: Any) -> dict[str, Any]:
         """Convenience wrapper around query returning dict matching API/test expectations."""
         res = await self.query(question, **kwargs)
         if isinstance(res, QueryResult):
@@ -1879,12 +1910,12 @@ class RAGService:
         }
 
     async def process_query_with_metadata(
-        self, query: str, metadata_filter: Optional[Dict[str, Any]] = None, **kwargs: Any
-    ) -> Dict[str, Any]:
+        self, query: str, metadata_filter: dict[str, Any] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
         """Convenience wrapper for query with metadata filtering."""
         return await self.process_query(query, **kwargs)
 
-    async def _embed_question(self, question: str) -> List[float]:
+    async def _embed_question(self, question: str) -> list[float]:
         """Embed a question using the embedding service."""
         if not self.embedder:
             logger.error("Embedder is not available")
@@ -1902,11 +1933,11 @@ class RAGService:
 
     async def _retrieve_context(
         self,
-        qvec: List[float],
+        qvec: list[float],
         top_k: int,
-        similarity_threshold: Optional[float] = None,
-        tenant_id: Optional[str] = None,
-    ):
+        similarity_threshold: float | None = None,
+        tenant_id: str | None = None,
+    ) -> SearchResult:
         """Retrieve context chunks from vector store with tenant isolation."""
         target_store = self.get_vector_store(tenant_id)
         if not target_store:
@@ -1933,8 +1964,8 @@ class RAGService:
             )
         )
         attempt = 0
-        last_err: Optional[Exception] = None
-        results = None
+        last_err: Exception | None = None
+        results: SearchResult | None = None
         while attempt <= max_retries:
             try:
                 results = await asyncio.wait_for(
@@ -1947,7 +1978,7 @@ class RAGService:
                     raise
                 # exponential backoff
                 delay = backoff_base * (2**attempt)
-                try:
+                with contextlib.suppress(Exception):
                     logger.warning(
                         "Vector search failed, retrying",
                         attempt=attempt + 1,
@@ -1955,21 +1986,19 @@ class RAGService:
                         delay_s=round(delay, 2),
                         error=str(e),
                     )
-                except Exception:
-                    pass
                 await asyncio.sleep(delay)
                 attempt += 1
-        if results is None and last_err is not None:
-            raise last_err
-        try:
+        if results is None:
+            if last_err is not None:
+                raise last_err
+            raise DocumentProcessingError("Vector search returned no result object")
+        with contextlib.suppress(Exception):
             logger.info(
                 "Vector search completed",
                 top_k=top_k,
                 duration=f"{time.time() - started:.2f}s",
                 timeout_sec=timeout,
             )
-        except Exception:
-            pass
 
         # Record retrieval duration metric
         duration = time.time() - started
@@ -2033,7 +2062,7 @@ class RAGService:
             try:
                 docs = results.documents
                 # Build parent score map
-                parent_scores: Dict[str, float] = {}
+                parent_scores: dict[str, float] = {}
                 for d in docs:
                     meta = getattr(d, "metadata", {}) or {}
                     parent_id = meta.get("parent_id")
@@ -2043,7 +2072,7 @@ class RAGService:
                             getattr(d, "score", 0.0) or 0.0,
                         )
                 # Boost children by parent score fraction
-                boosted: List[Any] = []
+                boosted: list[Any] = []
                 for d in docs:
                     meta = getattr(d, "metadata", {}) or {}
                     pid = meta.get("parent_id")
@@ -2051,7 +2080,7 @@ class RAGService:
                     if pid and pid in parent_scores:
                         score = min(1.0, score + 0.1 * parent_scores[pid])
                     # Recreate SearchResult item preserving structure
-                    d.score = score  # type: ignore[attr-defined]
+                    d.score = score
                     boosted.append(d)
                 results.documents = sorted(
                     boosted, key=lambda x: getattr(x, "score", 0.0), reverse=True
@@ -2103,7 +2132,7 @@ class RAGService:
         return results
 
     async def _generate_answer(
-        self, context: List[str], question: str, lang: str
+        self, context: list[str], question: str, lang: str
     ) -> str:
         """Generate answer using the QA chain."""
         logger.info(
@@ -2177,9 +2206,11 @@ class RAGService:
         answer = await self.qa_chain.answer(
             question, language=lang, context_docs=context_docs
         )
-        answer_text = (
-            answer.get("answer", "") if isinstance(answer, dict) else str(answer)
-        )
+        if isinstance(answer, dict):
+            raw_answer = answer.get("answer", "")
+            answer_text = raw_answer if isinstance(raw_answer, str) else str(raw_answer)
+        else:
+            answer_text = str(answer)
 
         # Record QA duration metric
         qa_duration = time.time() - qa_start_time
@@ -2247,7 +2278,7 @@ class RAGService:
             },
         )
 
-    async def reset_store(self, tenant_id: Optional[str] = None) -> bool:
+    async def reset_store(self, tenant_id: str | None = None) -> bool:
         """
         Reset the vector store and clear associated caches (global or tenant-specific).
 
@@ -2261,6 +2292,12 @@ class RAGService:
             if tenant_id:
                 logger.info(f"Resetting vector store and cache for tenant: {tenant_id}")
                 store = self.get_vector_store(tenant_id)
+                if store is None:
+                    raise TenantStorageError(
+                        f"Vector store for tenant '{tenant_id}' is unavailable",
+                        tenant_id=tenant_id,
+                        operation="reset",
+                    )
                 if hasattr(store, "clear"):
                     maybe = store.clear()
                     if hasattr(maybe, "__await__"):
@@ -2270,7 +2307,7 @@ class RAGService:
                     if hasattr(maybe, "__await__"):
                         await maybe
                 else:
-                    cfg = getattr(settings, "store", object())
+                    _cfg = getattr(settings, "store", object())
                     base_store_path = settings.store_path
                     tenant_path = base_store_path / "tenants" / tenant_id
                     if tenant_path.exists():
@@ -2292,6 +2329,8 @@ class RAGService:
             logger.info("Resetting default vector store and associated caches")
 
             # 1. Reset vector store
+            if self.vector_store is None:
+                raise DocumentProcessingError("Vector store is not available")
             if hasattr(self.vector_store, "clear"):
                 maybe = self.vector_store.clear()
                 if hasattr(maybe, "__await__"):
@@ -2341,15 +2380,13 @@ class RAGService:
                     )
 
             # Reset error counts
-            self.component_error_counts = {
-                key: 0 for key in self.component_error_counts
-            }
+            self.component_error_counts = dict.fromkeys(self.component_error_counts, 0)
 
             logger.info("Vector store and associated caches reset successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to reset vector store: {str(e)}", exc_info=True)
+            logger.error(f"Failed to reset vector store: {e!s}", exc_info=True)
             return False
 
     async def get_health_status(self) -> HealthStatus:
@@ -2392,7 +2429,7 @@ class RAGService:
 
         # Perform actual health checks on components if available
         try:
-            if hasattr(self.vector_store, "health_check"):
+            if self.vector_store is not None and hasattr(self.vector_store, "health_check"):
                 await self.vector_store.health_check()
                 components["vector_store"].details["connectivity"] = "ok"
         except Exception as e:
@@ -2412,7 +2449,7 @@ class RAGService:
         try:
             document_count = (
                 await self.vector_store.get_count()
-                if hasattr(self.vector_store, "get_count")
+                if self.vector_store is not None and hasattr(self.vector_store, "get_count")
                 else 0
             )
         except Exception:
@@ -2427,7 +2464,7 @@ class RAGService:
             last_query_time=self.last_query_time,
         )
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the RAG service.
 
@@ -2475,7 +2512,7 @@ class RAGService:
             }
 
     async def add_document(
-        self, content: str, metadata: Optional[Dict[str, Any]] = None
+        self, content: str, metadata: dict[str, Any] | None = None
     ) -> IngestResult:
         """Add a text document to the system. Convenience method for direct text ingestion."""
         return await self.ingest_document(content, "text", metadata)
@@ -2484,8 +2521,8 @@ class RAGService:
         """Get the number of documents in the vector store."""
         try:
             return (
-                await self.vector_store.get_count()
-                if hasattr(self.vector_store, "get_count")
+                int(await self.vector_store.get_count())
+                if self.vector_store is not None and hasattr(self.vector_store, "get_count")
                 else 0
             )
         except Exception:
@@ -2493,15 +2530,15 @@ class RAGService:
 
     async def batch_ingest(
         self,
-        sources: Optional[List[str]] = None,
+        sources: list[str] | None = None,
         *,
-        directory: Optional[str] = None,
-        patterns: Optional[List[str]] = None,
+        directory: str | None = None,
+        patterns: list[str] | None = None,
         recursive: bool = True,
-        source_type: Optional[str] = None,
+        source_type: str | None = None,
         max_concurrency: int = 4,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Batch-ingest multiple sources with optional directory scan.
 
         Args:
@@ -2521,7 +2558,7 @@ class RAGService:
         started = time.time()
 
         # Collect candidate sources
-        items: List[str] = []
+        items: list[str] = []
         if sources:
             items.extend([s for s in sources if s])
 
@@ -2556,7 +2593,7 @@ class RAGService:
             }
 
         sem = asyncio.Semaphore(max_concurrency)
-        results: List[IngestResult] = []
+        results: list[IngestResult] = []
 
         async def _ingest_one(src: str) -> None:
             async with sem:
@@ -2613,13 +2650,15 @@ class RAGService:
         }
         return summary
 
-    def _initialize_advanced_retriever(self):
+    def _initialize_advanced_retriever(self) -> AdvancedRetriever | None:
         """Initialize advanced retriever with settings."""
         try:
             from ragbot.rag import AdvancedRetriever
 
             # Get settings
             adv_settings = settings.advanced_retrieval
+            if self.vector_store is None:
+                return None
 
             # Initialize advanced retriever with all new settings
             advanced_retriever = AdvancedRetriever(
@@ -2656,7 +2695,7 @@ class RAGService:
             logger.warning(f"Failed to initialize advanced retriever: {e}")
             return None
 
-    def _initialize_semantic_cache(self):
+    def _initialize_semantic_cache(self) -> Any | None:
         """Initialize semantic cache with settings."""
         try:
             from ragbot.caching.adaptive_cache import AdaptiveCache
@@ -2681,7 +2720,7 @@ class RAGService:
             return None
 
     # Analytics methods
-    async def get_analytics_report(self, days: int = 30) -> Dict[str, Any]:
+    async def get_analytics_report(self, days: int = 30) -> dict[str, Any]:
         """دریافت گزارش تحلیل"""
         try:
             return await self.analytics_dashboard.get_analytics_report(days)
@@ -2689,7 +2728,7 @@ class RAGService:
             logger.error(f"Error getting analytics report: {e}")
             return {"error": str(e)}
 
-    async def get_ml_insights(self) -> Dict[str, Any]:
+    async def get_ml_insights(self) -> dict[str, Any]:
         """دریافت بینش‌های ML"""
         try:
             return await self.analytics_dashboard.get_ml_insights()
@@ -2697,7 +2736,7 @@ class RAGService:
             logger.error(f"Error getting ML insights: {e}")
             return {"error": str(e)}
 
-    async def get_predictive_analytics(self) -> Dict[str, Any]:
+    async def get_predictive_analytics(self) -> dict[str, Any]:
         """دریافت تحلیل‌های پیش‌بینانه"""
         try:
             return await self.analytics_dashboard.get_predictive_analytics()
@@ -2705,7 +2744,7 @@ class RAGService:
             logger.error(f"Error getting predictive analytics: {e}")
             return {"error": str(e)}
 
-    async def get_advanced_user_analytics(self, user_id: str) -> Dict[str, Any]:
+    async def get_advanced_user_analytics(self, user_id: str) -> dict[str, Any]:
         """دریافت تحلیل‌های پیشرفته کاربر"""
         try:
             return await self.analytics_dashboard.get_advanced_user_analytics(user_id)
@@ -2715,7 +2754,7 @@ class RAGService:
 
     async def get_comprehensive_analytics_report(
         self, days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """دریافت گزارش جامع تحلیل"""
         try:
             return await self.analytics_dashboard.get_comprehensive_analytics_report(
@@ -2726,8 +2765,8 @@ class RAGService:
             return {"error": str(e)}
 
     async def track_user_action(
-        self, user_id: str, action: str, metadata: Dict[str, Any] = None
-    ):
+        self, user_id: str, action: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         """ردیابی عمل کاربر"""
         try:
             await self.analytics_dashboard.track_user_action(user_id, action, metadata)
@@ -2739,9 +2778,9 @@ class RAGService:
         user_id: str,
         query: str,
         response: str,
-        satisfaction_score: float,
+        satisfaction_score: int,
         feedback: str = "",
-    ):
+    ) -> None:
         """ثبت بازخورد رضایت کاربر"""
         try:
             await self.analytics_dashboard.record_satisfaction_feedback(
@@ -2760,10 +2799,10 @@ class RAGService:
         name: str,
         tier: str = "free",
         plan: str = "trial",
-        domain: Optional[str] = None,
-        contact_email: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        domain: str | None = None,
+        contact_email: str | None = None,
+        tenant_id: str | None = None,
+    ) -> dict[str, Any]:
         """Create new tenant"""
         try:
             if not self.tenant_manager:
@@ -2793,7 +2832,7 @@ class RAGService:
             logger.error(f"Error creating tenant: {e}")
             return {"error": str(e)}
 
-    async def get_tenant_info(self, tenant_id: str) -> Dict[str, Any]:
+    async def get_tenant_info(self, tenant_id: str) -> dict[str, Any]:
         """Get tenant info"""
         try:
             if not self.tenant_manager:
@@ -2840,7 +2879,7 @@ class RAGService:
 
     async def get_tenant_analytics(
         self, tenant_id: str, days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get tenant analytics dashboard"""
         try:
             if not self.tenant_analytics:
@@ -2856,7 +2895,7 @@ class RAGService:
         tenant_id: str,
         days: int = 30,
         metric: str = "queries",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get tenant usage trends"""
         try:
             if not self.tenant_analytics:
@@ -2873,7 +2912,7 @@ class RAGService:
         self,
         tenant_id: str,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get tenant security report"""
         try:
             if not self.tenant_analytics:
@@ -2891,7 +2930,7 @@ class RAGService:
         email: str,
         password: str,
         role: str = "user",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create tenant user"""
         try:
             if not self.tenant_auth:
@@ -2908,6 +2947,8 @@ class RAGService:
             )
 
             if success:
+                if user is None:
+                    return {"error": "Tenant user creation returned no user"}
                 return {
                     "success": True,
                     "user_id": user.user_id,
@@ -2928,7 +2969,7 @@ class RAGService:
         tenant_id: str,
         username: str,
         password: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Authenticate tenant user"""
         try:
             if not self.tenant_auth:
@@ -2943,6 +2984,8 @@ class RAGService:
             )
 
             if success:
+                if user is None:
+                    return {"error": "Authentication succeeded without a user"}
                 return {
                     "success": True,
                     "user_id": user.user_id,
@@ -2962,10 +3005,10 @@ class RAGService:
         self,
         tenant_id: str,
         name: str = "default",
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         expires_days: int = 365,
-        permissions: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        permissions: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Create a new API key for a tenant."""
         try:
             if not self.tenant_auth:
@@ -2996,8 +3039,8 @@ class RAGService:
         self,
         tenant_id: str,
         api_key_or_id: str,
-        revoked_by: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        revoked_by: str | None = None,
+    ) -> dict[str, Any]:
         """Revoke a tenant API key."""
         try:
             if not self.tenant_auth:
@@ -3015,7 +3058,7 @@ class RAGService:
             logger.error(f"Error revoking tenant API key: {e}")
             return {"error": str(e)}
 
-    async def list_tenant_api_keys(self, tenant_id: str) -> Dict[str, Any]:
+    async def list_tenant_api_keys(self, tenant_id: str) -> dict[str, Any]:
         """List active API keys for a tenant without exposing secret hashes."""
         try:
             if not self.tenant_auth:

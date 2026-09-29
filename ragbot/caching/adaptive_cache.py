@@ -7,7 +7,9 @@
 
 import time
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
+
+from ragbot.rag.embeddings.base import Embedder
 
 from .semantic_cache import SemanticCache
 
@@ -24,9 +26,9 @@ class AdaptiveCache(SemanticCache):
         similarity_threshold: float = 0.8,
         max_size: int = 1000,
         ttl_seconds: int = 3600,
-        embedder=None,
+        embedder: Embedder | None = None,
         eviction_strategy: str = "lru",
-    ):
+    ) -> None:
         """مقداردهی اولیه کش تطبیقی.
 
         Args:
@@ -40,21 +42,22 @@ class AdaptiveCache(SemanticCache):
         self.eviction_strategy = eviction_strategy
 
         # Adaptive parameters
-        self.access_patterns = defaultdict(int)
-        self.temporal_patterns = defaultdict(list)
-        self.quality_scores = {}
+        self.access_patterns: defaultdict[str, int] = defaultdict(int)
+        self.temporal_patterns: defaultdict[str, list[float]] = defaultdict(list)
+        self.quality_scores: dict[str, float] = {}
 
         # Performance tracking
-        self.eviction_history = []
-        self.performance_metrics = {}
+        self.eviction_history: list[dict[str, Any]] = []
+        self.performance_metrics: dict[str, Any] = {}
 
     async def cache_answer(
         self,
         query: str,
         answer: str,
-        context: List[str],
-        metadata: Dict[str, Any],
+        context: list[str],
+        metadata: dict[str, Any],
         confidence_score: float = 1.0,
+        tenant_id: str | None = None,
     ) -> None:
         """ذخیره پاسخ با تحلیل تطبیقی.
 
@@ -69,7 +72,14 @@ class AdaptiveCache(SemanticCache):
         await self._analyze_access_pattern(query)
 
         # ذخیره پاسخ
-        await super().cache_answer(query, answer, context, metadata, confidence_score)
+        await super().cache_answer(
+            query,
+            answer,
+            context,
+            metadata,
+            confidence_score,
+            tenant_id=tenant_id,
+        )
 
         # به‌روزرسانی کیفیت
         self.quality_scores[query] = confidence_score
@@ -190,12 +200,12 @@ class AdaptiveCache(SemanticCache):
         # تنظیم اندازه بر اساس نرخ hit
         if hit_rate > 0.8 and len(self.cache) < self.max_size * 0.9:
             # افزایش اندازه کش
-            self.max_size = min(self.max_size * 1.2, 2000)
+            self.max_size = min(int(self.max_size * 1.2), 2000)
         elif hit_rate < 0.5 and len(self.cache) > self.max_size * 0.7:
             # کاهش اندازه کش
-            self.max_size = max(self.max_size * 0.8, 500)
+            self.max_size = max(int(self.max_size * 0.8), 500)
 
-    async def get_adaptive_stats(self) -> Dict[str, Any]:
+    async def get_adaptive_stats(self) -> dict[str, Any]:
         """دریافت آمار تطبیقی کش.
 
         Returns:
@@ -217,21 +227,21 @@ class AdaptiveCache(SemanticCache):
 
         return {**base_stats, **adaptive_stats}
 
-    async def get_access_patterns(self) -> Dict[str, Any]:
+    async def get_access_patterns(self) -> dict[str, Any]:
         """دریافت الگوهای دسترسی.
 
         Returns:
             دیکشنری شامل الگوهای دسترسی
         """
-        current_time = time.time()
+        _current_time = time.time()
         patterns = {}
 
         for query, accesses in self.temporal_patterns.items():
             if accesses:
                 # محاسبه فاصله زمانی بین دسترسی‌ها
-                intervals = []
-                for i in range(1, len(accesses)):
-                    intervals.append(accesses[i] - accesses[i - 1])
+                intervals = [
+                    accesses[i] - accesses[i - 1] for i in range(1, len(accesses))
+                ]
 
                 patterns[query] = {
                     "total_accesses": len(accesses),
@@ -245,7 +255,7 @@ class AdaptiveCache(SemanticCache):
 
         return patterns
 
-    async def predict_cache_performance(self) -> Dict[str, Any]:
+    async def predict_cache_performance(self) -> dict[str, Any]:
         """پیش‌بینی عملکرد کش.
 
         Returns:
@@ -267,9 +277,9 @@ class AdaptiveCache(SemanticCache):
         # پیش‌بینی اندازه بهینه
         optimal_size = self.max_size
         if current_stats["hit_rate"] > 0.8:
-            optimal_size = min(self.max_size * 1.1, 2000)
+            optimal_size = min(int(self.max_size * 1.1), 2000)
         elif current_stats["hit_rate"] < 0.6:
-            optimal_size = max(self.max_size * 0.9, 500)
+            optimal_size = max(int(self.max_size * 0.9), 500)
 
         return {
             "current_hit_rate": current_stats["hit_rate"],
@@ -297,7 +307,7 @@ class AdaptiveCache(SemanticCache):
         else:
             return "adaptive"  # در غیر این صورت، adaptive بهتر است
 
-    def _calculate_performance_score(self, stats: Dict[str, Any]) -> float:
+    def _calculate_performance_score(self, stats: dict[str, Any]) -> float:
         """محاسبه امتیاز عملکرد کش.
 
         Args:
@@ -306,15 +316,20 @@ class AdaptiveCache(SemanticCache):
         Returns:
             امتیاز عملکرد (0.0 تا 1.0)
         """
-        hit_rate_score = stats["hit_rate"]
-        size_efficiency = stats["cache_size"] / stats["max_size"]
-        eviction_efficiency = 1.0 - (
-            stats["eviction_count"] / max(stats["hit_count"] + stats["miss_count"], 1)
+        hit_rate_score = float(stats["hit_rate"])
+        cache_size = float(stats["cache_size"])
+        max_size = max(float(stats["max_size"]), 1.0)
+        eviction_count = float(stats["eviction_count"])
+        total_requests = max(
+            float(stats["hit_count"]) + float(stats["miss_count"]),
+            1.0,
         )
+        size_efficiency = cache_size / max_size
+        eviction_efficiency = 1.0 - (eviction_count / total_requests)
 
         # ترکیب امتیازات
         performance_score = (
             0.5 * hit_rate_score + 0.3 * size_efficiency + 0.2 * eviction_efficiency
         )
 
-        return min(max(performance_score, 0.0), 1.0)
+        return float(min(max(performance_score, 0.0), 1.0))

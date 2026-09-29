@@ -9,5 +9,5 @@ class QAGenerator(QAChain):
     pass
 
 
-__all__ = ["QAChain", "PromptBuilder", "PromptTemplate", "QAGenerator"]
+__all__ = ["PromptBuilder", "PromptTemplate", "QAChain", "QAGenerator"]
 

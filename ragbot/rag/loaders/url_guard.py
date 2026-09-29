@@ -34,17 +34,18 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from typing import Any, Dict, List, Mapping, Optional, Union
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
-from aiohttp.abc import AbstractResolver
+from aiohttp.abc import AbstractResolver, ResolveResult
 from aiohttp.resolver import ThreadedResolver
 from yarl import URL
 
 from ragbot.rag.exceptions import DocumentProcessingError
 
-IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 MAX_REDIRECTS = 5
@@ -87,13 +88,13 @@ class UnsafeURLError(DocumentProcessingError):
     """Raised when a URL points to a destination that must not be fetched."""
 
     def __init__(
-        self, message: str, source: Optional[str] = None, details: Any = None
+        self, message: str, source: str | None = None, details: Any = None
     ) -> None:
         super().__init__(message, document_type="url", source=source, details=details)
 
 
-def _to_ip(address: Union[str, IPAddress]) -> Optional[IPAddress]:
-    if isinstance(address, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+def _to_ip(address: str | IPAddress) -> IPAddress | None:
+    if isinstance(address, ipaddress.IPv4Address | ipaddress.IPv6Address):
         return address
     try:
         return ipaddress.ip_address(str(address).strip().strip("[]"))
@@ -101,7 +102,7 @@ def _to_ip(address: Union[str, IPAddress]) -> Optional[IPAddress]:
         return None
 
 
-def _embedded_ipv4(ip: IPAddress) -> Optional[ipaddress.IPv4Address]:
+def _embedded_ipv4(ip: IPAddress) -> ipaddress.IPv4Address | None:
     """Return the IPv4 address embedded in an IPv6 transition address."""
     if not isinstance(ip, ipaddress.IPv6Address):
         return None
@@ -116,7 +117,7 @@ def _embedded_ipv4(ip: IPAddress) -> Optional[ipaddress.IPv4Address]:
     return None
 
 
-def is_blocked_ip(address: Union[str, IPAddress]) -> bool:
+def is_blocked_ip(address: str | IPAddress) -> bool:
     """Return True if an IP address must never be contacted.
 
     Input that cannot be parsed as an IP address is treated as blocked.
@@ -141,7 +142,7 @@ def is_blocked_ip(address: Union[str, IPAddress]) -> bool:
     return not ip.is_global
 
 
-def _numeric_ipv4(host: str) -> Optional[ipaddress.IPv4Address]:
+def _numeric_ipv4(host: str) -> ipaddress.IPv4Address | None:
     """Parse short or numeric IPv4 forms such as ``127.1`` or ``2130706433``.
 
     System resolvers accept these forms, so they are checked like IP literals.
@@ -213,12 +214,15 @@ def resolve_redirect_target(current_url: str, location: str) -> str:
 class SafeResolver(AbstractResolver):
     """aiohttp resolver that rejects internal addresses at connect time."""
 
-    def __init__(self, inner: Optional[Any] = None) -> None:
+    def __init__(self, inner: Any | None = None) -> None:
         self._inner = inner if inner is not None else ThreadedResolver()
 
     async def resolve(
-        self, host: str, port: int = 0, family: int = socket.AF_INET
-    ) -> List[Dict[str, Any]]:
+        self,
+        host: str,
+        port: int = 0,
+        family: socket.AddressFamily = socket.AF_INET,
+    ) -> list[ResolveResult]:
         _check_host(host, host)
         results = await self._inner.resolve(host, port, family)
         if not results:
@@ -246,9 +250,9 @@ def build_safe_connector() -> aiohttp.TCPConnector:
 async def fetch_text_safely(
     url: str,
     *,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
     timeout: float = 20.0,
-    cookies: Optional[Any] = None,
+    cookies: Any | None = None,
     max_redirects: int = MAX_REDIRECTS,
 ) -> str:
     """GET a URL and return its text, with SSRF protection on every hop.

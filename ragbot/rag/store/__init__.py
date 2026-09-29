@@ -8,11 +8,11 @@ from ragbot.rag.store.qdrant_store import QdrantVectorStore
 
 __all__ = [
     "BaseVectorStore",
-    "VectorDocument",
-    "SearchResult",
+    "ChromaVectorStore",
     "FAISSStore",
     "FAISSVectorStore",
-    "ChromaVectorStore",
     "QdrantVectorStore",
+    "SearchResult",
+    "VectorDocument",
     "VectorStoreFactory",
 ]

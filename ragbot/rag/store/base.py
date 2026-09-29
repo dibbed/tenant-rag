@@ -11,19 +11,23 @@ Design goals:
 - Optional hooks for metrics/observability
 """
 
+import contextlib
 import functools
 import inspect
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from collections.abc import Awaitable, Callable, Generator
+from dataclasses import dataclass, field
+from typing import Any, TypeVar, cast
 
 import numpy as np
 
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager
 
+F = TypeVar("F", bound=Callable[..., Any])
 
-def log_store_errors(operation: str):
+
+def log_store_errors(operation: str) -> Callable[[F], F]:
     """
     Decorator for store methods to log and metricize failures uniformly.
 
@@ -32,13 +36,14 @@ def log_store_errors(operation: str):
     - This decorator records only failures (success=False) and re-raises.
     """
 
-    def _decorator(fn):
+    def _decorator(fn: F) -> F:
         if inspect.iscoroutinefunction(fn):
+            async_fn = cast("Callable[..., Awaitable[Any]]", fn)
 
             @functools.wraps(fn)
-            async def _aw(self, *args, **kwargs):
+            async def _aw(self: Any, *args: Any, **kwargs: Any) -> Any:
                 try:
-                    return await fn(self, *args, **kwargs)
+                    return await async_fn(self, *args, **kwargs)
                 except Exception as e:  # pragma: no cover - logging path
                     try:
                         store_label = getattr(
@@ -59,11 +64,11 @@ def log_store_errors(operation: str):
                         pass
                     raise
 
-            return _aw
+            return cast("F", _aw)
         else:
 
             @functools.wraps(fn)
-            def _w(self, *args, **kwargs):
+            def _w(self: Any, *args: Any, **kwargs: Any) -> Any:
                 try:
                     return fn(self, *args, **kwargs)
                 except Exception as e:  # pragma: no cover - logging path
@@ -86,7 +91,7 @@ def log_store_errors(operation: str):
                         pass
                     raise
 
-            return _w
+            return cast("F", _w)
 
     return _decorator
 
@@ -107,9 +112,9 @@ class VectorDocument:
 
     id: str
     content: str
-    embedding: List[float]
-    metadata: Optional[Dict[str, Any]] = None
-    score: Optional[float] = None
+    embedding: list[float]
+    metadata: dict[str, Any] = field(default_factory=dict)
+    score: float | None = None
 
     def __post_init__(self) -> None:
         """Post-initialization validation."""
@@ -122,14 +127,14 @@ class VectorDocument:
         elif not isinstance(self.embedding, list):
             try:
                 self.embedding = list(self.embedding)
-            except Exception:
-                raise ValueError("Document embedding must be a list")
+            except Exception as exc:
+                raise ValueError("Document embedding must be a list") from exc
         if self.metadata is None:
             self.metadata = {}
         elif not isinstance(self.metadata, dict):
             raise ValueError("Document metadata must be a dictionary")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert VectorDocument to dictionary."""
         return {
             "id": self.id,
@@ -140,7 +145,7 @@ class VectorDocument:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "VectorDocument":
+    def from_dict(cls, data: dict[str, Any]) -> "VectorDocument":
         """Create VectorDocument from dictionary."""
         return cls(
             id=data["id"],
@@ -162,15 +167,23 @@ class SearchResult:
 
     def __init__(
         self,
-        documents: Optional[List[VectorDocument]] = None,
-        query_embedding: Optional[List[float]] = None,
-        total_results: Optional[int] = None,
-        search_time: Optional[float] = None,
+        documents: list[VectorDocument] | None = None,
+        query_embedding: list[float] | None = None,
+        total_results: int | None = None,
+        search_time: float | None = None,
         *,
-        content: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        score: Optional[float] = None,
+        content: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        score: float | None = None,
     ) -> None:
+        self.documents: list[VectorDocument] = []
+        self.query_embedding: list[float] | None = query_embedding
+        self.total_results: int = 0
+        self.search_time: float | None = search_time
+        self.content: str | None = None
+        self.metadata: dict[str, Any] = {}
+        self.score: float | None = None
+
         # Aggregate-style
         if documents is not None:
             self.documents = documents
@@ -260,7 +273,7 @@ class BaseVectorStore(ABC):
         """
         self.config = kwargs
         self.store_type = kwargs.get("store_type", "unknown")
-        self.embedding_dimension = kwargs.get("embedding_dimension", 768)
+        self.embedding_dimension: int = int(kwargs.get("embedding_dimension", 768))
 
         # Similarity metric should be one of: 'cosine', 'ip' (dot product), 'l2'
         self.similarity_metric = kwargs.get("similarity_metric", "cosine")
@@ -291,10 +304,12 @@ class BaseVectorStore(ABC):
         self.keep_embeddings = kwargs.get("keep_embeddings", True)
         self.index_path = kwargs.get("index_path", "./vector_index")
 
-    def __await__(self):
+    def __await__(self) -> Generator[Any, None, "BaseVectorStore"]:
         """Allow vector store instances to be used directly with await."""
-        async def _resolve():
+
+        async def _resolve() -> "BaseVectorStore":
             return self
+
         return _resolve().__await__()
 
     @abstractmethod
@@ -312,8 +327,8 @@ class BaseVectorStore(ABC):
         )
 
     async def add_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         """
         Add documents to the vector store.
 
@@ -333,9 +348,20 @@ class BaseVectorStore(ABC):
             f"{self.__class__.__name__} must implement add_documents method"
         )
 
+    async def add_texts(
+        self,
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
+        """Add raw text entries using optional embeddings and metadata."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement add_texts method"
+        )
+
     async def update_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         """
         Update existing documents in the vector store.
 
@@ -370,8 +396,8 @@ class BaseVectorStore(ABC):
             raise
 
     async def delete_documents(
-        self, document_ids: List[str], **kwargs: Any
-    ) -> List[str]:
+        self, document_ids: list[str], **kwargs: Any
+    ) -> list[str]:
         """
         Delete documents from the vector store.
 
@@ -391,9 +417,9 @@ class BaseVectorStore(ABC):
             f"{self.__class__.__name__} must implement delete_documents method"
         )
 
-    async def search(
-        self, query_embedding: List[float], top_k: int = 10, **kwargs: Any
-    ) -> SearchResult:
+    def search(
+        self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
+    ) -> Awaitable[SearchResult]:
         """
         Search for similar documents using vector similarity.
 
@@ -408,16 +434,19 @@ class BaseVectorStore(ABC):
         Raises:
             VectorStoreError: If search fails
         """
-        # Default implementation: raise NotImplementedError
-        # Concrete implementations must override this method
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement search method"
-        )
+        # Preserve async call semantics for the default implementation while
+        # allowing compatibility stores to return any conforming Awaitable.
+        async def _unsupported() -> SearchResult:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must implement search method"
+            )
+
+        return _unsupported()
 
     # --------- Optional convenience upsert helpers (non-abstract) ---------
     async def add_chunks(
-        self, chunks: List[object], *, embedder: Optional[object] = None, **kwargs: Any
-    ) -> List[str]:
+        self, chunks: list[object], *, embedder: object | None = None, **kwargs: Any
+    ) -> list[str]:
         """
         Convenience: accept TextChunk-like objects and embed+add.
 
@@ -427,15 +456,15 @@ class BaseVectorStore(ABC):
         if not chunks:
             return []
 
-        texts: List[str] = []
-        metadatas: List[Dict[str, Any]] = []
+        texts: list[str] = []
+        metadatas: list[dict[str, Any]] = []
         for ch in chunks:
             content = getattr(ch, "content", "")
             metadata = getattr(ch, "metadata", {}) or {}
             texts.append(content or "")
             metadatas.append(metadata if isinstance(metadata, dict) else {})
 
-        async def _maybe_await(v):
+        async def _maybe_await(v: Any) -> Any:
             if hasattr(v, "__await__"):
                 return await v
             return v
@@ -451,7 +480,7 @@ class BaseVectorStore(ABC):
             embeddings = [[0.0] * self.embedding_dimension for _ in texts]
 
         docs = []
-        for i, (t, m) in enumerate(zip(texts, metadatas)):
+        for i, (t, m) in enumerate(zip(texts, metadatas, strict=False)):
             ch = chunks[i]
             chunk_id = getattr(ch, "chunk_id", getattr(ch, "id", None))
             doc_id = str(chunk_id if chunk_id is not None else f"chunk_{i}")
@@ -490,12 +519,12 @@ class BaseVectorStore(ABC):
 
     async def add_documents_from_loader(
         self,
-        documents: List[object],
+        documents: list[object],
         *,
-        embedder: Optional[object] = None,
-        chunker: Optional[object] = None,
+        embedder: object | None = None,
+        chunker: object | None = None,
         **kwargs: Any,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Convenience: accept loader Documents and (optionally) a chunker.
         If `chunker` is provided, use it to split; otherwise index whole text.
@@ -528,8 +557,8 @@ class BaseVectorStore(ABC):
     # --------- Optional advanced methods (non-abstract) ---------
     async def search_with_metadata_filter(
         self,
-        query_embedding: List[float],
-        metadata_filter: Dict[str, Any],
+        query_embedding: list[float],
+        metadata_filter: dict[str, Any],
         top_k: int = 10,
         **kwargs: Any,
     ) -> SearchResult:
@@ -559,7 +588,7 @@ class BaseVectorStore(ABC):
     async def hybrid_search(
         self,
         query: str,
-        query_embedding: List[float],
+        query_embedding: list[float],
         alpha: float = 0.7,
         top_k: int = 10,
         **kwargs: Any,
@@ -572,7 +601,7 @@ class BaseVectorStore(ABC):
 
     async def semantic_search(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
         similarity_threshold: float = 0.0,
         **kwargs: Any,
@@ -599,7 +628,7 @@ class BaseVectorStore(ABC):
         except Exception:
             return res
 
-    async def get_document(self, document_id: str) -> Optional[VectorDocument]:
+    async def get_document(self, document_id: str) -> VectorDocument | None:
         """
         Retrieve a specific document by ID.
 
@@ -619,7 +648,7 @@ class BaseVectorStore(ABC):
             f"{self.__class__.__name__} must implement get_document method"
         )
 
-    async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+    async def get_documents(self, document_ids: list[str]) -> list[VectorDocument]:
         """
         Retrieve multiple documents by IDs.
 
@@ -640,15 +669,15 @@ class BaseVectorStore(ABC):
                 doc = await self.get_document(doc_id)
                 if doc:
                     documents.append(doc)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.warning(f"Failed to retrieve document {doc_id}: {e}")
                 continue
 
         return documents
 
     async def get_documents_by_metadata(
-        self, filters: Dict[str, Any]
-    ) -> List[VectorDocument]:
+        self, filters: dict[str, Any]
+    ) -> list[VectorDocument]:
         """
         Get documents matching metadata filter criteria.
 
@@ -680,20 +709,21 @@ class BaseVectorStore(ABC):
             f"{self.__class__.__name__} must implement get_document_count method"
         )
 
-    async def clear(self) -> None:
+    def clear(self) -> Awaitable[None]:
         """
         Clear all documents from the vector store.
 
         Raises:
             VectorStoreError: If clearing fails
         """
-        # Default implementation: raise NotImplementedError
-        # Concrete implementations must override this method
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement clear method"
-        )
+        async def _unsupported() -> None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} must implement clear method"
+            )
 
-    async def save(self, path: Optional[str] = None) -> None:
+        return _unsupported()
+
+    async def save(self, path: str | None = None) -> None:
         """
         Save the vector store to disk.
 
@@ -710,7 +740,7 @@ class BaseVectorStore(ABC):
         )
         pass
 
-    async def load(self, path: Optional[str] = None) -> None:
+    def load(self, path: str | None = None) -> Awaitable[None]:
         """
         Load the vector store from disk.
 
@@ -722,16 +752,18 @@ class BaseVectorStore(ABC):
         """
         # Default implementation: no-op for stores that handle persistence automatically
         # Concrete implementations can override this method if needed
-        logger.debug(
-            f"Load called on {self.__class__.__name__} - no-op (automatic persistence)"
-        )
-        pass
+        async def _loaded() -> None:
+            logger.debug(
+                f"Load called on {self.__class__.__name__} - no-op (automatic persistence)"
+            )
+
+        return _loaded()
 
     # Optional methods with default implementations
 
     async def upsert_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         """
         Insert or update documents (upsert operation).
 
@@ -776,7 +808,7 @@ class BaseVectorStore(ABC):
         return None
 
     async def search_by_text(
-        self, query_text: str, embedder, top_k: int = 10, **kwargs: Any
+        self, query_text: str, embedder: Any, top_k: int = 10, **kwargs: Any
     ) -> SearchResult:
         """
         Search for similar documents using text query.
@@ -797,8 +829,8 @@ class BaseVectorStore(ABC):
         return await self.search(query_embedding, top_k, **kwargs)
 
     def filter_documents(
-        self, documents: List[VectorDocument], filters: Dict[str, Any]
-    ) -> List[VectorDocument]:
+        self, documents: list[VectorDocument], filters: dict[str, Any]
+    ) -> list[VectorDocument]:
         """
         Filter documents based on metadata criteria.
 
@@ -859,7 +891,7 @@ class BaseVectorStore(ABC):
         return filtered_docs
 
     def compute_similarity(
-        self, embedding1: List[float], embedding2: List[float]
+        self, embedding1: list[float], embedding2: list[float]
     ) -> float:
         """
         Compute similarity between two embeddings.
@@ -911,7 +943,7 @@ class BaseVectorStore(ABC):
         except Exception:
             return 0.0
 
-    def get_store_info(self) -> Dict[str, Any]:
+    def get_store_info(self) -> dict[str, Any]:
         """
         Get information about the vector store.
 
@@ -938,7 +970,7 @@ class BaseVectorStore(ABC):
             "config": self.config,
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the vector store.
 
@@ -979,7 +1011,7 @@ class BaseVectorStore(ABC):
                 "test_successful": False,
             }
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         Get vector store statistics.
 
@@ -1025,11 +1057,9 @@ class BaseVectorStore(ABC):
         backup_dir = tempfile.mkdtemp(
             prefix=f"ragbot_store_backup_{self.__class__.__name__}_"
         )
-        try:
+        # Best-effort for backends with implicit persistence.
+        with contextlib.suppress(Exception):
             await self.save(backup_dir)
-        except Exception:
-            # Best-effort for backends with implicit persistence
-            pass
         return backup_dir
 
     async def restore(self, backup_path: str) -> None:
@@ -1039,7 +1069,7 @@ class BaseVectorStore(ABC):
         except Exception:
             return
 
-    async def get_search_analytics(self) -> Dict[str, Any]:
+    async def get_search_analytics(self) -> dict[str, Any]:
         """Return aggregated search analytics using collected metrics."""
         label = getattr(self, "store_type_label", self.__class__.__name__.lower())
         summary = metrics_manager.get_vector_store_metrics(store_type=label) or {}
@@ -1058,7 +1088,7 @@ class BaseVectorStore(ABC):
             "last_updated": search_stats.get("last_updated"),
         }
 
-    async def get_document_analytics(self) -> Dict[str, Any]:
+    async def get_document_analytics(self) -> dict[str, Any]:
         """Return document analytics derived from metrics and store state."""
         label = getattr(self, "store_type_label", self.__class__.__name__.lower())
         summary = metrics_manager.get_vector_store_metrics(store_type=label) or {}
@@ -1066,10 +1096,14 @@ class BaseVectorStore(ABC):
         add_stats = operations.get("add_documents", {})
         delete_stats = operations.get("delete_documents", {})
 
+        total_documents: int | None
         try:
             total_documents = self.get_document_count()
         except Exception:
-            total_documents = summary.get("size")
+            fallback_size = summary.get("size")
+            total_documents = (
+                int(fallback_size) if isinstance(fallback_size, int | float) else None
+            )
 
         if total_documents is not None:
             metrics_manager.update_vector_store_size(

@@ -3,21 +3,24 @@
 """
 
 import asyncio
+import contextlib
 import time
-from typing import Dict, List, Optional
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager
 from ragbot.rag.exceptions import DocumentProcessingError
 
+SentenceTransformer: Any
 try:
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer as _SentenceTransformer
 
+    SentenceTransformer = _SentenceTransformer
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
     SentenceTransformer = None
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 
 class QueryExpander:
@@ -25,11 +28,11 @@ class QueryExpander:
 
     def __init__(
         self,
-        synonym_model: Optional[str] = None,
-        max_expanded_queries: Optional[int] = None,
-        enable_ai_expansion: Optional[bool] = None,
-        **kwargs,
-    ):
+        synonym_model: str | None = None,
+        max_expanded_queries: int | None = None,
+        enable_ai_expansion: bool | None = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize query expander with settings integration
 
@@ -46,8 +49,13 @@ class QueryExpander:
             "synonym_model",
             "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         )
-        self.max_expanded_queries = max_expanded_queries or getattr(
-            adv_settings, "max_expanded_queries", 3
+        raw_max_expanded = (
+            max_expanded_queries
+            if max_expanded_queries is not None
+            else getattr(adv_settings, "max_expanded_queries", 3)
+        )
+        self.max_expanded_queries = (
+            int(raw_max_expanded) if raw_max_expanded is not None else 3
         )
         self.enable_ai_expansion = (
             enable_ai_expansion
@@ -57,11 +65,11 @@ class QueryExpander:
 
         # تنظیمات اضافی
         self.expansion_timeout = getattr(adv_settings, "expansion_timeout", 10.0)
-        self.cache_size = getattr(adv_settings, "expansion_cache_size", 100)
-        self.min_query_length = getattr(adv_settings, "min_query_length", 3)
+        self.cache_size = int(getattr(adv_settings, "expansion_cache_size", 100))
+        self.min_query_length = int(getattr(adv_settings, "min_query_length", 3))
 
         # Initialize AI model if available and enabled
-        self.ai_model = None
+        self.ai_model: Any | None = None
         if self.enable_ai_expansion and SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
                 cache_dir = getattr(
@@ -81,7 +89,7 @@ class QueryExpander:
                 self.enable_ai_expansion = False
 
         # Cache برای expanded queries
-        self._expansion_cache: Dict[str, List[str]] = {}
+        self._expansion_cache: dict[str, list[str]] = {}
 
         # دیکشنری‌های مترادف و کلمات مرتبط بهبود یافته
         self._synonym_dict = self._build_synonym_dict()
@@ -97,7 +105,7 @@ class QueryExpander:
 
     async def expand_query(
         self, query: str, expansion_type: str = "synonym"
-    ) -> List[str]:
+    ) -> list[str]:
         """
         گسترش پرسش با مترادف و کلمات مرتبط - بهبود یافته
 
@@ -143,14 +151,12 @@ class QueryExpander:
 
             # ثبت متریک
             duration = time.time() - start_time
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_query_processing(
                     "query_expansion",
                     "success",
                     retrieval_duration=duration,
                 )
-            except Exception:
-                pass
 
             logger.debug(
                 "Query expansion completed",
@@ -166,25 +172,21 @@ class QueryExpander:
             logger.warning(
                 f"Query expansion timeout after {self.expansion_timeout}s for: {query}"
             )
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_error("query_expansion", "timeout")
-            except Exception:
-                pass
             return [query]
 
         except Exception as e:
             logger.error(f"Query expansion failed: {e} for query: {query}")
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_error("query_expansion", "error")
-            except Exception:
-                pass
             raise DocumentProcessingError(
-                f"Failed to expand query: {str(e)}",
+                f"Failed to expand query: {e!s}",
                 document_type="query_expansion",
                 source=query,
             ) from e
 
-    async def _perform_expansion(self, query: str, expansion_type: str) -> List[str]:
+    async def _perform_expansion(self, query: str, expansion_type: str) -> list[str]:
         """انجام گسترش پرسش بر اساس نوع"""
         if expansion_type == "synonym":
             return await self._expand_with_synonyms(query)
@@ -198,7 +200,7 @@ class QueryExpander:
             logger.warning(f"Unknown expansion type: {expansion_type}")
             return [query]
 
-    async def _expand_with_synonyms(self, query: str) -> List[str]:
+    async def _expand_with_synonyms(self, query: str) -> list[str]:
         """گسترش با مترادف - بهبود یافته"""
         try:
             # تولید مترادف با AI اگر فعال باشد
@@ -219,7 +221,7 @@ class QueryExpander:
             logger.warning(f"Synonym expansion failed: {e}, using fallback")
             return [query]
 
-    async def _expand_with_related_terms(self, query: str) -> List[str]:
+    async def _expand_with_related_terms(self, query: str) -> list[str]:
         """گسترش با کلمات مرتبط - بهبود یافته"""
         try:
             # استخراج کلمات کلیدی بهبود یافته
@@ -258,7 +260,7 @@ class QueryExpander:
             logger.warning(f"Related terms expansion failed: {e}, using fallback")
             return [query]
 
-    async def _expand_with_context(self, query: str) -> List[str]:
+    async def _expand_with_context(self, query: str) -> list[str]:
         """گسترش با زمینه - بهبود یافته"""
         try:
             # تشخیص نوع پرسش بهبود یافته
@@ -298,13 +300,13 @@ class QueryExpander:
                 : self.max_expanded_queries
             ]
 
-            return [query] + context_queries
+            return [query, *context_queries]
 
         except Exception as e:
             logger.warning(f"Context expansion failed: {e}, using fallback")
             return [query]
 
-    async def _expand_with_hybrid(self, query: str) -> List[str]:
+    async def _expand_with_hybrid(self, query: str) -> list[str]:
         """گسترش ترکیبی - ترکیب همه روش‌ها"""
         try:
             # ترکیب همه روش‌های گسترش
@@ -323,15 +325,19 @@ class QueryExpander:
             logger.warning(f"Hybrid expansion failed: {e}, using fallback")
             return [query]
 
-    async def _generate_synonyms_ai(self, query: str) -> List[str]:
+    async def _generate_synonyms_ai(self, query: str) -> list[str]:
         """تولید مترادف با AI model"""
         try:
             # استفاده از SentenceTransformer برای تولید مترادف
             # این یک پیاده‌سازی ساده است - می‌تواند بهبود یابد
             import numpy as np
 
+            model = self.ai_model
+            if model is None:
+                return self._generate_synonyms_rule_based(query)
+
             # تولید embedding برای query
-            query_embedding = self.ai_model.encode([query])
+            query_embedding = model.encode([query])
 
             # تولید چندین variation از query
             variations = [
@@ -349,7 +355,7 @@ class QueryExpander:
                 return []
 
             # محاسبه شباهت
-            variation_embeddings = self.ai_model.encode(variations)
+            variation_embeddings = model.encode(variations)
             similarities = np.dot(query_embedding, variation_embeddings.T)[0]
 
             # انتخاب بهترین variations
@@ -364,7 +370,7 @@ class QueryExpander:
             )
             return self._generate_synonyms_rule_based(query)
 
-    def _generate_synonyms_rule_based(self, query: str) -> List[str]:
+    def _generate_synonyms_rule_based(self, query: str) -> list[str]:
         """تولید مترادف با قوانین از پیش تعریف شده"""
         synonyms = []
         for word, syns in self._synonym_dict.items():
@@ -376,11 +382,11 @@ class QueryExpander:
 
         return synonyms[: self.max_expanded_queries]
 
-    def _generate_related_terms(self, keyword: str) -> List[str]:
+    def _generate_related_terms(self, keyword: str) -> list[str]:
         """تولید کلمات مرتبط بهبود یافته"""
         return self._related_dict.get(keyword, [])
 
-    def _extract_keywords_enhanced(self, query: str) -> List[str]:
+    def _extract_keywords_enhanced(self, query: str) -> list[str]:
         """استخراج کلمات کلیدی بهبود یافته"""
         # کلمات توقف گسترش یافته
         stop_words = {
@@ -460,7 +466,7 @@ class QueryExpander:
         else:
             return "general"
 
-    def _build_synonym_dict(self) -> Dict[str, List[str]]:
+    def _build_synonym_dict(self) -> dict[str, list[str]]:
         """ساخت دیکشنری مترادف بهبود یافته"""
         return {
             "چیست": ["چیه", "چی", "کدوم", "تعریف", "معنی"],
@@ -480,7 +486,7 @@ class QueryExpander:
             "کامپیوتر": ["رایانه", "سیستم", "ماشین", "دستگاه"],
         }
 
-    def _build_related_dict(self) -> Dict[str, List[str]]:
+    def _build_related_dict(self) -> dict[str, list[str]]:
         """ساخت دیکشنری کلمات مرتبط بهبود یافته"""
         return {
             "یادگیری": ["آموزش", "تحصیل", "مطالعه", "فراگیری", "یاددهی"],
@@ -500,7 +506,7 @@ class QueryExpander:
             "کیفیت": ["مرغوبیت", "مطلوبیت", "بهبود", "بهینه", "عالی"],
         }
 
-    def get_expander_info(self) -> Dict[str, any]:
+    def get_expander_info(self) -> dict[str, Any]:
         """دریافت اطلاعات تنظیمات expander"""
         return {
             "synonym_model": self.synonym_model_name,
@@ -515,7 +521,7 @@ class QueryExpander:
             "related_dict_size": len(self._related_dict),
         }
 
-    async def health_check(self) -> Dict[str, any]:
+    async def health_check(self) -> dict[str, Any]:
         """بررسی سلامت expander"""
         try:
             # تست expansion ساده

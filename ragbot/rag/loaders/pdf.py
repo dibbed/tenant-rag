@@ -7,7 +7,7 @@ with proper error handling and metadata extraction.
 
 import io
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 try:
     import fitz  # PyMuPDF
@@ -23,15 +23,20 @@ except ImportError:
 
     fitz = _DummyFitz()
 
+import contextlib
+
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.rag.exceptions import DocumentProcessingError
 from ragbot.rag.loaders.base import BaseLoader, Document
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 # Optional OCR dependencies
 try:
-    import pytesseract  # type: ignore
-    from PIL import Image  # type: ignore
+    import pytesseract
+    from PIL import Image
 
     PYOCR_AVAILABLE = True
 except Exception:  # pragma: no cover - import guarded
@@ -71,9 +76,9 @@ class PDFLoader(BaseLoader):
         # Optional OCR configuration
         self.ocr_lang: str = kwargs.get("ocr_lang", settings.rag.ocr_lang)
         # Injectable OCR function: Callable[[bytes], str]
-        self.ocr_func: Optional[Callable[[bytes], str]] = kwargs.get("ocr_func")
+        self.ocr_func: Callable[[bytes], str] | None = kwargs.get("ocr_func")
         self.ocr_engine: str = kwargs.get("ocr_engine", settings.rag.ocr_engine)
-        self.google_token_path: Optional[str] = kwargs.get(
+        self.google_token_path: str | None = kwargs.get(
             "google_token_path", settings.rag.google_token_path
         )
 
@@ -195,14 +200,14 @@ class PDFLoader(BaseLoader):
                     doc = fitz.open(source)
                 except Exception as e:  # Normalize open failures
                     raise DocumentProcessingError(
-                        f"Failed to extract text: {str(e)}",
+                        f"Failed to extract text: {e!s}",
                         document_type="pdf",
                         source=source,
                         details=str(e),
                     ) from e
             else:
                 try:
-                    from pypdf import PdfReader  # type: ignore
+                    from pypdf import PdfReader
 
                     reader = PdfReader(source)
                     # Handle encryption with pypdf if needed
@@ -234,13 +239,13 @@ class PDFLoader(BaseLoader):
                         def __init__(self, reader: PdfReader):
                             self.reader = reader
                             self.needs_pass = False
-                            self.metadata = {}
+                            self.metadata: dict[str, Any] = {}
                             self.page_count = len(reader.pages)
 
-                        def __getitem__(self, idx: int):
+                        def __getitem__(self, idx: int) -> Any:
                             return reader.pages[idx]
 
-                        def close(self):
+                        def close(self) -> None:
                             return None
 
                     doc = _DocShim(reader)
@@ -251,22 +256,14 @@ class PDFLoader(BaseLoader):
 
                     # Prefer text in parentheses (PDF string literals)
                     parts = re.findall(rb"\((.*?)\)", raw_bytes, flags=re.DOTALL)
-                    decoded = []
-                    for p in parts:
-                        try:
-                            decoded.append(p.decode("latin1", errors="ignore"))
-                        except Exception:
-                            continue
+                    decoded = [p.decode("latin1", errors="ignore") for p in parts]
                     full_text = "\n".join([t for t in decoded if t.strip()])
                     # If none found, try capturing BT...ET text blocks
                     if not full_text.strip():
                         blocks = re.findall(rb"BT(.*?)ET", raw_bytes, flags=re.DOTALL)
-                        block_texts = []
-                        for b in blocks:
-                            try:
-                                block_texts.append(b.decode("latin1", errors="ignore"))
-                            except Exception:
-                                continue
+                        block_texts = [
+                            b.decode("latin1", errors="ignore") for b in blocks
+                        ]
                         full_text = "\n".join(
                             [t.strip() for t in block_texts if t.strip()]
                         )
@@ -285,7 +282,7 @@ class PDFLoader(BaseLoader):
                     )
                 except Exception as e:
                     raise DocumentProcessingError(
-                        f"Failed to extract text: {str(e)}",
+                        f"Failed to extract text: {e!s}",
                         document_type="pdf",
                         source=source,
                         details=str(e),
@@ -337,13 +334,13 @@ class PDFLoader(BaseLoader):
                 start_time = _t.time()
 
             # Extract text from pages
-            text_content: List[str] = []
+            text_content: list[str] = []
             # Track per-page text offsets to build precise page ranges
-            page_offsets: List[Dict[str, int]] = []
+            page_offsets: list[dict[str, int]] = []
             cumulative_len = 0
             enable_struct = self.enable_structural_extraction and PYMUPDF_AVAILABLE
             inject_markers = bool(self.inject_heading_markers)
-            headings: List[Dict[str, Any]] = []
+            headings: list[dict[str, Any]] = []
             for page_num in range(start_page, end_page):
                 if start_time is not None:
                     import time as _t
@@ -365,8 +362,8 @@ class PDFLoader(BaseLoader):
                         if enable_struct:
                             try:
                                 layout = page.get_text("dict") or {}
-                                sizes: List[float] = []
-                                spans_by_size: Dict[float, List[Dict[str, Any]]] = {}
+                                sizes: list[float] = []
+                                spans_by_size: dict[float, list[dict[str, Any]]] = {}
                                 for blk in layout.get("blocks", []) or []:
                                     for ln in blk.get("lines", []) or []:
                                         for sp in ln.get("spans", []) or []:
@@ -385,11 +382,11 @@ class PDFLoader(BaseLoader):
                                     except Exception:
                                         body_pt = float(sorted(sizes)[len(sizes) // 2])
 
-                                    dynamic_headings: List[tuple[int, str]] = []
+                                    dynamic_headings: list[tuple[int, str]] = []
 
                                     def _span_level(
                                         sz: float,
-                                        sp: Dict[str, Any],
+                                        sp: dict[str, Any],
                                         body_pt: float = body_pt,
                                     ) -> int:
                                         # delta-based levels with simple boosters (bold/position)
@@ -400,7 +397,7 @@ class PDFLoader(BaseLoader):
                                         try:
                                             y_top = (
                                                 float(bbox[1])
-                                                if isinstance(bbox, (list, tuple))
+                                                if isinstance(bbox, list | tuple)
                                                 and len(bbox) >= 2
                                                 else 0.0
                                             )
@@ -439,21 +436,20 @@ class PDFLoader(BaseLoader):
                                                 )
                                                 dynamic_headings.append((lvl, txt))
 
-                                    page_headings: List[tuple[int, str]] = (
+                                    page_headings: list[tuple[int, str]] = (
                                         dynamic_headings
                                     )
 
                                     # Fallback/supplement: ensure up to 6 levels by distinct-size mapping
                                     if not page_headings or len(page_headings) < 6:
                                         uniq_sizes = sorted(set(sizes), reverse=True)
-                                        level_map: Dict[float, int] = {}
-                                        for idx, sz in enumerate(
-                                            uniq_sizes[:6], start=1
-                                        ):
-                                            level_map[sz] = idx
-                                        existing = set(
-                                            (lvl, txt) for (lvl, txt) in page_headings
-                                        )
+                                        level_map: dict[float, int] = {
+                                            sz: idx
+                                            for idx, sz in enumerate(
+                                                uniq_sizes[:6], start=1
+                                            )
+                                        }
+                                        existing = set(page_headings)
                                         for sz, level in level_map.items():
                                             for sp in spans_by_size.get(sz, []):
                                                 txt = (sp.get("text") or "").strip()
@@ -554,10 +550,8 @@ class PDFLoader(BaseLoader):
                     )
                     continue
 
-            try:
+            with contextlib.suppress(Exception):
                 doc.close()
-            except Exception:
-                pass
 
             # Combine all text
             full_text = "\n\n".join(text_content)
@@ -583,29 +577,25 @@ class PDFLoader(BaseLoader):
                     import re
 
                     candidates = re.findall(rb"\((.*?)\)", raw_bytes, flags=re.DOTALL)
-                    decoded = []
-                    for c in candidates:
+
+                    def _decode_pdf_candidate(candidate: bytes) -> str:
+                        """Decode a PDF string literal using deterministic fallbacks."""
                         try:
-                            # try multiple decodings for multilingual PDFs
+                            return candidate.decode("utf-8")
+                        except UnicodeDecodeError:
                             try:
-                                decoded.append(c.decode("utf-8"))
-                            except Exception:
-                                try:
-                                    decoded.append(c.decode("utf-16"))
-                                except Exception:
-                                    decoded.append(c.decode("latin1", errors="ignore"))
-                        except Exception:
-                            continue
+                                return candidate.decode("utf-16")
+                            except UnicodeDecodeError:
+                                return candidate.decode("latin1", errors="ignore")
+
+                    decoded = [_decode_pdf_candidate(c) for c in candidates]
                     heuristic_text = "\n".join(s for s in decoded if s.strip())
                     # Also try capturing between BT ... ET blocks if parentheses not found
                     if not heuristic_text.strip():
                         blocks = re.findall(rb"BT(.*?)ET", raw_bytes, flags=re.DOTALL)
-                        block_texts = []
-                        for b in blocks:
-                            try:
-                                block_texts.append(b.decode("latin1", errors="ignore"))
-                            except Exception:
-                                continue
+                        block_texts = [
+                            b.decode("latin1", errors="ignore") for b in blocks
+                        ]
                         heuristic_text = "\n".join(
                             [t.strip() for t in block_texts if t.strip()]
                         )
@@ -633,7 +623,7 @@ class PDFLoader(BaseLoader):
             try:
                 if self.detect_language_toggle:
                     try:
-                        from langdetect import detect  # type: ignore
+                        from langdetect import detect
 
                         votes = []
                         segments = [
@@ -642,11 +632,9 @@ class PDFLoader(BaseLoader):
                             full_text[-2000:],
                         ]
                         for seg in segments:
-                            try:
+                            with contextlib.suppress(Exception):
                                 if seg and seg.strip():
                                     votes.append(detect(seg))
-                            except Exception:
-                                continue
                         if votes:
                             from collections import Counter as _Ctr
 
@@ -693,13 +681,13 @@ class PDFLoader(BaseLoader):
         except Exception as e:
             logger.error(f"Unexpected error loading PDF: {e}", source=source)
             raise DocumentProcessingError(
-                f"Failed to extract text: {str(e)}",
+                f"Failed to extract text: {e!s}",
                 document_type="pdf",
                 source=source,
                 details=str(e),
             ) from e
 
-    def _extract_metadata(self, doc: fitz.Document, source: str) -> Dict[str, Any]:
+    def _extract_metadata(self, doc: fitz.Document, source: str) -> dict[str, Any]:
         """
         Extract metadata from PDF document.
 
@@ -755,7 +743,7 @@ class PDFLoader(BaseLoader):
 
     def _extract_fallback_metadata(
         self, source: str, text_length: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Provide minimal metadata when no PDF parser is available."""
         file_path = Path(source)
         file_stats = file_path.stat()
@@ -798,7 +786,7 @@ class PDFLoader(BaseLoader):
                 with Image.open(io.BytesIO(img_bytes)) as pil_img:
                     return (
                         pytesseract.image_to_string(pil_img, lang=self.ocr_lang) or ""
-                    )  # type: ignore
+                    )
             except Exception as e:  # pragma: no cover - robustness
                 logger.debug("pytesseract OCR failed", error=str(e))
                 return ""
@@ -806,7 +794,7 @@ class PDFLoader(BaseLoader):
             try:  # Guard import and call
                 import importlib
 
-                easyocr = importlib.import_module("easyocr")  # type: ignore
+                easyocr = importlib.import_module("easyocr")
                 # Cache reader instance on self to avoid heavy re-init
                 cached_reader = getattr(self, "_easyocr_reader", None)
                 if cached_reader is None:
@@ -818,7 +806,7 @@ class PDFLoader(BaseLoader):
                 # Results often are [(bbox, text, conf), ...]
                 texts = []
                 for item in results or []:
-                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    if isinstance(item, list | tuple) and len(item) >= 2:
                         texts.append(str(item[1]))
                     else:
                         texts.append(str(item))
@@ -842,9 +830,9 @@ class PDFLoader(BaseLoader):
         from tempfile import NamedTemporaryFile
 
         try:
-            from google.oauth2.credentials import Credentials  # type: ignore
-            from googleapiclient.discovery import build  # type: ignore
-            from googleapiclient.http import MediaFileUpload  # type: ignore
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
         except Exception as e:  # pragma: no cover - import guard
             logger.debug("googleapiclient not available", error=str(e))
             return ""
@@ -852,7 +840,7 @@ class PDFLoader(BaseLoader):
         token_path = self.google_token_path or "token.json"
         creds = Credentials.from_authorized_user_file(
             token_path, ["https://www.googleapis.com/auth/drive"]
-        )  # type: ignore
+        )
         drive = build("drive", "v3", credentials=creds)
 
         with NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
@@ -881,8 +869,6 @@ class PDFLoader(BaseLoader):
                 .decode("utf-8")
             )
             # Cleanup: best-effort delete created doc
-            try:
+            with contextlib.suppress(Exception):
                 drive.files().delete(fileId=doc_id).execute()
-            except Exception:
-                pass
             return txt or ""

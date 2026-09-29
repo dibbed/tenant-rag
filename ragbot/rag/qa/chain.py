@@ -5,9 +5,17 @@ This module provides comprehensive QA functionality with context retrieval,
 prompt building, and LLM integration for generating accurate answers.
 """
 
+from __future__ import annotations
+
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from types import TracebackType
+
+    from ragbot.rag.retrieve.retriever import DocumentRetriever
 
 import numpy as np
 
@@ -44,9 +52,14 @@ from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager, quality_evaluator
 from ragbot.rag.exceptions import LLMError
 from ragbot.rag.qa.prompting import PromptBuilder
-from ragbot.rag.retrieve.retriever import DocumentRetriever
 from ragbot.rag.store.base import VectorDocument
 from ragbot.utils.debug_helpers import log_pydantic_error
+
+
+class _HFPipeline(Protocol):
+    tokenizer: Any
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class QAChain:
@@ -59,7 +72,7 @@ class QAChain:
 
     def __init__(
         self,
-        retriever: Optional[DocumentRetriever] = None,
+        retriever: DocumentRetriever | None = None,
         llm_provider: str = "openai",
         **kwargs: Any,
     ) -> None:
@@ -87,11 +100,15 @@ class QAChain:
         # Initialize prompt builder
         self.prompt_builder = PromptBuilder()
 
+        # Provider clients share lifecycle handling but expose different APIs.
+        self.async_client: AsyncOpenAI | anthropic.AsyncAnthropic | None = None
+        self.sync_client: OpenAI | anthropic.Anthropic | None = None
+
         # Initialize LLM client
         self._initialize_llm_client()
 
         # Cache for HuggingFace pipeline to prevent memory leaks
-        self._hf_pipeline = None
+        self._hf_pipeline: _HFPipeline | None = None
         self._hf_pipeline_lock = asyncio.Lock()
 
         logger.info(
@@ -101,7 +118,7 @@ class QAChain:
             max_tokens=self.max_tokens,
         )
 
-    async def _get_hf_pipeline(self):
+    async def _get_hf_pipeline(self) -> _HFPipeline:
         """Get or create HuggingFace pipeline with caching."""
         async with self._hf_pipeline_lock:
             if self._hf_pipeline is None:
@@ -126,7 +143,7 @@ class QAChain:
                 except Exception as e:
                     logger.error(f"Failed to initialize HuggingFace pipeline: {e}")
                     raise LLMError(
-                        f"Failed to initialize HuggingFace pipeline: {str(e)}",
+                        f"Failed to initialize HuggingFace pipeline: {e!s}",
                         provider="hf_local",
                         model=self.model_name,
                         details=str(e),
@@ -134,7 +151,7 @@ class QAChain:
 
             return self._hf_pipeline
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources."""
         try:
             # Cleanup HuggingFace pipeline
@@ -161,11 +178,16 @@ class QAChain:
         except Exception as e:
             logger.warning(f"Error during cleanup: {e}")
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> QAChain:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Async context manager exit."""
         await self.cleanup()
 
@@ -231,9 +253,9 @@ class QAChain:
         self,
         question: str,
         language: str = "en",
-        context_docs: Optional[List[VectorDocument]] = None,
+        context_docs: list[VectorDocument] | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate an answer to a question using RAG context.
 
@@ -272,7 +294,7 @@ class QAChain:
 
             if max_ctx_tokens and context_docs:
                 try:
-                    import tiktoken as _tk  # type: ignore
+                    import tiktoken as _tk
 
                     enc = None
                     try:
@@ -293,7 +315,7 @@ class QAChain:
 
                     budget = max_ctx_tokens
                     total = 0
-                    trimmed_docs: List[VectorDocument] = []
+                    trimmed_docs: list[VectorDocument] = []
 
                     # Create a copy to avoid modifying original list during iteration
                     docs_to_process = list(context_docs)
@@ -308,7 +330,7 @@ class QAChain:
                             if enc:
                                 try:
                                     # Handle encoding issues for non-ASCII characters
-                                    toks = len(enc.encode(text, errors="replace"))
+                                    toks = len(enc.encode(text))
                                 except Exception as e:
                                     logger.warning(
                                         f"Token encoding failed, using word count: {e}"
@@ -357,7 +379,7 @@ class QAChain:
                     # Continue with original context_docs
 
             # Build human-friendly references for prompt and response
-            references: List[str] = []
+            references: list[str] = []
             try:
                 for d in context_docs:
                     meta = getattr(d, "metadata", {}) or {}
@@ -382,8 +404,8 @@ class QAChain:
 
             # Build prompt with context (+sources footer to encourage grounded citations)
             prompt = self.prompt_builder.build_qa_prompt(
-                question=question,
-                context_documents=context_docs,
+                question,
+                context_docs,
                 language=language,
                 **kwargs,
             )
@@ -498,7 +520,7 @@ class QAChain:
                 )
 
             raise LLMError(
-                f"Failed to generate answer: {str(e)}",
+                f"Failed to generate answer: {e!s}",
                 provider=self.llm_provider,
                 model=self.model_name,
                 prompt_length=len(prompt),
@@ -535,11 +557,17 @@ class QAChain:
             retry_delay = getattr(settings.llm, "retry_delay", 1.0)
             retry_backoff = getattr(settings.llm, "retry_backoff", 2.0)
 
+            client = self.async_client
+            if not isinstance(client, AsyncOpenAI):
+                raise LLMError(
+                    f"{provider} client is not initialized",
+                    provider=provider.lower(),
+                    model=self.model_name,
+                )
+
             for attempt in range(max_retries):
                 try:
-                    response = await self.async_client.chat.completions.create(
-                        **request_params
-                    )
+                    response = await client.chat.completions.create(**request_params)
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
@@ -556,7 +584,7 @@ class QAChain:
                 return "No answer generated."
 
             answer = response.choices[0].message.content
-            if answer:
+            if isinstance(answer, str) and answer:
                 logger.info(
                     f"Received response from {provider} API",
                     model=request_params["model"],
@@ -580,7 +608,7 @@ class QAChain:
         except Exception as e:
             logger.error(f"{provider} API error: {e}")
             raise LLMError(
-                f"{provider} API error: {str(e)}",
+                f"{provider} API error: {e!s}",
                 provider=provider,
                 model=self.model_name,
                 details=str(e),
@@ -612,10 +640,19 @@ class QAChain:
                             "num_predict": max_tokens if max_tokens else 512,
                         },
                     )
-                    return response.get("response", "")
+                    if isinstance(response, Mapping):
+                        return str(response.get("response", ""))
+
+                    parts: list[str] = []
+                    for chunk in response:
+                        if isinstance(chunk, Mapping):
+                            part = chunk.get("response")
+                            if part:
+                                parts.append(str(part))
+                    return "".join(parts)
                 except Exception as e:
                     raise LLMError(
-                        f"Ollama generation failed: {str(e)}",
+                        f"Ollama generation failed: {e!s}",
                         provider="ollama",
                         model=self.model_name,
                     ) from e
@@ -626,7 +663,7 @@ class QAChain:
 
         except Exception as e:
             raise LLMError(
-                f"Ollama answer generation failed: {str(e)}",
+                f"Ollama answer generation failed: {e!s}",
                 provider="ollama",
                 model=self.model_name,
             ) from e
@@ -639,18 +676,15 @@ class QAChain:
             max_new_tokens = kwargs.get("max_tokens", self.max_tokens)
             temperature = kwargs.get("temperature", self.temperature)
 
+            pipe = await self._get_hf_pipeline()
+
             def _run() -> str:
                 try:
-                    # Get cached pipeline
-                    pipe = self._hf_pipeline
-                    if pipe is None:
-                        raise RuntimeError("HuggingFace pipeline not initialized")
-
                     # Generate with proper parameters
                     out = pipe(
                         prompt,
                         max_new_tokens=max_new_tokens,
-                        do_sample=True if temperature and temperature > 0 else False,
+                        do_sample=bool(temperature and temperature > 0),
                         temperature=max(0.1, float(temperature))
                         if temperature
                         else 0.1,
@@ -660,7 +694,8 @@ class QAChain:
 
                     # Extract generated text
                     if isinstance(out, list) and len(out) > 0:
-                        text = out[0].get("generated_text", "")
+                        generated_text = out[0].get("generated_text", "")
+                        text = str(generated_text) if generated_text else ""
                     else:
                         text = str(out) if out else ""
 
@@ -674,7 +709,7 @@ class QAChain:
         except Exception as e:
             logger.error(f"HF local generation error: {e}")
             raise LLMError(
-                f"HF local generation error: {str(e)}",
+                f"HF local generation error: {e!s}",
                 provider="hf_local",
                 model=self.model_name,
                 details=str(e),
@@ -695,7 +730,15 @@ class QAChain:
                 prompt_length=len(prompt),
             )
 
-            response = await self.async_client.messages.create(
+            client = self.async_client
+            if not isinstance(client, anthropic.AsyncAnthropic):
+                raise LLMError(
+                    "Anthropic client is not initialized",
+                    provider="anthropic",
+                    model=self.model_name,
+                )
+
+            response = await client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -703,12 +746,12 @@ class QAChain:
             )
             if response.content and len(response.content) > 0:
                 first_block = response.content[0]
-                return getattr(first_block, "text", "")
+                return str(getattr(first_block, "text", ""))
             return ""
         except Exception as e:
             logger.error(f"Anthropic API call failed: {e}")
             raise LLMError(
-                f"Anthropic generation failed: {str(e)}",
+                f"Anthropic generation failed: {e!s}",
                 provider="anthropic",
                 model=self.model_name,
                 details=str(e),
@@ -725,9 +768,9 @@ class QAChain:
         self,
         question: str,
         language: str = "en",
-        context_docs: Optional[List[VectorDocument]] = None,
+        context_docs: list[VectorDocument] | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Synchronous version of answer method.
 
@@ -745,8 +788,8 @@ class QAChain:
         return asyncio.run(self.answer(question, language, context_docs, **kwargs))
 
     async def batch_answer(
-        self, questions: List[str], language: str = "en", **kwargs: Any
-    ) -> List[Dict[str, Any]]:
+        self, questions: list[str], language: str = "en", **kwargs: Any
+    ) -> list[dict[str, Any]]:
         """
         Generate answers for multiple questions.
 
@@ -764,7 +807,7 @@ class QAChain:
             try:
                 answer = await self.answer(question, language, **kwargs)
                 answers.append(answer)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.error(f"Error answering question '{question}': {e}")
                 error_answer = {
                     "answer": self._get_error_message(language),
@@ -780,21 +823,29 @@ class QAChain:
 
         return answers
 
-    def get_chain_info(self) -> Dict[str, Any]:
+    def get_chain_info(self) -> dict[str, Any]:
         """Get information about the QA chain configuration."""
         return {
             "llm_provider": self.llm_provider,
             "model_name": self.model_name,
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
-            "retriever_info": self.retriever.get_retriever_info(),
+            "retriever_info": (
+                self.retriever.get_retriever_info()
+                if self.retriever is not None
+                else {"status": "not_configured"}
+            ),
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check on the QA chain."""
         try:
-            # Test retriever
-            retriever_health = await self.retriever.health_check()
+            # Test retriever when one is configured.
+            retriever_health = (
+                await self.retriever.health_check()
+                if self.retriever is not None
+                else {"status": "not_configured"}
+            )
 
             # Test LLM with simple question
             test_response = await self.answer(
@@ -824,9 +875,9 @@ class QAChain:
         self,
         question: str,
         answer_text: str,
-        context_docs: List[VectorDocument],
+        context_docs: list[VectorDocument],
         model_name: str,
-        response_data: Dict[str, Any],
+        response_data: dict[str, Any],
     ) -> None:
         """
         Record quality metrics for the generated response.
@@ -855,10 +906,11 @@ class QAChain:
             )
 
             # Extract context text for utilization calculation
-            context_texts = []
-            for doc in context_docs:
-                if hasattr(doc, "content") and doc.content:
-                    context_texts.append(doc.content)
+            context_texts = [
+                doc.content
+                for doc in context_docs
+                if hasattr(doc, "content") and doc.content
+            ]
 
             # Record to quality evaluator
             quality_evaluator.record_response_quality(
@@ -898,9 +950,9 @@ class QAChain:
         self,
         question: str,
         answer_text: str,
-        context_docs: List[VectorDocument],
-        response_data: Dict[str, Any],
-    ) -> Dict[str, float]:
+        context_docs: list[VectorDocument],
+        response_data: dict[str, Any],
+    ) -> dict[str, float]:
         """
         Calculate quality scores for the response.
 
@@ -987,7 +1039,7 @@ class QAChain:
         return length_score * 0.7 + indicator_score * 0.3
 
     def _calculate_relevance_score(
-        self, answer_text: str, context_docs: List[VectorDocument]
+        self, answer_text: str, context_docs: list[VectorDocument]
     ) -> float:
         """Calculate relevance score based on context utilization."""
         if not answer_text or not context_docs:
@@ -1077,7 +1129,7 @@ class QAChain:
         return structure_score * 0.6 + flow_score * 0.4
 
     def _calculate_factual_accuracy_score(
-        self, answer_text: str, context_docs: List[VectorDocument]
+        self, answer_text: str, context_docs: list[VectorDocument]
     ) -> float:
         """Calculate factual accuracy score (simplified heuristic)."""
         if not answer_text or not context_docs:
@@ -1116,8 +1168,8 @@ class QAChain:
     def _calculate_confidence_score(
         self,
         answer_text: str,
-        context_docs: List[VectorDocument],
-        quality_scores: Dict[str, float],
+        context_docs: list[VectorDocument],
+        quality_scores: dict[str, float],
     ) -> float:
         """
         Calculate confidence score for the response.
@@ -1132,7 +1184,7 @@ class QAChain:
         """
         try:
             # Base confidence from quality scores
-            avg_quality = (
+            avg_quality = float(
                 np.mean(list(quality_scores.values())) if quality_scores else 0.0
             )
 
@@ -1184,9 +1236,9 @@ class QAChain:
         question: str,
         response_model: Any,
         language: str = "en",
-        context_docs: Optional[List[VectorDocument]] = None,
+        context_docs: list[VectorDocument] | None = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate structured answer using instructor for Pydantic models.
 
@@ -1210,20 +1262,31 @@ class QAChain:
         try:
             import instructor
 
-            # Get context if not provided
+            # Get context if not provided.
             if context_docs is None:
-                context_docs = await self.retriever.retrieve(question, top_k=5)
+                context_docs = (
+                    await self.retriever.retrieve(question, top_k=5)
+                    if self.retriever is not None
+                    else []
+                )
 
-            # Build prompt
-            prompt = self.prompt_builder.build_prompt(
-                question=question,
-                context_docs=context_docs,
+            # Build prompt using the same typed QA prompt path as regular answers.
+            prompt = self.prompt_builder.build_qa_prompt(
+                question,
+                context_docs,
                 language=language,
             )
 
             # Generate structured response
             if self.llm_provider == "openai":
-                client = instructor.from_openai(self.async_client)
+                openai_client = self.async_client
+                if not isinstance(openai_client, AsyncOpenAI):
+                    raise LLMError(
+                        "OpenAI client is not initialized",
+                        provider="openai",
+                        model=self.model_name,
+                    )
+                client = instructor.from_openai(openai_client)
                 structured_response = await client.chat.completions.create(
                     model=self.model_name,
                     messages=[{"role": "user", "content": prompt}],
@@ -1254,7 +1317,7 @@ class QAChain:
         except Exception as e:
             logger.error(f"Error generating structured answer: {e}")
             raise LLMError(
-                f"Structured answer generation failed: {str(e)}",
+                f"Structured answer generation failed: {e!s}",
                 provider=self.llm_provider,
                 model=self.model_name,
             ) from e  # Default neutral confidence

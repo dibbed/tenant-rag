@@ -5,19 +5,16 @@ This module provides comprehensive document retrieval functionality with
 similarity search, filtering, and ranking capabilities.
 """
 
+import contextlib
 import time
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any
+from unittest.mock import AsyncMock
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager
 from ragbot.rag.exceptions import RetrievalError
-
-try:
-    from unittest.mock import AsyncMock  # type: ignore
-except Exception:  # pragma: no cover
-    AsyncMock = None  # Fallback when unavailable
 from ragbot.rag.store.base import BaseVectorStore, VectorDocument
 
 
@@ -29,7 +26,9 @@ class DocumentRetriever:
     including similarity search, filtering, and result ranking.
     """
 
-    def __init__(self, vector_store: BaseVectorStore, embedder, **kwargs: Any) -> None:
+    def __init__(
+        self, vector_store: BaseVectorStore, embedder: Any, **kwargs: Any
+    ) -> None:
         """
         Initialize document retriever.
 
@@ -62,11 +61,11 @@ class DocumentRetriever:
     async def retrieve(
         self,
         query: str,
-        top_k: Optional[int] = None,
-        filters: Optional[Dict[str, Any]] = None,
-        similarity_threshold: Optional[float] = None,
+        top_k: int | None = None,
+        filters: dict[str, Any] | None = None,
+        similarity_threshold: float | None = None,
         **kwargs: Any,
-    ) -> List[VectorDocument]:
+    ) -> list[VectorDocument]:
         """
         Retrieve relevant documents for a query.
 
@@ -88,9 +87,10 @@ class DocumentRetriever:
 
         try:
             start_time = time.time()
+            q_len = len(query.split())
 
             # Small helper to support both sync and async callables
-            async def _maybe_await(value):
+            async def _maybe_await(value: Any) -> Any:
                 if hasattr(value, "__await__"):
                     return await value
                 return value
@@ -113,7 +113,7 @@ class DocumentRetriever:
                     res = self.embedder.embed_text(cached_key)
                     tmp = await _maybe_await(res)
                     if isinstance(tmp, list) and (
-                        not tmp or isinstance(tmp[0], (int, float))
+                        not tmp or isinstance(tmp[0], int | float)
                     ):
                         query_embedding = tmp
                         used_embed_text = True
@@ -129,17 +129,12 @@ class DocumentRetriever:
                     raise RuntimeError("No usable embedding method on embedder")
             except Exception as e:
                 raise RetrievalError(
-                    f"Failed to embed query: {str(e)}", query=query, details=str(e)
+                    f"Failed to embed query: {e!s}", query=query, details=str(e)
                 ) from e
 
             # Determine top_k and similarity threshold
             k = int(top_k or self.top_k)
-            dyn_threshold = (
-                similarity_threshold
-                if similarity_threshold is not None
-                else self.similarity_threshold
-            )
-            docs: List[Any] = []
+            docs: list[Any] = []
             path_used = "unknown"
             try:
                 # Prefer explicitly configured async mocks/methods to avoid MagicMock auto-attrs
@@ -153,9 +148,9 @@ class DocumentRetriever:
                     # If tests explicitly configured `query` on the mock, prefer it
                     use_query = "query" in getattr(self.vector_store, "__dict__", {})
                 if not use_query:
-                    if AsyncMock is not None and isinstance(vs_query, AsyncMock):
+                    if isinstance(vs_query, AsyncMock):
                         use_query = True
-                    elif AsyncMock is not None and isinstance(vs_search, AsyncMock):
+                    elif isinstance(vs_search, AsyncMock):
                         use_query = False
                     else:
                         # Fall back to available method names (stable feature probing)
@@ -169,7 +164,7 @@ class DocumentRetriever:
 
                 if use_query and callable(vs_query):
                     # Tests expect we pass similarity_threshold when using query
-                    res = self.vector_store.query(
+                    res = vs_query(
                         query_embedding,
                         top_k=k,
                         similarity_threshold=similarity_threshold,
@@ -203,16 +198,14 @@ class DocumentRetriever:
                 raise
             except Exception as e:
                 raise RetrievalError(
-                    f"Failed to query vector store: {str(e)}",
+                    f"Failed to query vector store: {e!s}",
                     query=query,
                     details=str(e),
                 ) from e
 
             # Sort by score if available
-            try:
+            with contextlib.suppress(Exception):
                 docs.sort(key=lambda d: getattr(d, "score", 0.0), reverse=True)
-            except Exception:
-                pass
 
             # Apply post-filtering by similarity_threshold for both paths when explicitly provided
             threshold_to_use = similarity_threshold
@@ -322,16 +315,16 @@ class DocumentRetriever:
             metrics_manager.record_error("document_retrieval", "retriever")
             logger.error(f"Error retrieving documents: {e}")
             raise RetrievalError(
-                f"Failed to retrieve documents: {str(e)}", query=query, details=str(e)
+                f"Failed to retrieve documents: {e!s}", query=query, details=str(e)
             ) from e
 
     async def retrieve_by_embedding(
         self,
-        query_embedding: List[float],
-        top_k: Optional[int] = None,
-        filters: Optional[Dict[str, Any]] = None,
+        query_embedding: list[float],
+        top_k: int | None = None,
+        filters: dict[str, Any] | None = None,
         **kwargs: Any,
-    ) -> List[VectorDocument]:
+    ) -> list[VectorDocument]:
         """
         Retrieve documents using a pre-computed embedding.
 
@@ -375,12 +368,12 @@ class DocumentRetriever:
             metrics_manager.record_error("document_retrieval", "retriever")
             logger.error(f"Error retrieving documents by embedding: {e}")
             raise RetrievalError(
-                f"Failed to retrieve documents by embedding: {str(e)}", details=str(e)
+                f"Failed to retrieve documents by embedding: {e!s}", details=str(e)
             ) from e
 
     async def _rerank_documents(
-        self, query: str, documents: List[VectorDocument]
-    ) -> List[VectorDocument]:
+        self, query: str, documents: list[VectorDocument]
+    ) -> list[VectorDocument]:
         """
         Rerank documents using additional relevance scoring.
 
@@ -419,8 +412,8 @@ class DocumentRetriever:
             return documents
 
     def _limit_context_length(
-        self, documents: List[VectorDocument]
-    ) -> List[VectorDocument]:
+        self, documents: list[VectorDocument]
+    ) -> list[VectorDocument]:
         """
         Limit documents to fit within context length constraints.
 
@@ -433,7 +426,7 @@ class DocumentRetriever:
         if not documents:
             return documents
 
-        limited_docs: List[VectorDocument] = []
+        limited_docs: list[VectorDocument] = []
 
         # Truncate documents individually to the max_context_length rather than enforcing
         # a global budget. Tests expect both a truncated long doc and subsequent short docs.
@@ -455,8 +448,8 @@ class DocumentRetriever:
         return limited_docs
 
     def _limit_context_length_tokensafe(
-        self, documents: List[VectorDocument]
-    ) -> List[VectorDocument]:
+        self, documents: list[VectorDocument]
+    ) -> list[VectorDocument]:
         """
         Token-aware context limiting with character fallback.
 
@@ -481,7 +474,7 @@ class DocumentRetriever:
                 return max(1, len(txt) // 4)
 
         max_tokens = max(1, int(self.max_context_length))
-        limited_docs: List[VectorDocument] = []
+        limited_docs: list[VectorDocument] = []
 
         for doc in documents:
             content = doc.content or ""
@@ -526,7 +519,7 @@ class DocumentRetriever:
 
         return limited_docs
 
-    def get_retriever_info(self) -> Dict[str, Any]:
+    def get_retriever_info(self) -> dict[str, Any]:
         """Get information about the retriever configuration."""
         return {
             "top_k": self.top_k,
@@ -537,7 +530,7 @@ class DocumentRetriever:
             "embedder_type": type(self.embedder).__name__,
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check on the retriever."""
         try:
             # Test retrieval with a simple query

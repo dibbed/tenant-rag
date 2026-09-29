@@ -7,7 +7,7 @@ from web URLs with proper error handling and content sanitization.
 
 import asyncio
 import re
-from typing import Any, Dict
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 try:
@@ -23,6 +23,8 @@ try:
     BS4_AVAILABLE = True
 except ImportError:
     BS4_AVAILABLE = False
+
+import contextlib
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -86,7 +88,7 @@ class URLLoader(BaseLoader):
 
         # Test compatibility shim for aioresponses CallbackResult when referenced via function
         try:
-            import aioresponses as _aioresp_mod  # type: ignore
+            import aioresponses as _aioresp_mod
 
             if hasattr(_aioresp_mod, "aioresponses") and not hasattr(
                 _aioresp_mod.aioresponses, "CallbackResult"
@@ -97,7 +99,7 @@ class URLLoader(BaseLoader):
                         self,
                         status: int = 200,
                         body: str = "",
-                        headers: Dict[str, Any] | None = None,
+                        headers: dict[str, Any] | None = None,
                         method: str = "GET",
                         content_type: str | None = "text/html",
                         payload: Any | None = None,
@@ -113,7 +115,8 @@ class URLLoader(BaseLoader):
                         self.response_class = response_class
                         self.reason = reason
 
-                _aioresp_mod.aioresponses.CallbackResult = _CallbackResult
+                aioresponses_cls: Any = _aioresp_mod.aioresponses
+                aioresponses_cls.CallbackResult = _CallbackResult
         except Exception:
             pass
 
@@ -160,12 +163,8 @@ class URLLoader(BaseLoader):
                 return False
 
             # Basic domain validation
-            if not re.match(
-                r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", parsed.netloc.split(":")[0]
-            ):
-                return False
-
-            return True
+            host = parsed.netloc.split(":")[0]
+            return re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", host) is not None
 
         except Exception:
             return False
@@ -330,7 +329,7 @@ class URLLoader(BaseLoader):
         except Exception as e:
             logger.error(f"Unexpected error loading URL: {e}", source=source)
             raise DocumentProcessingError(
-                f"Failed to fetch URL: {str(e)}",
+                f"Failed to fetch URL: {e!s}",
                 document_type="url",
                 source=source,
                 details=str(e),
@@ -338,7 +337,7 @@ class URLLoader(BaseLoader):
 
     def _extract_metadata(
         self, soup: BeautifulSoup, response: Any, source: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Extract metadata from HTML document.
 
@@ -356,7 +355,7 @@ class URLLoader(BaseLoader):
                 final_url_val = str(final_url_val)
             except Exception:
                 final_url_val = source
-            metadata = {
+            metadata: dict[str, Any] = {
                 "url": source,
                 "source": source,
                 "source_type": "url",
@@ -503,7 +502,7 @@ class URLLoader(BaseLoader):
             main_content = soup.find("body") or soup
 
         # Extract text from the selected content area
-        text_content = main_content.get_text(separator="\n", strip=True)
+        text_content: str = str(main_content.get_text(separator="\n", strip=True))
 
         # Clean up the text
         text_content = self._clean_text(text_content)
@@ -551,11 +550,9 @@ class URLLoader(BaseLoader):
                 text[-2000:],
             ]
             for seg in segments:
-                try:
+                with contextlib.suppress(Exception):
                     if seg and seg.strip():
                         votes.append(detect(seg))
-                except Exception:
-                    continue
             if votes:
                 from collections import Counter as _Ctr
 
@@ -573,10 +570,8 @@ class URLLoader(BaseLoader):
                 if not txt:
                     continue
                 marker = "#" * max(1, min(level, 6))
-                try:
+                with contextlib.suppress(Exception):
                     tag["data-original-text"] = txt
-                except Exception:
-                    pass
                 tag.string = f"{marker} {txt}"
 
     def _extract_headings(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
@@ -592,13 +587,13 @@ class URLLoader(BaseLoader):
                 out.append({"level": level, "text": txt})
         return out
 
-    def _build_headers(self) -> Dict[str, str]:
+    def _build_headers(self) -> dict[str, str]:
         ua_mode = settings.multi_format.html_user_agent_mode
         fixed = settings.multi_format.html_user_agent
         user_agent = fixed
         try:
             if ua_mode in ("random", "chrome", "firefox", "auto"):
-                from fake_useragent import UserAgent  # type: ignore
+                from fake_useragent import UserAgent
 
                 ua = UserAgent()
                 if ua_mode in ("random", "auto"):
@@ -610,7 +605,7 @@ class URLLoader(BaseLoader):
         except Exception:
             user_agent = fixed
 
-        headers: Dict[str, str] = {"User-Agent": user_agent}
+        headers: dict[str, str] = {"User-Agent": user_agent}
         # Extra headers
         extra_json = settings.multi_format.html_custom_headers
         if extra_json:
@@ -618,9 +613,9 @@ class URLLoader(BaseLoader):
                 import json
 
                 extra = json.loads(extra_json)
-                for k, v in extra.items():
-                    if isinstance(k, str) and isinstance(v, str):
-                        headers[k] = v
+                headers.update(
+                    {k: v for k, v in extra.items() if isinstance(k, str) and isinstance(v, str)}
+                )
             except Exception:
                 pass
 
@@ -635,11 +630,11 @@ class URLLoader(BaseLoader):
         headers.setdefault("Accept-Encoding", "gzip, deflate, br")
         return headers
 
-    def _cookies_from_settings(self) -> Dict[str, str] | None:
+    def _cookies_from_settings(self) -> dict[str, str] | None:
         raw = settings.multi_format.html_cookies
         if not raw:
             return None
-        jar: Dict[str, str] = {}
+        jar: dict[str, str] = {}
         try:
             for part in raw.split(";"):
                 token = part.strip()

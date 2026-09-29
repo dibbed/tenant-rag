@@ -7,7 +7,7 @@ with proper error handling, rate limiting, and caching support.
 
 import asyncio
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     from openai import AsyncOpenAI, OpenAI
@@ -22,16 +22,18 @@ except ImportError:
         pass
 
     class AsyncOpenAI:  # type: ignore
-        def __init__(self, *_, **__):
+        def __init__(self, *_: Any, **__: Any) -> None:
             pass
 
     class OpenAI:  # type: ignore
-        def __init__(self, *_, **__):
+        def __init__(self, *_: Any, **__: Any) -> None:
             pass
 
 
 # from ragbot.caching import cache_manager  # Lazy import to avoid circular dependency
 # Note: caching in sync path is intentionally skipped to avoid async calls
+import contextlib
+
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager
@@ -80,7 +82,7 @@ class OpenAIEmbedder(BaseEmbedder):
         self.async_client = AsyncOpenAI(api_key=self.api_key, timeout=self.timeout)
 
         # Rate limiting
-        self.last_request_time = 0
+        self.last_request_time = 0.0
         self.request_interval = 60.0 / self.rate_limit_rpm  # Seconds between requests
 
         # Model-specific configurations
@@ -105,7 +107,7 @@ class OpenAIEmbedder(BaseEmbedder):
         """Get the maximum token limit for the current model."""
         return self.model_configs.get(self.model_name, {}).get("max_tokens", 8191)
 
-    async def embed_texts(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    async def embed_texts(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """
         Generate embeddings for a list of texts asynchronously.
 
@@ -133,13 +135,11 @@ class OpenAIEmbedder(BaseEmbedder):
             model = kwargs.get("model", self.model_name)
 
             # metrics hook
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_start(texts, **kwargs)
-            except Exception:
-                pass
 
             # Check cache for each text
-            embeddings = []
+            embeddings: list[list[float] | None] = []
             texts_to_embed = []
             cache_keys = []
             cache_indices = []
@@ -191,7 +191,7 @@ class OpenAIEmbedder(BaseEmbedder):
 
                 # Cache new embeddings and fill in placeholders
                 for i, (cache_key, embedding) in enumerate(
-                    zip(cache_keys, new_embeddings)
+                    zip(cache_keys, new_embeddings, strict=False)
                 ):
                     # Cache the embedding
                     await cache_manager.cache_embedding(cache_key, model, embedding)
@@ -221,13 +221,15 @@ class OpenAIEmbedder(BaseEmbedder):
                 else 0,
             )
 
-            # metrics hook end
-            try:
-                self._on_embed_end(texts, embeddings, duration, **kwargs)
-            except Exception:
-                pass
+            completed_embeddings = [
+                embedding for embedding in embeddings if embedding is not None
+            ]
 
-            return embeddings
+            # metrics hook end
+            with contextlib.suppress(Exception):
+                self._on_embed_end(texts, completed_embeddings, duration, **kwargs)
+
+            return completed_embeddings
 
         except Exception as e:
             metrics_manager.record_error("embedding_generation", "openai")
@@ -235,27 +237,27 @@ class OpenAIEmbedder(BaseEmbedder):
 
             if "rate limit" in str(e).lower():
                 raise EmbeddingError(
-                    f"OpenAI rate limit exceeded: {str(e)}",
+                    f"OpenAI rate limit exceeded: {e!s}",
                     provider="openai",
                     model=self.model_name,
                     details=str(e),
                 ) from e
             elif "invalid" in str(e).lower():
                 raise EmbeddingError(
-                    f"Invalid request to OpenAI: {str(e)}",
+                    f"Invalid request to OpenAI: {e!s}",
                     provider="openai",
                     model=self.model_name,
                     details=str(e),
                 ) from e
             else:
                 raise EmbeddingError(
-                    f"OpenAI embedding generation failed: {str(e)}",
+                    f"OpenAI embedding generation failed: {e!s}",
                     provider="openai",
                     model=self.model_name,
                     details=str(e),
                 ) from e
 
-    async def embed_text(self, text: str, **kwargs: Any) -> List[float]:
+    async def embed_text(self, text: str, **kwargs: Any) -> list[float]:
         """
         Generate embedding for a single text (compatibility method).
 
@@ -272,7 +274,7 @@ class OpenAIEmbedder(BaseEmbedder):
         embeddings = await self.embed_texts([text], **kwargs)
         return embeddings[0] if embeddings else []
 
-    def embed_texts_sync(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    def embed_texts_sync(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """
         Generate embeddings for a list of texts synchronously.
 
@@ -297,10 +299,8 @@ class OpenAIEmbedder(BaseEmbedder):
             start_time = time.time()
 
             # metrics hook
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_start(texts, **kwargs)
-            except Exception:
-                pass
 
             # Preprocess texts
             processed_texts = [self.preprocess_text(text) for text in texts]
@@ -328,10 +328,8 @@ class OpenAIEmbedder(BaseEmbedder):
             metrics_manager.record_query_processing(
                 language="unknown", status="success", llm_duration=duration
             )
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_end(texts, out, duration, **kwargs)
-            except Exception:
-                pass
 
             logger.debug(
                 f"Generated {len(out)} embeddings (sync)",
@@ -352,31 +350,31 @@ class OpenAIEmbedder(BaseEmbedder):
 
             if "rate limit" in str(e).lower():
                 raise EmbeddingError(
-                    f"OpenAI rate limit exceeded: {str(e)}",
+                    f"OpenAI rate limit exceeded: {e!s}",
                     provider="openai",
                     model=self.model_name,
                     details=str(e),
                 ) from e
             else:
                 raise EmbeddingError(
-                    f"OpenAI embedding generation failed: {str(e)}",
+                    f"OpenAI embedding generation failed: {e!s}",
                     provider="openai",
                     model=self.model_name,
                     details=str(e),
                 ) from e
 
     async def _make_request_with_retries(
-        self, request_params: Dict[str, Any]
+        self, request_params: dict[str, Any]
     ) -> CreateEmbeddingResponse:
         """Make API request with retry logic."""
-        last_exception = None
+        last_exception: Exception | None = None
 
         for attempt in range(self.max_retries):
             try:
                 response = await self.async_client.embeddings.create(**request_params)
                 return response
 
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 last_exception = e
 
                 # Check if we should retry
@@ -402,20 +400,26 @@ class OpenAIEmbedder(BaseEmbedder):
                 break
 
         # All retries failed
-        raise last_exception
+        if last_exception is not None:
+            raise last_exception
+        raise EmbeddingError(
+            "OpenAI embedding request failed without an exception",
+            provider="openai",
+            model=self.model_name,
+        )
 
     def _make_request_with_retries_sync(
-        self, request_params: Dict[str, Any]
+        self, request_params: dict[str, Any]
     ) -> CreateEmbeddingResponse:
         """Make API request with retry logic (synchronous)."""
-        last_exception = None
+        last_exception: Exception | None = None
 
         for attempt in range(self.max_retries):
             try:
                 response = self.client.embeddings.create(**request_params)
                 return response
 
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 last_exception = e
 
                 # Check if we should retry
@@ -441,7 +445,13 @@ class OpenAIEmbedder(BaseEmbedder):
                 break
 
         # All retries failed
-        raise last_exception
+        if last_exception is not None:
+            raise last_exception
+        raise EmbeddingError(
+            "OpenAI embedding request failed without an exception",
+            provider="openai",
+            model=self.model_name,
+        )
 
     async def _apply_rate_limit(self) -> None:
         """Apply rate limiting for API requests."""
@@ -480,12 +490,12 @@ class OpenAIEmbedder(BaseEmbedder):
 
         return text
 
-    def postprocess_embedding(self, embedding: List[float]) -> List[float]:
+    def postprocess_embedding(self, embedding: list[float]) -> list[float]:
         """Postprocess OpenAI embedding."""
         # OpenAI embeddings are already normalized, but we can add custom processing here
         return embedding
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check on OpenAI embedding service."""
         try:
             # Test with a simple text

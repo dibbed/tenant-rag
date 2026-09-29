@@ -9,48 +9,45 @@ This module provides advanced query capabilities including:
 """
 
 from .aggregation import (
-    QueryAggregator,
-    AggregationType,
     AggregationQuery,
     AggregationResult,
+    AggregationType,
+    QueryAggregator,
 )
-
 from .filters import (
     AdvancedFilter,
-    FilterOperator,
-    FilterCondition,
     CompositeFilter,
+    FilterCondition,
+    FilterOperator,
     GeoFilter,
 )
-
-from .scoring import CustomScorer, ScoringStrategy, ScoredDocument
-
 from .optimizer import (
-    QueryOptimizer,
-    OptimizationStrategy,
-    QueryPlan,
     OptimizationResult,
+    OptimizationStrategy,
+    QueryOptimizer,
+    QueryPlan,
 )
+from .scoring import CustomScorer, ScoredDocument, ScoringStrategy
 
 __all__ = [
-    # Aggregation
-    "QueryAggregator",
-    "AggregationType",
-    "AggregationQuery",
-    "AggregationResult",
     # Filtering
     "AdvancedFilter",
-    "FilterOperator",
-    "FilterCondition",
+    "AggregationQuery",
+    "AggregationResult",
+    "AggregationType",
     "CompositeFilter",
-    "GeoFilter",
     # Scoring
     "CustomScorer",
-    "ScoringStrategy",
-    "ScoredDocument",
+    "FilterCondition",
+    "FilterOperator",
+    "GeoFilter",
+    "OptimizationResult",
+    "OptimizationStrategy",
+    # Aggregation
+    "QueryAggregator",
     # Optimization
     "QueryOptimizer",
-    "OptimizationStrategy",
     "QueryPlan",
-    "OptimizationResult",
+    "ScoredDocument",
+    "ScoringStrategy",
 ]

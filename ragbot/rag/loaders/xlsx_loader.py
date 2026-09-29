@@ -2,10 +2,11 @@
 بارگذاری اسناد Excel (XLSX) با همگام‌سازی متادیتا و رفتار با سایر لودرها.
 """
 
+import contextlib
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -19,16 +20,13 @@ from .base import Document, DocumentLoader
 class XLSXLoader(DocumentLoader):
     """بارگذاری اسناد Excel"""
 
-    async def load(self, file_path: str, **kwargs: Any) -> Document:
-        """
-        بارگذاری فایل Excel
-
-        Args:
-            file_path: مسیر فایل XLSX
-
-        Returns:
-            سند استخراج شده
-        """
+    async def load(
+        self, source: str | None = None, **kwargs: Any
+    ) -> Document:
+        """بارگذاری فایل Excel."""
+        file_path = source if source is not None else kwargs.pop("file_path", None)
+        if not isinstance(file_path, str):
+            raise TypeError("load() requires a source path")
         try:
             path = Path(file_path)
             is_mocked = hasattr(getattr(pd, "ExcelFile", None), "return_value")
@@ -52,7 +50,7 @@ class XLSXLoader(DocumentLoader):
 
             # بارگذاری تمام sheet ها (فقط nrows محدود برای کارایی)
             excel_file = pd.ExcelFile(str(path))
-            sheets_data: Dict[str, Dict[str, Any]] = {}
+            sheets_data: dict[str, dict[str, Any]] = {}
             all_text: list[str] = []
             total_rows = 0
             total_cells = 0
@@ -61,7 +59,7 @@ class XLSXLoader(DocumentLoader):
             include_headers = bool(
                 getattr(settings.multi_format, "excel_include_headers", True)
             )
-            max_sheets: Optional[int] = None
+            max_sheets: int | None = None
             try:
                 max_sheets_val = getattr(
                     settings.multi_format, "excel_max_sheets", None
@@ -81,7 +79,7 @@ class XLSXLoader(DocumentLoader):
                     break
                 # خواندن sheet با محدودیت nrows برای کارایی
                 try:
-                    read_kwargs: Dict[str, Any] = {
+                    read_kwargs: dict[str, Any] = {
                         "sheet_name": sheet_name,
                         "nrows": max_rows,
                     }
@@ -101,7 +99,7 @@ class XLSXLoader(DocumentLoader):
                 # تبدیل به متن
                 # Accumulate counters
                 try:
-                    total_rows += int(len(df))
+                    total_rows += len(df)
                     total_cells += int(df.size)
                 except Exception:
                     pass
@@ -240,9 +238,9 @@ class XLSXLoader(DocumentLoader):
         return "\n".join(text_parts)
 
     # Optional language detection: reuses project-wide approach
-    def _detect_language_voted(self, text: str) -> Optional[str]:
+    def _detect_language_voted(self, text: str) -> str | None:
         try:
-            from langdetect import detect  # type: ignore
+            from langdetect import detect
         except Exception:
             return None
         try:
@@ -256,11 +254,9 @@ class XLSXLoader(DocumentLoader):
             ]
             votes: list[str] = []
             for ch in chunks:
-                try:
+                with contextlib.suppress(Exception):
                     if ch.strip():
                         votes.append(detect(ch))
-                except Exception:
-                    continue
             if not votes:
                 return None
             from collections import Counter
@@ -272,7 +268,7 @@ class XLSXLoader(DocumentLoader):
 
 def _estimate_tokens(text: str) -> int:
     try:
-        import tiktoken  # type: ignore
+        import tiktoken
 
         try:
             enc = tiktoken.get_encoding("cl100k_base")

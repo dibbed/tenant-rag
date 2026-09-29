@@ -6,7 +6,8 @@ multi-language support, context formatting, and customizable templates.
 """
 
 import string
-from typing import Any, List, Optional, Set, Union
+from collections.abc import Sequence
+from typing import Any
 
 from ragbot.outputs.logger import logger
 from ragbot.rag.store.base import VectorDocument
@@ -23,7 +24,7 @@ class PromptTemplate:
     def __init__(
         self,
         template: str,
-        input_variables: Optional[List[str]] = None,
+        input_variables: list[str] | None = None,
     ) -> None:
         """
         Initialize a PromptTemplate.
@@ -41,10 +42,10 @@ class PromptTemplate:
         self.input_variables = input_variables if input_variables is not None else extracted
 
     @staticmethod
-    def _extract_variables(template_str: str) -> List[str]:
+    def _extract_variables(template_str: str) -> list[str]:
         """Extract variable names enclosed in braces from the template string."""
         formatter = string.Formatter()
-        variables: List[str] = []
+        variables: list[str] = []
         for _, field_name, _, _ in formatter.parse(template_str):
             if field_name is not None and field_name and field_name not in variables:
                 variables.append(field_name)
@@ -135,12 +136,8 @@ Answer:""",
 
     def build_qa_prompt(
         self,
-        context_or_question: Union[
-            List[str], str
-        ],  # First parameter - can be context or question
-        question_or_context: Optional[
-            Union[List[str], str]
-        ] = None,  # Second parameter - can be question or context
+        context_or_question: Sequence[str | VectorDocument] | str,
+        question_or_context: Sequence[str | VectorDocument] | str | None = None,
         language: str = "en",
         **kwargs: Any,
     ) -> str:
@@ -163,35 +160,41 @@ Answer:""",
         if context_or_question is None:
             raise ValueError("Context or question cannot be None")
 
-        if isinstance(context_or_question, list):
-            context_documents = context_or_question
-            question = question_or_context
-        else:
+        context_documents: list[str | VectorDocument]
+        question: str | None
+        if isinstance(context_or_question, str):
             question = context_or_question
-            context_documents = question_or_context or []
+            context_documents = (
+                list(question_or_context)
+                if question_or_context is not None
+                and not isinstance(question_or_context, str)
+                else []
+            )
+        else:
+            context_documents = list(context_or_question)
+            question = question_or_context if isinstance(question_or_context, str) else None
 
-        if question is None:
-            raise ValueError("Question cannot be None")
-        if not isinstance(question, str) or not question.strip():
+        if question is None or not question.strip():
             raise ValueError("Question cannot be empty")
 
         language = language or "en"
 
         try:
 
-            # Convert strings to VectorDocument objects if needed
-            if context_documents and isinstance(context_documents[0], str):
-                vector_docs = [
-                    VectorDocument(
-                        id=f"context_{i}",
-                        content=text,
-                        embedding=[],
-                        metadata={"source": f"context_{i}"},
+            # Normalize context items to VectorDocument objects.
+            vector_docs: list[VectorDocument] = []
+            for i, item in enumerate(context_documents):
+                if isinstance(item, VectorDocument):
+                    vector_docs.append(item)
+                else:
+                    vector_docs.append(
+                        VectorDocument(
+                            id=f"context_{i}",
+                            content=item,
+                            embedding=[],
+                            metadata={"source": f"context_{i}"},
+                        )
                     )
-                    for i, text in enumerate(context_documents)
-                ]
-            else:
-                vector_docs = context_documents or []
 
             # Format context from documents
             context_text = self._format_context_documents(
@@ -245,7 +248,7 @@ Answer:""",
             )
 
     def _format_context_documents(
-        self, documents: List[VectorDocument], language: str, **kwargs: Any
+        self, documents: list[VectorDocument], language: str, **kwargs: Any
     ) -> str:
         """Format context documents into a single text."""
         if not documents:
@@ -395,11 +398,11 @@ Answer: {no_context_msg}"""
         self.templates[name] = template
         logger.debug(f"Added custom template: {name}")
 
-    def get_template(self, name: str) -> Optional[str]:
+    def get_template(self, name: str) -> str | None:
         """Get a template by name."""
         return self.templates.get(name)
 
-    def list_templates(self) -> List[str]:
+    def list_templates(self) -> list[str]:
         """List all available template names."""
         return list(self.templates.keys())
 

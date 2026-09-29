@@ -3,17 +3,19 @@
 """
 
 import asyncio
+import contextlib
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager, retrieval_evaluator
+from ragbot.rag.embeddings.base import BaseEmbedder
 from ragbot.rag.exceptions import RetrievalError
+from ragbot.rag.store.base import BaseVectorStore, VectorDocument
 
-from ..store.base import VectorDocument
 from .hybrid_search import HybridRetriever
 from .query_expansion import QueryExpander
 from .reranker import CrossEncoderReranker
@@ -24,21 +26,21 @@ class AdvancedRetriever:
 
     def __init__(
         self,
-        vector_store,
-        embedder=None,
-        enable_reranking: Optional[bool] = None,
-        enable_hybrid: Optional[bool] = None,
-        enable_expansion: Optional[bool] = None,
-        reranker_model: Optional[str] = None,
-        reranker_threshold: Optional[float] = None,
-        expansion_type: Optional[str] = None,
-        hybrid_alpha: Optional[float] = None,
-        keyword_search_enabled: Optional[bool] = None,
-        confidence_threshold: Optional[float] = None,
-        max_expanded_queries: Optional[int] = None,
-        initial_search_multiplier: Optional[int] = None,
+        vector_store: BaseVectorStore,
+        embedder: BaseEmbedder | None = None,
+        enable_reranking: bool | None = None,
+        enable_hybrid: bool | None = None,
+        enable_expansion: bool | None = None,
+        reranker_model: str | None = None,
+        reranker_threshold: float | None = None,
+        expansion_type: str | None = None,
+        hybrid_alpha: float | None = None,
+        keyword_search_enabled: bool | None = None,
+        confidence_threshold: float | None = None,
+        max_expanded_queries: int | None = None,
+        initial_search_multiplier: int | None = None,
         **kwargs: Any,
-    ):
+    ) -> None:
         """
         Initialize advanced retriever with settings integration
 
@@ -80,8 +82,8 @@ class AdvancedRetriever:
             if reranker_threshold is not None
             else getattr(adv_settings, "reranker_threshold", 0.7)
         )
-        self.expansion_type = expansion_type or getattr(
-            adv_settings, "expansion_type", "synonym"
+        self.expansion_type: str = str(
+            expansion_type or getattr(adv_settings, "expansion_type", "synonym")
         )
         self.hybrid_alpha = (
             hybrid_alpha
@@ -147,7 +149,7 @@ class AdvancedRetriever:
         )
 
         # Cache برای expanded queries
-        self._query_cache: Dict[str, List[str]] = {}
+        self._query_cache: dict[str, list[str]] = {}
         self._cache_max_size = getattr(adv_settings, "query_cache_size", 100)
 
         logger.info(
@@ -163,11 +165,11 @@ class AdvancedRetriever:
         self,
         query: str,
         top_k: int = 4,
-        use_reranking: Optional[bool] = None,
-        use_hybrid: Optional[bool] = None,
-        use_expansion: Optional[bool] = None,
+        use_reranking: bool | None = None,
+        use_hybrid: bool | None = None,
+        use_expansion: bool | None = None,
         **kwargs: Any,
-    ) -> List[VectorDocument]:
+    ) -> list[VectorDocument]:
         """
         جستجوی پیشرفته با تمام قابلیت‌ها و مدیریت خطای بهبود یافته
 
@@ -189,7 +191,7 @@ class AdvancedRetriever:
             raise ValueError("Query is empty")
 
         start_time = time.time()
-        retrieval_metadata = {
+        retrieval_metadata: dict[str, Any] = {
             "query": query,
             "top_k": top_k,
             "stages": {},
@@ -228,7 +230,7 @@ class AdvancedRetriever:
                         )
 
                         if expanded:
-                            expanded_queries = list(dict.fromkeys([query] + expanded))[
+                            expanded_queries = list(dict.fromkeys([query, *expanded]))[
                                 : self.max_expanded_queries + 1
                             ]
                             # ذخیره در cache
@@ -251,16 +253,18 @@ class AdvancedRetriever:
                     retrieval_metadata["stages"]["expansion"] = "timeout"
                 except Exception as e:
                     logger.warning(f"Query expansion failed: {e}")
-                    retrieval_metadata["errors"].append(f"expansion_error: {str(e)}")
+                    retrieval_metadata["errors"].append(f"expansion_error: {e!s}")
                     retrieval_metadata["stages"]["expansion"] = "failed"
             else:
                 retrieval_metadata["stages"]["expansion"] = "disabled"
 
             # مرحله 2: جستجوی اولیه (برای همه پرسش‌های گسترش‌یافته) و ادغام
             search_start = time.time()
-            merged: List[VectorDocument] = []
-            seen_ids = set()
-            seen_contents = set() if self.enable_content_dedup else None
+            merged: list[VectorDocument] = []
+            seen_ids: set[str] = set()
+            seen_contents: set[int] | None = (
+                set() if self.enable_content_dedup else None
+            )
 
             for q in expanded_queries:
                 try:
@@ -295,7 +299,7 @@ class AdvancedRetriever:
 
                 except Exception as e:
                     logger.warning(f"Search failed for query '{q}': {e}")
-                    retrieval_metadata["errors"].append(f"search_error: {str(e)}")
+                    retrieval_metadata["errors"].append(f"search_error: {e!s}")
 
             initial_results = merged
             retrieval_metadata["stages"]["search"] = "success"
@@ -339,7 +343,7 @@ class AdvancedRetriever:
                         retrieval_metadata["stages"]["reranking"] = "success_basic"
                     except Exception as e2:
                         logger.warning(f"Basic rerank also failed: {e2}")
-                        retrieval_metadata["errors"].append(f"rerank_error: {str(e2)}")
+                        retrieval_metadata["errors"].append(f"rerank_error: {e2!s}")
                         retrieval_metadata["stages"]["reranking"] = "failed"
                         final_results = initial_results[:top_k]
 
@@ -416,10 +420,10 @@ class AdvancedRetriever:
             metrics_manager.record_error("advanced_retrieval", "retriever")
             logger.error(f"Advanced retrieval failed: {e}")
             raise RetrievalError(
-                f"Failed to retrieve documents: {str(e)}", query=query, details=str(e)
+                f"Failed to retrieve documents: {e!s}", query=query, details=str(e)
             ) from e
 
-    async def _basic_search(self, query: str, top_k: int) -> List[VectorDocument]:
+    async def _basic_search(self, query: str, top_k: int) -> list[VectorDocument]:
         """جستجوی پایه"""
         if not self.embedder:
             return []
@@ -435,7 +439,7 @@ class AdvancedRetriever:
 
     async def retrieve_with_confidence(
         self, query: str, top_k: int = 4, **kwargs: Any
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         جستجو با امتیاز اطمینان بهبود یافته
 
@@ -460,7 +464,7 @@ class AdvancedRetriever:
         # فیلتر بر اساس threshold
         filtered_results = []
         filtered_scores = []
-        for result, score in zip(results, confidence_scores):
+        for result, score in zip(results, confidence_scores, strict=False):
             if score >= self.confidence_threshold:
                 filtered_results.append(result)
                 filtered_scores.append(score)
@@ -504,8 +508,8 @@ class AdvancedRetriever:
         }
 
     async def _calculate_confidence_scores_batch(
-        self, query: str, results: List[VectorDocument]
-    ) -> List[float]:
+        self, query: str, results: list[VectorDocument]
+    ) -> list[float]:
         """محاسبه امتیازات اطمینان با batch processing برای کارایی بهتر"""
         if not self.embedder or not results:
             return [0.5] * len(results)
@@ -532,8 +536,8 @@ class AdvancedRetriever:
             return await self._calculate_confidence_scores_fallback(query, results)
 
     async def _calculate_confidence_scores_fallback(
-        self, query: str, results: List[VectorDocument]
-    ) -> List[float]:
+        self, query: str, results: list[VectorDocument]
+    ) -> list[float]:
         """Fallback برای محاسبه confidence scores"""
         if not self.embedder:
             return [0.5] * len(results)
@@ -543,29 +547,28 @@ class AdvancedRetriever:
             confidence_scores = []
 
             for result in results:
-                try:
+                similarity = 0.5  # Fallback score
+                with contextlib.suppress(Exception):
                     doc_embedding = await self.embedder.embed_texts([result.content])
                     similarity = self._cosine_similarity(
                         query_embedding[0], doc_embedding[0]
                     )
-                    confidence_scores.append(similarity)
-                except Exception:
-                    confidence_scores.append(0.5)  # Fallback score
+                confidence_scores.append(similarity)
 
             return confidence_scores
 
         except Exception:
             return [0.5] * len(results)
 
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+    def _cosine_similarity(self, vec1: list[float], vec2: list[float]) -> float:
         """محاسبه شباهت کسینوسی با numpy"""
         try:
-            vec1 = np.array(vec1)
-            vec2 = np.array(vec2)
+            arr1 = np.asarray(vec1, dtype=float)
+            arr2 = np.asarray(vec2, dtype=float)
 
-            dot_product = np.dot(vec1, vec2)
-            norm1 = np.linalg.norm(vec1)
-            norm2 = np.linalg.norm(vec2)
+            dot_product = np.dot(arr1, arr2)
+            norm1 = np.linalg.norm(arr1)
+            norm2 = np.linalg.norm(arr2)
 
             if norm1 == 0 or norm2 == 0:
                 return 0.0
@@ -574,7 +577,7 @@ class AdvancedRetriever:
         except Exception:
             return 0.0
 
-    def get_retriever_info(self) -> Dict[str, Any]:
+    def get_retriever_info(self) -> dict[str, Any]:
         """دریافت اطلاعات تنظیمات retriever"""
         return {
             "enable_reranking": self.enable_reranking,
@@ -595,7 +598,7 @@ class AdvancedRetriever:
             "cache_max_size": self._cache_max_size,
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """بررسی سلامت retriever"""
         try:
             # تست جستجوی ساده
@@ -634,10 +637,10 @@ class AdvancedRetriever:
     def _record_advanced_metrics(
         self,
         query: str,
-        expanded_queries: List[str],
-        initial_results: List[VectorDocument],
-        final_results: List[VectorDocument],
-        retrieval_metadata: Dict[str, Any],
+        expanded_queries: list[str],
+        initial_results: list[VectorDocument],
+        final_results: list[VectorDocument],
+        retrieval_metadata: dict[str, Any],
         total_duration: float,
     ) -> None:
         """

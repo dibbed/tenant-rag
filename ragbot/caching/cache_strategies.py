@@ -7,7 +7,7 @@
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class CacheStrategy(Enum):
@@ -50,8 +50,8 @@ class CacheStrategyBase(ABC):
 
     @abstractmethod
     async def find_match(
-        self, query: str, cache_entries: Dict[str, Any]
-    ) -> Optional[Any]:
+        self, query: str, cache_entries: dict[str, Any]
+    ) -> Any | None:
         """یافتن تطبیق در کش.
 
         Args:
@@ -107,8 +107,8 @@ class SemanticCacheStrategy(CacheStrategyBase):
         return confidence_score >= 0.7
 
     async def find_match(
-        self, query: str, cache_entries: Dict[str, Any]
-    ) -> Optional[Any]:
+        self, query: str, cache_entries: dict[str, Any]
+    ) -> Any | None:
         """یافتن تطبیق معنایی.
 
         Args:
@@ -132,7 +132,7 @@ class SemanticCacheStrategy(CacheStrategyBase):
             امتیاز اولویت
         """
         # اولویت بر اساس کیفیت و مرتبط بودن
-        return entry.confidence_score * 0.7 + entry.access_count * 0.3
+        return float(entry.confidence_score * 0.7 + entry.access_count * 0.3)
 
 
 class ExactCacheStrategy(CacheStrategyBase):
@@ -158,8 +158,8 @@ class ExactCacheStrategy(CacheStrategyBase):
         return True
 
     async def find_match(
-        self, query: str, cache_entries: Dict[str, Any]
-    ) -> Optional[Any]:
+        self, query: str, cache_entries: dict[str, Any]
+    ) -> Any | None:
         """یافتن تطبیق دقیق.
 
         Args:
@@ -170,7 +170,7 @@ class ExactCacheStrategy(CacheStrategyBase):
             ورودی کش تطبیق یا None
         """
         # جستجوی دقیق
-        for key, entry in cache_entries.items():
+        for entry in cache_entries.values():
             if entry.query == query:
                 return entry
         return None
@@ -184,7 +184,7 @@ class ExactCacheStrategy(CacheStrategyBase):
         Returns:
             امتیاز اولویت
         """
-        return entry.access_count
+        return float(entry.access_count)
 
 
 class FuzzyCacheStrategy(CacheStrategyBase):
@@ -218,8 +218,8 @@ class FuzzyCacheStrategy(CacheStrategyBase):
         return len(answer) > 10 and confidence_score >= 0.6
 
     async def find_match(
-        self, query: str, cache_entries: Dict[str, Any]
-    ) -> Optional[Any]:
+        self, query: str, cache_entries: dict[str, Any]
+    ) -> Any | None:
         """یافتن تطبیق فازی.
 
         Args:
@@ -244,7 +244,7 @@ class FuzzyCacheStrategy(CacheStrategyBase):
         """
         # اولویت بر اساس کیفیت و زمان
         time_factor = 1.0 / (time.time() - entry.timestamp + 1)
-        return (
+        return float(
             entry.confidence_score * 0.5 + entry.access_count * 0.3 + time_factor * 0.2
         )
 
@@ -255,7 +255,7 @@ class HybridCacheStrategy(CacheStrategyBase):
     این کلاس استراتژی کش ترکیبی را پیاده‌سازی می‌کند.
     """
 
-    def __init__(self, strategies: List[CacheStrategyBase]):
+    def __init__(self, strategies: list[CacheStrategyBase]):
         """مقداردهی اولیه استراتژی کش ترکیبی.
 
         Args:
@@ -286,8 +286,8 @@ class HybridCacheStrategy(CacheStrategyBase):
         return sum(results) > len(results) / 2
 
     async def find_match(
-        self, query: str, cache_entries: Dict[str, Any]
-    ) -> Optional[Any]:
+        self, query: str, cache_entries: dict[str, Any]
+    ) -> Any | None:
         """یافتن تطبیق ترکیبی.
 
         Args:
@@ -329,7 +329,9 @@ class CacheStrategyFactory:
     """
 
     @staticmethod
-    def create_strategy(strategy_type: CacheStrategy, **kwargs) -> CacheStrategyBase:
+    def create_strategy(
+        strategy_type: CacheStrategy, **kwargs: Any
+    ) -> CacheStrategyBase:
         """ایجاد استراتژی کش.
 
         Args:
@@ -384,12 +386,12 @@ class CacheStrategyManager:
     این کلاس استراتژی‌های کش را مدیریت می‌کند.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """مقداردهی اولیه مدیر استراتژی‌ها."""
-        self.strategies: Dict[str, CacheStrategyBase] = {}
-        self.active_strategy: Optional[CacheStrategyBase] = None
+        self.strategies: dict[str, CacheStrategyBase] = {}
+        self.active_strategy: CacheStrategyBase | None = None
 
-    def add_strategy(self, name: str, strategy: CacheStrategyBase):
+    def add_strategy(self, name: str, strategy: CacheStrategyBase) -> None:
         """اضافه کردن استراتژی.
 
         Args:
@@ -398,7 +400,7 @@ class CacheStrategyManager:
         """
         self.strategies[name] = strategy
 
-    def set_active_strategy(self, name: str):
+    def set_active_strategy(self, name: str) -> None:
         """تنظیم استراتژی فعال.
 
         Args:
@@ -411,7 +413,7 @@ class CacheStrategyManager:
             raise KeyError(f"Strategy '{name}' not found")
         self.active_strategy = self.strategies[name]
 
-    def get_active_strategy(self) -> Optional[CacheStrategyBase]:
+    def get_active_strategy(self) -> CacheStrategyBase | None:
         """دریافت استراتژی فعال.
 
         Returns:
@@ -419,7 +421,7 @@ class CacheStrategyManager:
         """
         return self.active_strategy
 
-    def get_strategy(self, name: str) -> Optional[CacheStrategyBase]:
+    def get_strategy(self, name: str) -> CacheStrategyBase | None:
         """دریافت استراتژی با نام.
 
         Args:
@@ -430,7 +432,7 @@ class CacheStrategyManager:
         """
         return self.strategies.get(name)
 
-    def list_strategies(self) -> List[str]:
+    def list_strategies(self) -> list[str]:
         """لیست نام استراتژی‌ها.
 
         Returns:
@@ -438,7 +440,7 @@ class CacheStrategyManager:
         """
         return list(self.strategies.keys())
 
-    async def evaluate_strategy_performance(self, name: str) -> Dict[str, Any]:
+    async def evaluate_strategy_performance(self, name: str) -> dict[str, Any]:
         """ارزیابی عملکرد استراتژی.
 
         Args:
@@ -450,7 +452,7 @@ class CacheStrategyManager:
         if name not in self.strategies:
             raise KeyError(f"Strategy '{name}' not found")
 
-        strategy = self.strategies[name]
+        _strategy = self.strategies[name]
 
         # اینجا می‌توانید منطق ارزیابی عملکرد را اضافه کنید
         return {

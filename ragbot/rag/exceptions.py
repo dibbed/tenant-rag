@@ -5,13 +5,13 @@ This module defines custom exception classes for better error handling
 and debugging throughout the RAG pipeline.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 
 class RAGError(Exception):
     """Base exception for RAG operations."""
 
-    def __init__(self, message: str, details: Optional[Any] = None) -> None:
+    def __init__(self, message: str, details: Any | None = None) -> None:
         """
         Initialize RAG error.
 
@@ -36,9 +36,9 @@ class DocumentProcessingError(RAGError):
     def __init__(
         self,
         message: str,
-        document_type: Optional[str] = None,
-        source: Optional[str] = None,
-        details: Optional[Any] = None,
+        document_type: str | None = None,
+        source: str | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize document processing error.
@@ -60,9 +60,9 @@ class EmbeddingError(RAGError):
     def __init__(
         self,
         message: str,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        details: Optional[Any] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize embedding error.
@@ -84,9 +84,9 @@ class VectorStoreError(RAGError):
     def __init__(
         self,
         message: str,
-        operation: Optional[str] = None,
-        store_type: Optional[str] = None,
-        details: Optional[Any] = None,
+        operation: str | None = None,
+        store_type: str | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize vector store error.
@@ -106,7 +106,7 @@ class RetrievalError(RAGError):
     """Exception raised during document retrieval."""
 
     def __init__(
-        self, message: str, query: Optional[str] = None, details: Optional[Any] = None
+        self, message: str, query: str | None = None, details: Any | None = None
     ) -> None:
         """
         Initialize retrieval error.
@@ -126,10 +126,10 @@ class LLMError(RAGError):
     def __init__(
         self,
         message: str,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        prompt_length: Optional[int] = None,
-        details: Optional[Any] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        prompt_length: int | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize LLM error.
@@ -153,8 +153,8 @@ class ConfigurationError(RAGError):
     def __init__(
         self,
         message: str,
-        config_key: Optional[str] = None,
-        details: Optional[Any] = None,
+        config_key: str | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize configuration error.
@@ -174,9 +174,9 @@ class RateLimitError(RAGError):
     def __init__(
         self,
         message: str,
-        user_id: Optional[int] = None,
-        retry_after: Optional[int] = None,
-        details: Optional[Any] = None,
+        user_id: int | None = None,
+        retry_after: int | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize rate limit error.
@@ -198,9 +198,9 @@ class ValidationError(RAGError):
     def __init__(
         self,
         message: str,
-        field: Optional[str] = None,
-        value: Optional[Any] = None,
-        details: Optional[Any] = None,
+        field: str | None = None,
+        value: Any | None = None,
+        details: Any | None = None,
     ) -> None:
         """
         Initialize validation error.
@@ -232,9 +232,9 @@ class TenantStorageError(VectorStoreError):
     def __init__(
         self,
         message: str,
-        tenant_id: Optional[str] = None,
-        operation: Optional[str] = None,
-        details: Optional[Any] = None,
+        tenant_id: str | None = None,
+        operation: str | None = None,
+        details: Any | None = None,
     ) -> None:
         super().__init__(message, operation=operation, store_type=None, details=details)
         self.tenant_id = tenant_id

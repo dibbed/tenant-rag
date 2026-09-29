@@ -10,7 +10,7 @@ import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -18,8 +18,7 @@ from sentence_transformers import SentenceTransformer
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import cache_analytics, metrics_manager
-
-from ..rag.embeddings.base import Embedder
+from ragbot.rag.embeddings.base import Embedder
 
 
 @dataclass
@@ -39,15 +38,15 @@ class CacheEntry:
     """
 
     query: str
-    query_embedding: List[float]
+    query_embedding: list[float]
     answer: str
-    context: List[str]
-    metadata: Dict[str, Any]
+    context: list[str]
+    metadata: dict[str, Any]
     timestamp: float
     access_count: int
     last_access: float
     confidence_score: float
-    tenant_id: Optional[str] = None
+    tenant_id: str | None = None
 
 
 class SemanticCache:
@@ -62,8 +61,8 @@ class SemanticCache:
         similarity_threshold: float = 0.8,
         max_size: int = 1000,
         ttl_seconds: int = 3600,
-        embedder: Optional[Embedder] = None,
-    ):
+        embedder: Embedder | None = None,
+    ) -> None:
         """مقداردهی اولیه کش معنایی.
 
         Args:
@@ -78,8 +77,8 @@ class SemanticCache:
         self.embedder = embedder
 
         # Cache storage
-        self.cache: Dict[str, CacheEntry] = {}
-        self.embedding_cache: Dict[str, List[float]] = {}
+        self.cache: dict[str, CacheEntry] = {}
+        self.embedding_cache: dict[str, list[float]] = {}
 
         # Statistics
         self.hit_count = 0
@@ -87,12 +86,12 @@ class SemanticCache:
         self.eviction_count = 0
 
         # Background tasks
-        self._cleanup_task = None
+        self._cleanup_task: asyncio.Task[None] | None = None
         self._start_cleanup_task()
 
     async def get_similar_answer(
-        self, query: str, tenant_id: Optional[str] = None
-    ) -> Optional[CacheEntry]:
+        self, query: str, tenant_id: str | None = None
+    ) -> CacheEntry | None:
         """جستجوی پاسخ مشابه در کش با تفکیک tenant.
 
         Args:
@@ -144,10 +143,10 @@ class SemanticCache:
         self,
         query: str,
         answer: str,
-        context: List[str],
-        metadata: Dict[str, Any],
+        context: list[str],
+        metadata: dict[str, Any],
         confidence_score: float = 1.0,
-        tenant_id: Optional[str] = None,
+        tenant_id: str | None = None,
     ) -> None:
         """ذخیره پاسخ در کش با تفکیک tenant.
 
@@ -186,7 +185,7 @@ class SemanticCache:
         # ذخیره در کش
         self.cache[cache_key] = cache_entry
 
-    async def _get_query_embedding(self, query: str) -> List[float]:
+    async def _get_query_embedding(self, query: str) -> list[float]:
         """دریافت جاسازی پرسش.
 
         Args:
@@ -228,8 +227,8 @@ class SemanticCache:
                     device = getattr(
                         getattr(settings, "llm", object()), "hf_device", None
                     )
-                    _emb = STEmbedder(model_name=model_name, device=device)
-                    _vecs = await _emb.embed_texts([query])
+                    st_embedder = STEmbedder(model_name=model_name, device=device)
+                    _vecs = await st_embedder.embed_texts([query])
                     query_embedding = _vecs[0]
                 elif provider == "openai" and getattr(settings, "openai_api_key", None):
                     # مسیر آنلاین: OpenAIEmbedder
@@ -237,8 +236,8 @@ class SemanticCache:
                         OpenAIEmbedder,  # lazy import
                     )
 
-                    _emb = OpenAIEmbedder(api_key=settings.openai_api_key)
-                    _vecs = await _emb.embed_texts([query])
+                    openai_embedder = OpenAIEmbedder(api_key=settings.openai_api_key)
+                    _vecs = await openai_embedder.embed_texts([query])
                     query_embedding = _vecs[0]
                 else:
                     # تلاش برای SentenceTransformer با مدل پیکربندی‌شده (fallback محلی)
@@ -256,7 +255,7 @@ class SemanticCache:
                     query_embedding = _model.encode([query])[0].tolist()
             except Exception:
                 # fallback نهایی: بردار شبه‌تصادفیِ قطعی تا مسیر از کار نیفتد
-                import numpy as _np  # type: ignore
+                import numpy as _np
 
                 h = int(hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()[:8], 16)
                 _np.random.seed(h)
@@ -272,8 +271,8 @@ class SemanticCache:
         return query_embedding
 
     async def _find_best_match(
-        self, query_embedding: List[float], tenant_id: Optional[str] = None
-    ) -> Optional[CacheEntry]:
+        self, query_embedding: list[float], tenant_id: str | None = None
+    ) -> CacheEntry | None:
         """یافتن بهترین تطبیق در کش با در نظر گرفتن شناسه tenant.
 
         Args:
@@ -307,7 +306,7 @@ class SemanticCache:
 
         return best_match
 
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+    def _cosine_similarity(self, vec1: list[float], vec2: list[float]) -> float:
         """محاسبه شباهت کسینوسی بین دو بردار.
 
         Args:
@@ -317,20 +316,20 @@ class SemanticCache:
         Returns:
             مقدار شباهت کسینوسی (0.0 تا 1.0)
         """
-        vec1 = np.array(vec1)
-        vec2 = np.array(vec2)
+        arr1 = np.asarray(vec1, dtype=float)
+        arr2 = np.asarray(vec2, dtype=float)
 
-        dot_product = np.dot(vec1, vec2)
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
+        dot_product = np.dot(arr1, arr2)
+        norm1 = np.linalg.norm(arr1)
+        norm2 = np.linalg.norm(arr2)
 
         if norm1 == 0 or norm2 == 0:
             return 0.0
 
-        return dot_product / (norm1 * norm2)
+        return float(dot_product / (norm1 * norm2))
 
     def _generate_cache_key(
-        self, query: str, embedding: List[float], tenant_id: Optional[str] = None
+        self, query: str, embedding: list[float], tenant_id: str | None = None
     ) -> str:
         """تولید کلید یکتای کش با تفکیک tenant.
 
@@ -392,14 +391,14 @@ class SemanticCache:
     def _start_cleanup_task(self) -> None:
         """شروع کار پاک‌سازی پس‌زمینه."""
 
-        async def cleanup_loop():
+        async def cleanup_loop() -> None:
             while True:
                 await asyncio.sleep(300)  # هر 5 دقیقه
                 await self._cleanup_expired()
 
         self._cleanup_task = asyncio.create_task(cleanup_loop())
 
-    async def get_cache_stats(self) -> Dict[str, Any]:
+    async def get_cache_stats(self) -> dict[str, Any]:
         """دریافت آمار کش.
 
         Returns:
@@ -419,7 +418,7 @@ class SemanticCache:
             "ttl_seconds": self.ttl_seconds,
         }
 
-    async def clear_cache(self, tenant_id: Optional[str] = None) -> None:
+    async def clear_cache(self, tenant_id: str | None = None) -> None:
         """پاک‌سازی کامل کش یا پاک‌سازی ورودی‌های یک tenant مشخص."""
         if tenant_id is not None:
             keys_to_delete = [
@@ -438,7 +437,7 @@ class SemanticCache:
 
     clear = clear_cache
 
-    async def export_cache(self) -> Dict[str, Any]:
+    async def export_cache(self) -> dict[str, Any]:
         """صادرات کش.
 
         Returns:
@@ -449,7 +448,7 @@ class SemanticCache:
             "stats": await self.get_cache_stats(),
         }
 
-    async def import_cache(self, cache_data: Dict[str, Any]) -> None:
+    async def import_cache(self, cache_data: dict[str, Any]) -> None:
         """واردات کش.
 
         Args:

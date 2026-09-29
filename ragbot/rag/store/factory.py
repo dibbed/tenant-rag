@@ -6,21 +6,25 @@ with automatic fallback mechanisms, capability detection, and store comparison.
 """
 
 import importlib
-from typing import Any, Dict, List
+from collections.abc import Awaitable, Generator
+from typing import Any, ClassVar
 
 from ragbot.outputs.logger import logger
-from ragbot.rag.store.base import BaseVectorStore
+from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
 
 
 class AwaitableStoreProxy(BaseVectorStore):
     """Transparent proxy that allows vector stores to be used both synchronously and awaited."""
 
-    def __init__(self, target: Any) -> None:
+    _target: BaseVectorStore
+
+    def __init__(self, target: BaseVectorStore) -> None:
         self.__dict__["_target"] = target
 
-    def __await__(self):
-        async def _resolve():
-            return self.__dict__["_target"]
+    def __await__(self) -> Generator[Any, None, BaseVectorStore]:
+        async def _resolve() -> BaseVectorStore:
+            return self._target
+
         return _resolve().__await__()
 
     def __getattr__(self, name: str) -> Any:
@@ -33,25 +37,33 @@ class AwaitableStoreProxy(BaseVectorStore):
             setattr(self.__dict__["_target"], name, value)
 
     def get_store_type(self) -> str:
-        target = self.__dict__["_target"]
-        if hasattr(target, "get_store_type"):
-            return target.get_store_type()
-        return getattr(target, "store_type", "unknown")
+        return self._target.get_store_type()
 
-    def add_documents(self, *args: Any, **kwargs: Any) -> Any:
-        return self.__dict__["_target"].add_documents(*args, **kwargs)
+    async def add_documents(
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
+        return await self._target.add_documents(documents, **kwargs)
 
-    def search(self, *args: Any, **kwargs: Any) -> Any:
-        return self.__dict__["_target"].search(*args, **kwargs)
+    async def add_texts(
+        self,
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
+        return await self._target.add_texts(texts, embeddings, metadata)
 
-    def delete_documents(self, *args: Any, **kwargs: Any) -> Any:
-        return self.__dict__["_target"].delete_documents(*args, **kwargs)
+    def search(
+        self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
+    ) -> Awaitable[SearchResult]:
+        return self._target.search(query_embedding, top_k=top_k, **kwargs)
 
-    def get_document_count(self, *args: Any, **kwargs: Any) -> Any:
-        target = self.__dict__["_target"]
-        if hasattr(target, "get_document_count"):
-            return target.get_document_count(*args, **kwargs)
-        return len(getattr(target, "documents", []))
+    async def delete_documents(
+        self, document_ids: list[str], **kwargs: Any
+    ) -> list[str]:
+        return await self._target.delete_documents(document_ids, **kwargs)
+
+    def get_document_count(self) -> int:
+        return self._target.get_document_count()
 
 
 class VectorStoreFactory:
@@ -66,7 +78,7 @@ class VectorStoreFactory:
     """
 
     # Registry of available store implementations
-    _store_registry: Dict[str, Dict[str, Any]] = {
+    _store_registry: ClassVar[dict[str, dict[str, Any]]] = {
         "faiss": {
             "class_name": "FAISSVectorStore",
             "module_path": "ragbot.rag.store.faiss_store",
@@ -226,7 +238,7 @@ class VectorStoreFactory:
             return cls._create_fallback_store(**kwargs)
 
     @classmethod
-    def get_available_stores(cls) -> List[str]:
+    def get_available_stores(cls) -> list[str]:
         """
         Get list of available vector store types.
 
@@ -236,7 +248,7 @@ class VectorStoreFactory:
         return list(cls._store_registry.keys())
 
     @classmethod
-    def get_store_info(cls, store_type: str) -> Dict[str, Any]:
+    def get_store_info(cls, store_type: str) -> dict[str, Any]:
         """
         Get detailed information about a specific store type.
 
@@ -259,7 +271,7 @@ class VectorStoreFactory:
         return store_info
 
     @classmethod
-    def get_all_stores_info(cls) -> Dict[str, Dict[str, Any]]:
+    def get_all_stores_info(cls) -> dict[str, dict[str, Any]]:
         """
         Get information about all available store types.
 
@@ -268,7 +280,7 @@ class VectorStoreFactory:
         """
         return {
             store_type: cls.get_store_info(store_type)
-            for store_type in cls._store_registry.keys()
+            for store_type in cls._store_registry
         }
 
     @classmethod
@@ -276,7 +288,7 @@ class VectorStoreFactory:
         cls,
         use_case: str = "general",
         dataset_size: str = "medium",
-        features_required: List[str] = None,
+        features_required: list[str] | None = None,
     ) -> str:
         """
         Recommend the best store type based on requirements.
@@ -351,7 +363,7 @@ class VectorStoreFactory:
         return "faiss"
 
     @classmethod
-    def _check_dependencies(cls, dependencies: List[str]) -> bool:
+    def _check_dependencies(cls, dependencies: list[str]) -> bool:
         """
         Check if all required dependencies are available.
 
@@ -387,8 +399,8 @@ class VectorStoreFactory:
 
         try:
             # Try FAISS as fallback - directly import and create without going through create_store
-            from ragbot.rag.store.faiss_store import FAISSStore
             from ragbot.configs.settings import settings
+            from ragbot.rag.store.faiss_store import FAISSStore
 
             # Remove store_type from kwargs to avoid conflicts
             fallback_kwargs = {k: v for k, v in kwargs.items() if k != "store_type"}
@@ -413,8 +425,8 @@ class VectorStoreFactory:
         store_type: str,
         class_name: str,
         module_path: str,
-        dependencies: List[str],
-        capabilities: Dict[str, bool],
+        dependencies: list[str],
+        capabilities: dict[str, bool],
         description: str,
         best_for: str,
     ) -> None:
@@ -463,8 +475,8 @@ class VectorStoreFactory:
 
     @classmethod
     def validate_store_config(
-        cls, store_type: str, config: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        cls, store_type: str, config: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Validate configuration for a specific store type.
 
@@ -484,8 +496,8 @@ class VectorStoreFactory:
                 "warnings": [],
             }
 
-        errors = []
-        warnings = []
+        errors: list[str] = []
+        warnings: list[str] = []
 
         # Basic validation logic (can be extended per store type)
         if store_type == "faiss":
@@ -500,12 +512,11 @@ class VectorStoreFactory:
                 if not isinstance(name, str) or not name.strip():
                     errors.append("collection_name must be a non-empty string")
 
-        elif store_type == "qdrant":
-            if "url" in config:
-                url = config["url"]
-                if not isinstance(url, str) or not url.startswith(
-                    ("http://", "https://")
-                ):
-                    errors.append("url must be a valid HTTP/HTTPS URL")
+        elif store_type == "qdrant" and "url" in config:
+            url = config["url"]
+            if not isinstance(url, str) or not url.startswith(
+                ("http://", "https://")
+            ):
+                errors.append("url must be a valid HTTP/HTTPS URL")
 
         return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}

@@ -2,7 +2,8 @@
 بارگذاری اسناد با OCR با متادیتای استاندارد و نرمال‌سازی متن.
 """
 
-from typing import Any, Dict, Optional
+import contextlib
+from typing import Any
 
 import pytesseract
 from PIL import Image
@@ -16,7 +17,7 @@ from .base import Document, DocumentLoader
 class OCRLoader(DocumentLoader):
     """بارگذاری اسناد با OCR"""
 
-    def __init__(self, language: str = None):
+    def __init__(self, language: str | None = None):
         """
         Initialize OCR loader
 
@@ -26,16 +27,13 @@ class OCRLoader(DocumentLoader):
         self.language = language or settings.multi_format.ocr_language
         self.supported_formats = {".png", ".jpg", ".jpeg", ".tiff", ".bmp"}
 
-    async def load(self, file_path: str) -> Document:
-        """
-        بارگذاری فایل تصویری با OCR
-
-        Args:
-            file_path: مسیر فایل تصویری
-
-        Returns:
-            سند استخراج شده
-        """
+    async def load(
+        self, source: str | None = None, **kwargs: Any
+    ) -> Document:
+        """بارگذاری فایل تصویری با OCR."""
+        file_path = source if source is not None else kwargs.pop("file_path", None)
+        if not isinstance(file_path, str):
+            raise TypeError("load() requires a source path")
         try:
             # بررسی فرمت فایل
             ext = "." + file_path.lower().split(".")[-1]
@@ -99,7 +97,7 @@ class OCRLoader(DocumentLoader):
             raise
         except Exception as e:
             raise DocumentProcessingError(
-                f"Failed to load OCR image: {str(e)}",
+                f"Failed to load OCR image: {e!s}",
                 document_type="image",
                 source=file_path,
             ) from e
@@ -122,12 +120,8 @@ class OCRLoader(DocumentLoader):
         # حذف خطوط خالی
         lines = [line.strip() for line in text.split("\n") if line.strip()]
 
-        # حذف کاراکترهای غیرضروری
-        cleaned_lines = []
-        for line in lines:
-            # حذف خطوط کوتاه (احتمالاً خطا)
-            if len(line) > 5:
-                cleaned_lines.append(line)
+        # حذف کاراکترهای غیرضروری / خطوط کوتاه (احتمالاً خطا)
+        cleaned_lines = [line for line in lines if len(line) > 5]
 
         return "\n".join(cleaned_lines)
 
@@ -147,7 +141,7 @@ class OCRLoader(DocumentLoader):
 
     async def _extract_image_metadata(
         self, image: Image.Image, file_path: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """استخراج متادیتای تصویر"""
         metadata = {
             "source": file_path,
@@ -166,7 +160,7 @@ class OCRLoader(DocumentLoader):
 
         return metadata
 
-    def _guess_mime(self, ext: str, image: Optional[Image.Image]) -> str:
+    def _guess_mime(self, ext: str, image: Image.Image | None) -> str:
         mapping = {
             ".png": "image/png",
             ".jpg": "image/jpeg",
@@ -180,7 +174,7 @@ class OCRLoader(DocumentLoader):
 
     def _estimate_tokens(self, text: str) -> int:
         try:
-            import tiktoken  # type: ignore
+            import tiktoken
 
             try:
                 enc = tiktoken.get_encoding("cl100k_base")
@@ -190,9 +184,9 @@ class OCRLoader(DocumentLoader):
         except Exception:
             return len(text.split())
 
-    def _detect_language_voted(self, text: str) -> Optional[str]:
+    def _detect_language_voted(self, text: str) -> str | None:
         try:
-            from langdetect import detect  # type: ignore
+            from langdetect import detect
         except Exception:
             return None
         try:
@@ -206,11 +200,9 @@ class OCRLoader(DocumentLoader):
             ]
             votes: list[str] = []
             for ch in chunks:
-                try:
+                with contextlib.suppress(Exception):
                     if ch.strip():
                         votes.append(detect(ch))
-                except Exception:
-                    continue
             if not votes:
                 return None
             from collections import Counter

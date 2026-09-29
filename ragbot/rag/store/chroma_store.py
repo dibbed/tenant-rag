@@ -8,9 +8,15 @@ SearchResult/VectorDocument compatibility and optional metadata filtering.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, TypeAlias, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable, Sequence
+
+    from chromadb.api.types import Metadata
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -22,8 +28,12 @@ from ragbot.rag.store.base import (
     log_store_errors,
 )
 
+T = TypeVar("T")
+ChromaMetadataValue: TypeAlias = str | int | float | bool | list[str | int | float | bool] | None
+
+
 try:
-    import chromadb  # type: ignore
+    import chromadb
 
     CHROMA_AVAILABLE = True
 except Exception:
@@ -33,7 +43,7 @@ except Exception:
 class ChromaVectorStore(BaseVectorStore):
     """Chroma-based vector store with persistence and metadata support."""
 
-    _DUP_KEYS = {
+    _DUP_KEYS: ClassVar[set[str]] = {
         "language",
         "source_type",
         "mime_type",
@@ -82,50 +92,50 @@ class ChromaVectorStore(BaseVectorStore):
             },
         )
 
-        try:
+        with contextlib.suppress(Exception):
             logger.info(
                 "Chroma store initialized",
                 collection_name=self.collection_name,
                 persist_directory=self.persist_directory,
                 distance_function=self.distance_function,
             )
-        except Exception:
-            pass
 
     def get_store_type(self) -> str:
         """Get the store type identifier."""
         return "chroma"
 
     # -------------- helpers --------------
-    async def _to_thread(self, fn, *args, **kwargs):
+    async def _to_thread(
+        self, fn: Callable[..., T], *args: Any, **kwargs: Any
+    ) -> T:
         return await asyncio.to_thread(fn, *args, **kwargs)
 
     def _build_where_clause(
-        self, metadata_filter: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, metadata_filter: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if not metadata_filter:
             return {}
         if "$and" in metadata_filter or "$or" in metadata_filter:
             return metadata_filter
 
-        where: Dict[str, Any] = {}
+        where: dict[str, Any] = {}
         for k, v in metadata_filter.items():
             if isinstance(v, dict):
-                w: Dict[str, Any] = {}
-                for op, val in v.items():
-                    if op in {
-                        "$eq",
-                        "$ne",
-                        "$gt",
-                        "$gte",
-                        "$lt",
-                        "$lte",
-                        "$in",
-                        "$nin",
-                        "$contains",
-                        "$not_contains",
-                    }:
-                        w[op] = val
+                allowed_ops = {
+                    "$eq",
+                    "$ne",
+                    "$gt",
+                    "$gte",
+                    "$lt",
+                    "$lte",
+                    "$in",
+                    "$nin",
+                    "$contains",
+                    "$not_contains",
+                }
+                w: dict[str, Any] = {
+                    op: val for op, val in v.items() if op in allowed_ops
+                }
                 if not w and ("$and" in v or "$or" in v):
                     # passthrough compound (rare)
                     where[k] = v
@@ -143,18 +153,22 @@ class ChromaVectorStore(BaseVectorStore):
     # -------------- interface --------------
     @log_store_errors("add_documents")
     async def add_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         if not documents:
             return []
         ids = [d.id for d in documents]
         texts = [d.content for d in documents]
-        metadatas = [self._prepare_metadata(d.metadata or {}) for d in documents]
-        embeddings = [d.embedding for d in documents]
+        metadatas: list[Metadata] = [
+            self._prepare_metadata(d.metadata or {}) for d in documents
+        ]
+        embeddings: list[Sequence[float] | Sequence[int]] = [
+            d.embedding for d in documents
+        ]
 
         started = time.time()
 
-        def _upsert():
+        def _upsert() -> None:
             # chroma add/upsert are sync; auto-batch for large inserts
             batch_size = int(
                 kwargs.get(
@@ -196,10 +210,10 @@ class ChromaVectorStore(BaseVectorStore):
     @log_store_errors("add_texts")
     async def add_texts(
         self,
-        texts: List[str],
-        embeddings: Optional[List[List[float]]] = None,
-        metadata: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[str]:
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
         if not texts:
             return []
         if embeddings is None:
@@ -217,28 +231,28 @@ class ChromaVectorStore(BaseVectorStore):
                     id=f"text_{hash(t)}_{i}",
                     content=t or "",
                     embedding=emb,
-                    metadata=doc_meta,
+                    metadata=dict(doc_meta),
                 )
             )
         return await self.add_documents(docs)
 
     @log_store_errors("update_documents")
     async def update_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         # Upsert semantics
         return await self.add_documents(documents, **kwargs)
 
     @log_store_errors("delete_documents")
     async def delete_documents(
-        self, document_ids: List[str], **kwargs: Any
-    ) -> List[str]:
+        self, document_ids: list[str], **kwargs: Any
+    ) -> list[str]:
         if not document_ids:
             return []
 
         started = time.time()
 
-        def _delete():
+        def _delete() -> None:
             self.collection.delete(ids=document_ids)
 
         await self._to_thread(_delete)
@@ -255,15 +269,16 @@ class ChromaVectorStore(BaseVectorStore):
 
     @log_store_errors("search")
     async def search(
-        self, query_embedding: List[float], top_k: int = 10, **kwargs: Any
+        self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
     ) -> SearchResult:
         where = self._build_where_clause(kwargs.get("filters"))
 
         started = time.time()
 
-        def _query():
+        def _query() -> Any:
+            query_embeddings: list[Sequence[float] | Sequence[int]] = [query_embedding]
             return self.collection.query(
-                query_embeddings=[query_embedding],
+                query_embeddings=query_embeddings,
                 n_results=int(top_k),
                 where=where or None,
                 include=["documents", "metadatas", "distances"],
@@ -272,13 +287,13 @@ class ChromaVectorStore(BaseVectorStore):
         try:
             results = await self._to_thread(_query)
             duration = time.time() - started
-            documents: List[VectorDocument] = []
+            documents: list[VectorDocument] = []
             ids = results.get("ids") or [[]]
             docs = results.get("documents") or [[]]
             metas = results.get("metadatas") or [[]]
             dists = results.get("distances") or [[]]
 
-            for doc_id, content, meta, dist in zip(ids[0], docs[0], metas[0], dists[0]):
+            for doc_id, content, meta, dist in zip(ids[0], docs[0], metas[0], dists[0], strict=False):
                 # Convert distance to similarity where higher is better
                 if self.distance_function.lower() == "cosine":
                     score = 1.0 - float(dist)
@@ -304,10 +319,8 @@ class ChromaVectorStore(BaseVectorStore):
                 except Exception:
                     pass
             # Sort by score desc
-            try:
+            with contextlib.suppress(Exception):
                 documents.sort(key=lambda d: d.score or 0.0, reverse=True)
-            except Exception:
-                pass
 
             metrics_manager.record_vector_store_operation(
                 operation="search",
@@ -323,32 +336,36 @@ class ChromaVectorStore(BaseVectorStore):
                 search_time=None,
             )
         except Exception as e:
-            try:
+            with contextlib.suppress(Exception):
                 logger.error(f"Chroma search failed: {e}")
-            except Exception:
-                pass
             raise
 
-    def _sanitize_metadata_value(self, value: Any) -> Any:
+    def _sanitize_metadata_value(self, value: Any) -> ChromaMetadataValue:
         if value is None:
             return None
-        if isinstance(value, (str, int, float, bool)):
+        if isinstance(value, str | int | float | bool):
             return value
         if isinstance(value, list):
-            return [self._sanitize_metadata_value(v) for v in value]
+            normalized_items: list[str | int | float | bool] = []
+            for item in value:
+                if isinstance(item, str | int | float | bool):
+                    normalized_items.append(item)
+                elif item is not None:
+                    normalized_items.append(str(item))
+            return normalized_items
         if isinstance(value, dict):
             return json.dumps(value, ensure_ascii=False)
         return str(value)
 
-    def _prepare_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        normalized: Dict[str, Any] = {}
+    def _prepare_metadata(self, metadata: dict[str, Any]) -> Metadata:
+        normalized: dict[str, ChromaMetadataValue] = {}
         # Extract span if present before sanitization
         span = metadata.get("span")
         if isinstance(span, dict):
             if "start" in span:
-                normalized["span_start"] = span["start"]
+                normalized["span_start"] = self._sanitize_metadata_value(span["start"])
             if "end" in span:
-                normalized["span_end"] = span["end"]
+                normalized["span_end"] = self._sanitize_metadata_value(span["end"])
 
         for key, value in metadata.items():
             if key == "span" and isinstance(value, dict):
@@ -362,13 +379,13 @@ class ChromaVectorStore(BaseVectorStore):
         return normalized
 
     @log_store_errors("get_document")
-    async def get_document(self, document_id: str) -> Optional[VectorDocument]:
-        def _get():
+    async def get_document(self, document_id: str) -> VectorDocument | None:
+        def _get() -> Any:
             # get by ids
             return self.collection.get(
                 ids=[document_id],
                 include=["documents", "metadatas", "embeddings"],
-            )  # type: ignore
+            )
 
         try:
             res = await self._to_thread(_get)
@@ -388,15 +405,15 @@ class ChromaVectorStore(BaseVectorStore):
             return None
 
     @log_store_errors("get_documents")
-    async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+    async def get_documents(self, document_ids: list[str]) -> list[VectorDocument]:
         if not document_ids:
             return []
 
-        def _get():
+        def _get() -> Any:
             return self.collection.get(
                 ids=document_ids,
                 include=["documents", "metadatas", "embeddings"],
-            )  # type: ignore
+            )
 
         try:
             res = await self._to_thread(_get)
@@ -404,7 +421,7 @@ class ChromaVectorStore(BaseVectorStore):
             docs = res.get("documents") or []
             metas = res.get("metadatas") or []
             embs = res.get("embeddings") or []
-            out: List[VectorDocument] = []
+            out: list[VectorDocument] = []
             for i, doc_id in enumerate(ids):
                 out.append(
                     VectorDocument(
@@ -420,16 +437,16 @@ class ChromaVectorStore(BaseVectorStore):
 
     def get_document_count(self) -> int:
         try:
-            return int(self.collection.count())  # type: ignore[attr-defined]
+            return int(self.collection.count())
         except Exception:
             return 0
 
     async def query(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
-        similarity_threshold: Optional[float] = None,
-    ) -> List[VectorDocument]:
+        similarity_threshold: float | None = None,
+    ) -> list[VectorDocument]:
         """Compatibility method: return list of VectorDocuments, optionally thresholded."""
         res = await self.search(query_embedding, top_k=top_k)
         docs = list(res.documents)
@@ -438,17 +455,15 @@ class ChromaVectorStore(BaseVectorStore):
                 d for d in docs if d.score is None or d.score >= similarity_threshold
             ]
         # ensure sorted
-        try:
+        with contextlib.suppress(Exception):
             docs.sort(key=lambda d: d.score or 0.0, reverse=True)
-        except Exception:
-            pass
         return docs
 
     @log_store_errors("clear")
     async def clear(self) -> None:
         started = time.time()
 
-        def _clear():
+        def _clear() -> None:
             # drop and recreate
             self.client.delete_collection(self.collection_name)
             self.collection = self.client.get_or_create_collection(
@@ -468,19 +483,19 @@ class ChromaVectorStore(BaseVectorStore):
         await self._sync_metrics_size()
 
     @log_store_errors("save")
-    async def save(self, path: Optional[str] = None) -> None:
+    async def save(self, path: str | None = None) -> None:
         # Persistence handled by Chroma automatically
         return None
 
     @log_store_errors("load")
-    async def load(self, path: Optional[str] = None) -> None:
+    async def load(self, path: str | None = None) -> None:
         # Persistence handled by Chroma automatically
         return None
 
     def count(self) -> int:  # compatibility helper
         return self.get_document_count()
 
-    async def health_check(self) -> Dict[str, Any]:  # type: ignore[override]
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform comprehensive health check on the Chroma vector store.
 
@@ -519,7 +534,7 @@ class ChromaVectorStore(BaseVectorStore):
                 "error": str(e),
             }
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         Get comprehensive statistics about the Chroma vector store.
 
@@ -559,7 +574,7 @@ class ChromaVectorStore(BaseVectorStore):
                 "error": str(e),
             }
 
-    def get_store_info(self) -> Dict[str, Any]:
+    def get_store_info(self) -> dict[str, Any]:
         """
         Get comprehensive information about this Chroma store instance.
 
@@ -590,7 +605,7 @@ class ChromaVectorStore(BaseVectorStore):
                 "error": str(e),
             }
 
-    async def _get_collection_info(self) -> Dict[str, Any]:
+    async def _get_collection_info(self) -> dict[str, Any]:
         """
         Get detailed information about the Chroma collection.
 
@@ -599,7 +614,7 @@ class ChromaVectorStore(BaseVectorStore):
         """
         try:
 
-            def _get_info():
+            def _get_info() -> dict[str, Any]:
                 return {
                     "name": self.collection_name,
                     "count": self.collection.count(),
@@ -611,7 +626,7 @@ class ChromaVectorStore(BaseVectorStore):
             logger.error(f"Error getting collection info: {e}")
             return {"error": str(e)}
 
-    async def add_chunks(self, chunks: List[Any], **kwargs: Any) -> List[str]:
+    async def add_chunks(self, chunks: list[Any], **kwargs: Any) -> list[str]:
         """
         Add text chunks with semantic metadata to Chroma store.
 
@@ -623,7 +638,7 @@ class ChromaVectorStore(BaseVectorStore):
             List[str]: List of chunk IDs that were added
         """
         # Convert chunks to VectorDocuments
-        documents = []
+        documents: list[VectorDocument] = []
         for i, chunk in enumerate(chunks):
             # Extract content and metadata from chunk
             content = getattr(chunk, "content", str(chunk))
@@ -659,8 +674,8 @@ class ChromaVectorStore(BaseVectorStore):
         return await self.add_documents(documents, **kwargs)
 
     async def add_documents_from_loader(
-        self, documents: List[Any], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[Any], **kwargs: Any
+    ) -> list[str]:
         """
         Add documents directly from loaders with rich metadata to Chroma store.
 
@@ -672,7 +687,7 @@ class ChromaVectorStore(BaseVectorStore):
             List[str]: List of document IDs that were added
         """
         # Convert loader documents to VectorDocuments
-        vector_docs = []
+        vector_docs: list[VectorDocument] = []
         for doc in documents:
             # Extract document information
             doc_id = getattr(doc, "id", f"doc_{len(vector_docs)}")
@@ -713,8 +728,8 @@ class ChromaVectorStore(BaseVectorStore):
         return await self.add_documents(vector_docs, **kwargs)
 
     async def get_documents_by_metadata(
-        self, metadata_filter: Dict[str, Any]
-    ) -> List[VectorDocument]:
+        self, metadata_filter: dict[str, Any]
+    ) -> list[VectorDocument]:
         """
         Get documents filtered by metadata from Chroma store.
 
@@ -728,19 +743,19 @@ class ChromaVectorStore(BaseVectorStore):
             # Convert metadata filter to Chroma where clause
             where = self._build_where_clause(metadata_filter)
 
-            def _get():
+            def _get() -> Any:
                 return self.collection.get(
                     where=where, include=["documents", "metadatas"]
                 )
 
             results = await self._to_thread(_get)
 
-            documents: List[VectorDocument] = []
+            documents: list[VectorDocument] = []
             ids = results.get("ids", [])
             docs = results.get("documents", [])
             metas = results.get("metadatas", [])
 
-            for doc_id, content, meta in zip(ids, docs, metas):
+            for doc_id, content, meta in zip(ids, docs, metas, strict=False):
                 documents.append(
                     VectorDocument(
                         id=str(doc_id),
@@ -758,8 +773,8 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def search_with_metadata_filter(
         self,
-        query_embedding: List[float],
-        metadata_filter: Dict[str, Any],
+        query_embedding: list[float],
+        metadata_filter: dict[str, Any],
         top_k: int = 10,
         **kwargs: Any,
     ) -> SearchResult:
@@ -781,7 +796,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def semantic_search(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
         similarity_threshold: float = 0.7,
         **kwargs: Any,
@@ -803,10 +818,11 @@ class ChromaVectorStore(BaseVectorStore):
             results = await self.search(query_embedding, top_k=top_k * 2, **kwargs)
 
             # Filter by similarity threshold
-            filtered_docs = []
-            for doc in results.documents:
-                if doc.score is None or doc.score >= similarity_threshold:
-                    filtered_docs.append(doc)
+            filtered_docs = [
+                doc
+                for doc in results.documents
+                if doc.score is None or doc.score >= similarity_threshold
+            ]
 
             # Sort by score and limit to top_k
             filtered_docs.sort(key=lambda d: d.score or 0.0, reverse=True)
@@ -829,11 +845,11 @@ class ChromaVectorStore(BaseVectorStore):
             )
 
     # ---------- Hybrid search & reranking ----------
-    def _extract_keywords(self, query: str) -> List[str]:
+    def _extract_keywords(self, query: str) -> list[str]:
         q = (query or "").strip().lower()
         words = [w for w in q.replace("\n", " ").split(" ") if len(w) > 2]
-        seen: Dict[str, None] = {}
-        out: List[str] = []
+        seen: dict[str, None] = {}
+        out: list[str] = []
         for w in words:
             if w not in seen:
                 seen[w] = None
@@ -842,13 +858,13 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def _keyword_search(
         self, query: str, top_k: int = 20
-    ) -> List[VectorDocument]:
+    ) -> list[VectorDocument]:
         keywords = self._extract_keywords(query)
         if not keywords:
             return []
-        id_scores: Dict[str, float] = {}
-        id_meta: Dict[str, Dict[str, Any]] = {}
-        id_doc: Dict[str, str] = {}
+        id_scores: dict[str, float] = {}
+        id_meta: dict[str, dict[str, Any]] = {}
+        id_doc: dict[str, str] = {}
         for kw in keywords[:8]:
             try:
                 res = await self._to_thread(
@@ -867,13 +883,13 @@ class ChromaVectorStore(BaseVectorStore):
             for i, doc_id in enumerate(ids[0]):
                 id_scores[doc_id] = id_scores.get(doc_id, 0.0) + 1.0
                 if i < len(metas[0]):
-                    id_meta[doc_id] = metas[0][i] or {}
+                    id_meta[doc_id] = dict(metas[0][i] or {})
                 if i < len(docs[0]):
                     id_doc[doc_id] = docs[0][i] or ""
         if not id_scores:
             return []
         max_score = max(id_scores.values()) or 1.0
-        results: List[VectorDocument] = []
+        results: list[VectorDocument] = []
         for doc_id, sc in id_scores.items():
             results.append(
                 VectorDocument(
@@ -889,15 +905,16 @@ class ChromaVectorStore(BaseVectorStore):
 
     def _combine_semantic_keyword(
         self,
-        semantic: List[VectorDocument],
-        keyword: List[VectorDocument],
+        semantic: list[VectorDocument],
+        keyword: list[VectorDocument],
         alpha: float = 0.7,
         top_k: int = 10,
-    ) -> List[VectorDocument]:
-        combined: Dict[str, VectorDocument] = {}
+    ) -> list[VectorDocument]:
+        combined: dict[str, VectorDocument] = {}
         kw_map = {d.id: d for d in keyword}
         for d in semantic:
-            kw_score = kw_map.get(d.id).score if d.id in kw_map else 0.0
+            keyword_doc = kw_map.get(d.id)
+            kw_score = keyword_doc.score if keyword_doc is not None else 0.0
             combined[d.id] = VectorDocument(
                 id=d.id,
                 content=d.content,
@@ -919,10 +936,10 @@ class ChromaVectorStore(BaseVectorStore):
         return out[:top_k]
 
     def _simple_rerank(
-        self, query: str, documents: List[VectorDocument]
-    ) -> List[VectorDocument]:
+        self, query: str, documents: list[VectorDocument]
+    ) -> list[VectorDocument]:
         q_words = set((query or "").lower().split())
-        rescored: List[VectorDocument] = []
+        rescored: list[VectorDocument] = []
         for d in documents:
             doc_words = set((d.content or "").lower().split())
             overlap = len(q_words & doc_words) / max(len(q_words) or 1, 1)
@@ -943,7 +960,7 @@ class ChromaVectorStore(BaseVectorStore):
     async def hybrid_search(
         self,
         query: str,
-        query_embedding: List[float],
+        query_embedding: list[float],
         alpha: float = 0.7,
         top_k: int = 10,
         **kwargs: Any,
@@ -954,10 +971,8 @@ class ChromaVectorStore(BaseVectorStore):
             sem.documents, kw, alpha=alpha, top_k=top_k
         )
         if kwargs.get("enable_reranking", True) and combined:
-            try:
+            with contextlib.suppress(Exception):
                 combined = self._simple_rerank(query, combined)
-            except Exception:
-                pass
         return SearchResult(
             documents=combined,
             query_embedding=query_embedding,
@@ -973,11 +988,11 @@ class ChromaVectorStore(BaseVectorStore):
         hnsw_search_ef: int = 50,
         hnsw_m: int = 16,
         batch_size: int = 1000,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Recreate collection with new HNSW parameters (best-effort)."""
-        docs: List[VectorDocument] = []
-        async for d in self.iter_all_documents(batch_size=batch_size):  # type: ignore
-            docs.append(d)
+        docs: list[VectorDocument] = [
+            d async for d in self.iter_all_documents(batch_size=batch_size)
+        ]
         self.client.delete_collection(self.collection_name)
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name,
@@ -1002,13 +1017,15 @@ class ChromaVectorStore(BaseVectorStore):
         metrics_manager.update_vector_store_size(size, store_type=self.store_type_label)
 
     # --------- Optional iteration helpers for migration ---------
-    async def iter_all_documents(self, batch_size: int = 1000):  # pragma: no cover
+    async def iter_all_documents(
+        self, batch_size: int = 1000
+    ) -> AsyncIterator[VectorDocument]:  # pragma: no cover
         """Yield all documents in batches (best-effort)."""
         offset = 0
         while True:
 
-            def _get(current_offset=offset):
-                return self.collection.get(  # type: ignore
+            def _get(current_offset: int = offset) -> Any:
+                return self.collection.get(
                     include=["documents", "metadatas", "embeddings"],
                     limit=batch_size,
                     offset=current_offset,

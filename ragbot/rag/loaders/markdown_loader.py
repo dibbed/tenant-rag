@@ -10,10 +10,11 @@ Features:
 - Token estimation (tiktoken)
 """
 
+import contextlib
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import markdown
 from bs4 import BeautifulSoup
@@ -35,7 +36,12 @@ class MarkdownLoader(DocumentLoader):
             getattr(settings.multi_format, "markdown_detect_language", False)
         )
 
-    async def load(self, file_path: str) -> Document:
+    async def load(
+        self, source: str | None = None, **kwargs: Any
+    ) -> Document:
+        file_path = source if source is not None else kwargs.pop("file_path", None)
+        if not isinstance(file_path, str):
+            raise TypeError("load() requires a source path")
         path = Path(file_path)
         is_open_mocked = hasattr(open, "return_value")
         if not is_open_mocked and (
@@ -47,10 +53,13 @@ class MarkdownLoader(DocumentLoader):
 
         try:
             try:
-                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(file_path, encoding="utf-8", errors="ignore") as f:
                     raw = f.read()
             except TypeError:
-                raw = open(file_path, "r", encoding="utf-8", errors="ignore").read()
+                with contextlib.closing(
+                    open(file_path, encoding="utf-8", errors="ignore")
+                ) as f:
+                    raw = f.read()
             except Exception:
                 raw = path.read_text(encoding="utf-8", errors="ignore")
 
@@ -94,8 +103,8 @@ class MarkdownLoader(DocumentLoader):
     # ---------------------------
     # Metadata extraction
     # ---------------------------
-    async def _extract_metadata(self, content: str, file_path: str) -> Dict[str, Any]:
-        metadata: Dict[str, Any] = {
+    async def _extract_metadata(self, content: str, file_path: str) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
             "source": file_path,
             "type": "markdown",
         }
@@ -126,12 +135,10 @@ class MarkdownLoader(DocumentLoader):
         metadata["header_count"] = len(headings)
         metadata["has_headings"] = bool(headings)
         # Uniform key with other loaders
-        try:
+        with contextlib.suppress(Exception):
             metadata["headings"] = [
                 {"level": h["level"], "text": h["title"]} for h in headings
             ]
-        except Exception:
-            pass
 
         # Links
         links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", content)
@@ -171,7 +178,7 @@ class MarkdownLoader(DocumentLoader):
 
     async def _extract_markdown_metadata(
         self, content: str, file_path: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return await self._extract_metadata(content, file_path)
 
     # ---------------------------
@@ -193,7 +200,7 @@ class MarkdownLoader(DocumentLoader):
         except Exception:
             return len(text.split())
 
-    def _detect_language_voted(self, text: str) -> Optional[str]:
+    def _detect_language_voted(self, text: str) -> str | None:
         try:
             from langdetect import detect
         except Exception:
@@ -206,17 +213,15 @@ class MarkdownLoader(DocumentLoader):
         ]
         votes = []
         for ch in chunks:
-            try:
+            with contextlib.suppress(Exception):
                 if ch.strip():
                     votes.append(detect(ch))
-            except Exception:
-                continue
         if not votes:
             return None
         from collections import Counter
 
         try:
-            return Counter(votes).most_common(1)[0][0]
+            return str(Counter(votes).most_common(1)[0][0])
         except Exception:
             return None
 

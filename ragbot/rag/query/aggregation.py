@@ -5,13 +5,15 @@ This module provides advanced aggregation capabilities for vector store queries,
 including statistical operations, grouping, and complex data analysis.
 """
 
-from typing import Dict, List, Any, Optional, Union
-from dataclasses import dataclass
-from enum import Enum
+import logging
 import statistics
 import time
+from dataclasses import dataclass
 from datetime import datetime
-import logging
+from enum import Enum
+from typing import Any, cast
+
+from ragbot.rag.store.base import VectorDocument
 
 logger = logging.getLogger(__name__)
 
@@ -38,40 +40,40 @@ class AggregationQuery:
 
     field: str
     operation: AggregationType
-    filters: Optional[Dict[str, Any]] = None
-    group_by: Optional[List[str]] = None
-    having: Optional[Dict[str, Any]] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    percentile: Optional[float] = None  # برای percentile operations
+    filters: dict[str, Any] | None = None
+    group_by: list[str] | None = None
+    having: dict[str, Any] | None = None
+    limit: int | None = None
+    offset: int | None = None
+    percentile: float | None = None  # برای percentile operations
 
 
 @dataclass
 class AggregationResult:
     """نتیجه عملیات جمع‌آوری"""
 
-    data: Dict[str, Any]
+    data: dict[str, Any] | int | float
     total_count: int
     execution_time: float
-    metadata: Dict[str, Any]
-    groups: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any]
+    groups: dict[str, Any] | None = None
 
 
 class QueryAggregator:
     """موتور جمع‌آوری پیچیده برای پرسش‌های آماری"""
 
-    def __init__(self, vector_store):
+    def __init__(self, vector_store: Any) -> None:
         """Initialize aggregator with vector store reference"""
         self.vector_store = vector_store
-        self.cache = {}  # برای caching نتایج
+        self.cache: dict[str, Any] = {}  # برای caching نتایج
         self.cache_ttl = 300  # 5 minutes
 
     async def group_by_metadata(
         self,
         field: str,
-        filters: Optional[Dict] = None,
+        filters: dict[str, Any] | None = None,
         aggregation: AggregationType = AggregationType.COUNT,
-    ) -> Dict[str, Union[int, float]]:
+    ) -> dict[Any, int | float]:
         """
         گروه‌بندی اسناد بر اساس metadata field
 
@@ -89,7 +91,7 @@ class QueryAggregator:
         documents = await self._get_filtered_documents(filters)
 
         # گروه‌بندی بر اساس field
-        groups = {}
+        groups: dict[Any, list[VectorDocument]] = {}
         for doc in documents:
             if hasattr(doc, "metadata") and field in doc.metadata:
                 value = doc.metadata[field]
@@ -98,30 +100,32 @@ class QueryAggregator:
                 groups[value].append(doc)
 
         # اعمال عملیات جمع‌آوری
-        result = {}
+        result: dict[Any, int | float] = {}
         for group_key, group_docs in groups.items():
             if aggregation == AggregationType.COUNT:
                 result[group_key] = len(group_docs)
             elif aggregation == AggregationType.SUM:
                 # فرض: فیلد score برای جمع
-                result[group_key] = sum(getattr(doc, "score", 0) for doc in group_docs)
+                result[group_key] = sum(
+                    float(getattr(doc, "score", 0) or 0) for doc in group_docs
+                )
             elif aggregation == AggregationType.AVG:
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 result[group_key] = statistics.mean(scores) if scores else 0
             elif aggregation == AggregationType.MIN:
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 result[group_key] = min(scores) if scores else 0
             elif aggregation == AggregationType.MAX:
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 result[group_key] = max(scores) if scores else 0
             elif aggregation == AggregationType.MEDIAN:
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 result[group_key] = statistics.median(scores) if scores else 0
             elif aggregation == AggregationType.STD_DEV:
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 result[group_key] = statistics.stdev(scores) if len(scores) > 1 else 0
             elif aggregation == AggregationType.VARIANCE:
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 result[group_key] = (
                     statistics.variance(scores) if len(scores) > 1 else 0
                 )
@@ -155,7 +159,7 @@ class QueryAggregator:
         return len(documents)
 
     async def aggregate_scores(
-        self, aggregation_type: AggregationType, filters: Optional[Dict] = None
+        self, aggregation_type: AggregationType, filters: dict[str, Any] | None = None
     ) -> float:
         """
         جمع‌آوری امتیازات اسناد
@@ -168,7 +172,7 @@ class QueryAggregator:
             نتیجه عملیات جمع‌آوری
         """
         documents = await self._get_filtered_documents(filters)
-        scores = [getattr(doc, "score", 0) for doc in documents]
+        scores = [float(getattr(doc, "score", 0) or 0) for doc in documents]
 
         if not scores:
             return 0.0
@@ -198,8 +202,8 @@ class QueryAggregator:
         return 0.0
 
     async def statistical_summary(
-        self, field: str, filters: Optional[Dict] = None
-    ) -> Dict[str, float]:
+        self, field: str, filters: dict[str, Any] | None = None
+    ) -> dict[str, float]:
         """
         خلاصه آماری برای یک فیلد
 
@@ -211,7 +215,7 @@ class QueryAggregator:
             Dictionary با آمارهای مختلف
         """
         documents = await self._get_filtered_documents(filters)
-        values = []
+        values: list[float] = []
 
         for doc in documents:
             if hasattr(doc, "metadata") and field in doc.metadata:
@@ -254,6 +258,7 @@ class QueryAggregator:
         documents = await self._get_filtered_documents(query.filters)
 
         # گروه‌بندی اگر لازم باشد
+        result_data: dict[str, Any] | int | float
         if query.group_by:
             result_data = await self._group_and_aggregate(documents, query)
         else:
@@ -272,9 +277,9 @@ class QueryAggregator:
     async def percentile_analysis(
         self,
         field: str,
-        percentiles: List[float] = None,
-        filters: Optional[Dict] = None,
-    ) -> Dict[str, float]:
+        percentiles: list[float] | None = None,
+        filters: dict[str, Any] | None = None,
+    ) -> dict[str, float]:
         """
         تحلیل percentile برای یک فیلد
 
@@ -290,7 +295,7 @@ class QueryAggregator:
             percentiles = [25, 50, 75, 90, 95, 99]
 
         documents = await self._get_filtered_documents(filters)
-        values = []
+        values: list[float] = []
 
         for doc in documents:
             if hasattr(doc, "metadata") and field in doc.metadata:
@@ -304,7 +309,7 @@ class QueryAggregator:
             return {}
 
         values.sort()
-        result = {}
+        result: dict[str, float] = {}
 
         for p in percentiles:
             if 0 <= p <= 100:
@@ -314,8 +319,8 @@ class QueryAggregator:
         return result
 
     async def mode_analysis(
-        self, field: str, filters: Optional[Dict] = None
-    ) -> Dict[str, Any]:
+        self, field: str, filters: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         تحلیل mode (بیشترین تکرار) برای یک فیلد
 
@@ -327,7 +332,7 @@ class QueryAggregator:
             Dictionary با mode و frequency
         """
         documents = await self._get_filtered_documents(filters)
-        value_counts = {}
+        value_counts: dict[Any, int] = {}
 
         for doc in documents:
             if hasattr(doc, "metadata") and field in doc.metadata:
@@ -337,7 +342,7 @@ class QueryAggregator:
         if not value_counts:
             return {"mode": None, "frequency": 0}
 
-        mode_value = max(value_counts, key=value_counts.get)
+        mode_value = max(value_counts, key=value_counts.__getitem__)
         frequency = value_counts[mode_value]
 
         return {
@@ -346,29 +351,36 @@ class QueryAggregator:
             "total_values": len(value_counts),
         }
 
-    async def _get_filtered_documents(self, filters: Optional[Dict]) -> List:
+    async def _get_filtered_documents(
+        self, filters: dict[str, Any] | None
+    ) -> list[VectorDocument]:
         """دریافت اسناد فیلتر شده"""
         try:
             if hasattr(self.vector_store, "get_documents_by_metadata"):
-                return await self.vector_store.get_documents_by_metadata(filters or {})
+                return cast(
+                    "list[VectorDocument]",
+                    await self.vector_store.get_documents_by_metadata(filters or {}),
+                )
             elif hasattr(self.vector_store, "get_all_documents"):
-                all_docs = await self.vector_store.get_all_documents()
+                all_docs = cast(
+                    "list[VectorDocument]", await self.vector_store.get_all_documents()
+                )
                 if filters:
                     # اعمال فیلتر ساده
-                    filtered_docs = []
-                    for doc in all_docs:
-                        if self._matches_filters(doc, filters):
-                            filtered_docs.append(doc)
-                    return filtered_docs
+                    return [
+                        doc for doc in all_docs if self._matches_filters(doc, filters)
+                    ]
                 return all_docs
             else:
                 # fallback - return empty list
                 return []
         except Exception as e:
-            logger.error(f"Error getting filtered documents: {str(e)}")
+            logger.error(f"Error getting filtered documents: {e!s}")
             return []
 
-    def _matches_filters(self, doc, filters: Dict[str, Any]) -> bool:
+    def _matches_filters(
+        self, doc: VectorDocument, filters: dict[str, Any]
+    ) -> bool:
         """بررسی تطابق سند با فیلترها"""
         if not hasattr(doc, "metadata"):
             return False
@@ -382,17 +394,7 @@ class QueryAggregator:
             if isinstance(condition, dict):
                 # فیلتر پیچیده
                 for op, value in condition.items():
-                    if op == "$gte" and doc_value < value:
-                        return False
-                    elif op == "$lte" and doc_value > value:
-                        return False
-                    elif op == "$gt" and doc_value <= value:
-                        return False
-                    elif op == "$lt" and doc_value >= value:
-                        return False
-                    elif op == "$eq" and doc_value != value:
-                        return False
-                    elif op == "$ne" and doc_value == value:
+                    if (op == "$gte" and doc_value < value) or (op == "$lte" and doc_value > value) or (op == "$gt" and doc_value <= value) or (op == "$lt" and doc_value >= value) or (op == "$eq" and doc_value != value) or (op == "$ne" and doc_value == value):
                         return False
             else:
                 # فیلتر ساده
@@ -402,33 +404,33 @@ class QueryAggregator:
         return True
 
     async def _group_and_aggregate(
-        self, documents: List, query: AggregationQuery
-    ) -> Dict:
+        self, documents: list[VectorDocument], query: AggregationQuery
+    ) -> dict[str, int | float]:
         """گروه‌بندی و جمع‌آوری"""
-        groups = {}
+        groups: dict[str, list[VectorDocument]] = {}
 
         # گروه‌بندی بر اساس فیلدهای group_by
         for doc in documents:
-            group_key = []
-            for field in query.group_by:
+            group_key_parts: list[str] = []
+            for field in query.group_by or []:
                 if hasattr(doc, "metadata") and field in doc.metadata:
-                    group_key.append(str(doc.metadata[field]))
+                    group_key_parts.append(str(doc.metadata[field]))
                 else:
-                    group_key.append("null")
+                    group_key_parts.append("null")
 
-            group_key_str = "|".join(group_key)
+            group_key_str = "|".join(group_key_parts)
             if group_key_str not in groups:
                 groups[group_key_str] = []
             groups[group_key_str].append(doc)
 
         # اعمال عملیات جمع‌آوری روی هر گروه
-        result = {}
+        result: dict[str, int | float] = {}
         for group_key, group_docs in groups.items():
             if query.operation == AggregationType.COUNT:
                 result[group_key] = len(group_docs)
             else:
                 # برای سایر عملیات، از فیلد score استفاده می‌کنیم
-                scores = [getattr(doc, "score", 0) for doc in group_docs]
+                scores = [float(getattr(doc, "score", 0) or 0) for doc in group_docs]
                 if scores:
                     if query.operation == AggregationType.SUM:
                         result[group_key] = sum(scores)
@@ -445,13 +447,15 @@ class QueryAggregator:
 
         return result
 
-    async def _simple_aggregate(self, documents: List, query: AggregationQuery) -> Any:
+    async def _simple_aggregate(
+        self, documents: list[VectorDocument], query: AggregationQuery
+    ) -> int | float:
         """جمع‌آوری ساده"""
         if query.operation == AggregationType.COUNT:
             return len(documents)
         else:
             # برای سایر عملیات، از فیلد score استفاده می‌کنیم
-            scores = [getattr(doc, "score", 0) for doc in documents]
+            scores = [float(getattr(doc, "score", 0) or 0) for doc in documents]
             if not scores:
                 return 0
 

@@ -7,7 +7,7 @@ providing a consistent API for splitting text into chunks.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 
 @dataclass
@@ -24,10 +24,10 @@ class TextChunk:
     """
 
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     start_index: int = 0
     end_index: int = 0
-    chunk_id: Optional[str] = None
+    chunk_id: str | None = None
 
     def __post_init__(self) -> None:
         """Post-initialization validation."""
@@ -77,7 +77,7 @@ class BaseChunker(ABC):
         self.config = kwargs
 
     @abstractmethod
-    def chunk(self, text: str, **kwargs: Any) -> List[TextChunk]:
+    def chunk(self, text: str, **kwargs: Any) -> list[TextChunk]:
         """
         Split text into chunks.
 
@@ -93,7 +93,7 @@ class BaseChunker(ABC):
         """
         pass
 
-    async def chunk_document(self, document: "Document") -> List["Document"]:
+    async def chunk_document(self, document: "Document") -> list["Document"]:
         """
         Chunk a document into smaller documents.
 
@@ -150,7 +150,7 @@ class BaseChunker(ABC):
         except Exception as e:
             from ragbot.rag.exceptions import DocumentProcessingError
 
-            raise DocumentProcessingError(f"Failed to chunk document: {str(e)}") from e
+            raise DocumentProcessingError(f"Failed to chunk document: {e!s}") from e
 
     def validate_text(self, text: str) -> bool:
         """
@@ -164,7 +164,7 @@ class BaseChunker(ABC):
         """
         return isinstance(text, str) and len(text.strip()) > 0
 
-    def get_chunker_info(self) -> Dict[str, Any]:
+    def get_chunker_info(self) -> dict[str, Any]:
         """
         Get information about this chunker.
 
@@ -176,7 +176,7 @@ class BaseChunker(ABC):
             "config": self.config,
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the chunker.
 
@@ -222,7 +222,7 @@ class BaseChunker(ABC):
         # Default implementation - subclasses should override for better estimates
         return max(1, len(text) // 1000)
 
-    def get_chunk_overlap_info(self) -> Dict[str, Any]:
+    def get_chunk_overlap_info(self) -> dict[str, Any]:
         """
         Get information about chunk overlap settings.
 
@@ -286,7 +286,7 @@ class BaseChunker(ABC):
     # ---------- page/slide annotation helper ----------
     def _annotate_page_slide(
         self,
-        chunks: List["TextChunk"],
+        chunks: list["TextChunk"],
         original_text: str,
         headings: Any,
         page_ranges: Any = None,
@@ -305,7 +305,7 @@ class BaseChunker(ABC):
             if not isinstance(headings, list) or not chunks:
                 return
             # Build positional index of headings
-            occurrences: List[tuple[int, Optional[int], Optional[int]]] = []
+            occurrences: list[tuple[int, int | None, int | None]] = []
             cursor = 0
             for h in headings:
                 try:
@@ -324,7 +324,7 @@ class BaseChunker(ABC):
                 except Exception:
                     continue
             # Include page_ranges as coarse boundaries even if no heading match
-            ranges: List[tuple[int, int, int]] = []  # (start, end, page)
+            ranges: list[tuple[int, int, int]] = []  # (start, end, page)
             if isinstance(page_ranges, list):
                 for pr in page_ranges:
                     try:
@@ -346,9 +346,9 @@ class BaseChunker(ABC):
                         e = int(getattr(ch, "end_index", 0) or s)
                     except Exception:
                         s, e = 0, 0
-                    for rs, re, pg in ranges:
+                    for rs, re, range_page in ranges:
                         if s < re and e > rs:
-                            ch.metadata.setdefault("page", pg)
+                            ch.metadata.setdefault("page", range_page)
                             break
                 return
             occurrences.sort(key=lambda x: x[0])
@@ -361,14 +361,14 @@ class BaseChunker(ABC):
                     )
                 except Exception:
                     start = 0
-                last_page: Optional[int] = None
-                last_slide: Optional[int] = None
-                for pos, pg, sl in occurrences:
+                last_page: int | None = None
+                last_slide: int | None = None
+                for pos, heading_page, heading_slide in occurrences:
                     if pos <= start:
-                        if pg is not None:
-                            last_page = pg
-                        if sl is not None:
-                            last_slide = sl
+                        if heading_page is not None:
+                            last_page = heading_page
+                        if heading_slide is not None:
+                            last_slide = heading_slide
                     else:
                         break
                 if last_page is not None:
@@ -382,9 +382,9 @@ class BaseChunker(ABC):
                         e = int(getattr(ch, "end_index", 0) or s)
                     except Exception:
                         s, e = 0, 0
-                    for rs, re, pg in ranges:
+                    for rs, re, range_page in ranges:
                         if s < re and e > rs:
-                            ch.metadata.setdefault("page", pg)
+                            ch.metadata.setdefault("page", range_page)
                             break
         except Exception:
             return
@@ -409,7 +409,7 @@ class TextChunker(ABC):
         pass
 
     @abstractmethod
-    def chunk(self, text: str) -> List[str]:
+    def chunk(self, text: str) -> list[str]:
         """
         Split text into chunks.
 
@@ -424,7 +424,7 @@ class TextChunker(ABC):
         """
         pass
 
-    def chunk_with_metadata(self, text: str) -> List[TextChunk]:
+    def chunk_with_metadata(self, text: str) -> list[TextChunk]:
         """
         Split text into chunks with metadata.
 

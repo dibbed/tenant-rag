@@ -11,10 +11,11 @@ Features:
 
 from __future__ import annotations
 
+import contextlib
 import zipfile
 from pathlib import Path
 from statistics import median
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 try:
     import pptx
@@ -142,11 +143,11 @@ class PPTXLoader(BaseLoader):
             slide_font_stats = self._collect_slide_font_stats(prs)
             body_font_pt = self._estimate_body_font_size(slide_font_stats)
 
-            slides_text: List[str] = []
-            slide_metadata: List[Dict[str, Any]] = []
-            doc_headings: List[Dict[str, Any]] = []
-            hyperlinks_global: List[Dict[str, str]] = []
-            images_global: List[Dict[str, Any]] = []
+            slides_text: list[str] = []
+            slide_metadata: list[dict[str, Any]] = []
+            doc_headings: list[dict[str, Any]] = []
+            hyperlinks_global: list[dict[str, str]] = []
+            images_global: list[dict[str, Any]] = []
 
             for idx, slide in enumerate(prs.slides, start=1):
                 slide_text, md, headings, links, images = await self._extract_slide(
@@ -182,7 +183,7 @@ class PPTXLoader(BaseLoader):
             # Token estimation (optional, best-effort)
             estimated_tokens = self._estimate_tokens(full_text)
 
-            metadata: Dict[str, Any] = {
+            metadata: dict[str, Any] = {
                 "file_name": path.name,
                 "file_ext": path.suffix.lower(),
                 "source_path": str(path),
@@ -227,9 +228,9 @@ class PPTXLoader(BaseLoader):
     # ------------------------------
     # Extraction helpers
     # ------------------------------
-    def _collect_slide_font_stats(self, prs) -> List[float]:
+    def _collect_slide_font_stats(self, prs: Any) -> list[float]:
         """Collect max run font point-size per paragraph-like text to estimate body font."""
-        font_pts: List[float] = []
+        font_pts: list[float] = []
         try:
             for slide in prs.slides:
                 for shape in slide.shapes:
@@ -258,7 +259,7 @@ class PPTXLoader(BaseLoader):
             pass
         return font_pts
 
-    def _estimate_body_font_size(self, font_pts: List[float]) -> float:
+    def _estimate_body_font_size(self, font_pts: list[float]) -> float:
         """Estimate body font size using median of nonzero values."""
         nz = [x for x in font_pts if x > 0]
         if not nz:
@@ -270,33 +271,33 @@ class PPTXLoader(BaseLoader):
             from collections import Counter
 
             counts = Counter(round(v, 1) for v in nz)
-            return float(max(counts, key=counts.get))
+            return float(max(counts, key=lambda value: counts[value]))
 
     async def _extract_slide(
         self,
-        slide,
+        slide: Any,
         slide_number: int,
         inject_markers: bool,
         heading_auto: bool,
         body_font_pt: float,
         heading_delta: float,
-    ) -> Tuple[
+    ) -> tuple[
         str,
-        Dict[str, Any],
-        List[Dict[str, Any]],
-        List[Dict[str, str]],
-        List[Dict[str, Any]],
+        dict[str, Any],
+        list[dict[str, Any]],
+        list[dict[str, str]],
+        list[dict[str, Any]],
     ]:
         """Extract text & metadata from a single slide."""
 
-        text_parts: List[str] = []
+        text_parts: list[str] = []
         bullet_count = 0
         table_count = 0
         picture_count = 0
         chart_count = 0
-        hyperlinks: List[Dict[str, str]] = []
-        images_list: List[Dict[str, Any]] = []
-        slide_headings: List[Dict[str, Any]] = []
+        hyperlinks: list[dict[str, str]] = []
+        images_list: list[dict[str, Any]] = []
+        slide_headings: list[dict[str, Any]] = []
 
         # Title as H1
         slide_title = await self._extract_slide_title(slide)
@@ -366,7 +367,7 @@ class PPTXLoader(BaseLoader):
 
                         # Paragraph-level hyperlinks (collect all runs)
                         try:
-                            para_links: List[str] = []
+                            para_links: list[str] = []
                             for run in getattr(para, "runs", []) or []:
                                 hl = getattr(run, "hyperlink", None)
                                 addr = getattr(hl, "address", None) if hl else None
@@ -381,14 +382,14 @@ class PPTXLoader(BaseLoader):
                                         100,
                                     )
                                 )
-                                for u in list(dict.fromkeys(para_links))[:cap]:
-                                    hyperlinks.append(
-                                        {
-                                            "slide": str(slide_number),
-                                            "text": raw[:80],
-                                            "url": u,
-                                        }
-                                    )
+                                hyperlinks.extend(
+                                    {
+                                        "slide": str(slide_number),
+                                        "text": raw[:80],
+                                        "url": u,
+                                    }
+                                    for u in list(dict.fromkeys(para_links))[:cap]
+                                )
                                 if getattr(
                                     settings.multi_format,
                                     "pptx_inject_hyperlinks_inline",
@@ -480,7 +481,7 @@ class PPTXLoader(BaseLoader):
     # ------------------------------
     # Low-level helpers
     # ------------------------------
-    async def _extract_slide_title(self, slide) -> str:
+    async def _extract_slide_title(self, slide: Any) -> str:
         """First non-empty text shape is treated as slide title (H1)."""
         try:
             for shape in getattr(slide, "shapes", []):
@@ -502,7 +503,7 @@ class PPTXLoader(BaseLoader):
             pass
         return ""
 
-    async def _extract_slide_text(self, slide) -> str:
+    async def _extract_slide_text(self, slide: Any) -> str:
         """Extract plain text from all shapes in a slide."""
         parts = []
         for shape in getattr(slide, "shapes", []):
@@ -515,10 +516,10 @@ class PPTXLoader(BaseLoader):
             elif getattr(shape, "has_text_frame", False) is True:
                 tf = getattr(shape, "text_frame", None)
                 paragraphs = getattr(tf, "paragraphs", None)
-                if isinstance(paragraphs, (list, tuple)):
+                if isinstance(paragraphs, list | tuple):
                     for p in paragraphs:
                         runs = getattr(p, "runs", None)
-                        if isinstance(runs, (list, tuple)):
+                        if isinstance(runs, list | tuple):
                             t = "".join(
                                 r.text
                                 for r in runs
@@ -534,7 +535,7 @@ class PPTXLoader(BaseLoader):
                             parts.append(p.text.strip())
         return "\n".join(parts)
 
-    def _extract_table(self, table_shape) -> str:
+    def _extract_table(self, table_shape: Any) -> str:
         """Extract tab-separated rows from a table shape."""
         try:
             rows = []
@@ -548,7 +549,7 @@ class PPTXLoader(BaseLoader):
         except Exception:
             return ""
 
-    def _get_shape_hyperlink(self, shape) -> Optional[str]:
+    def _get_shape_hyperlink(self, shape: Any) -> str | None:
         """Return shape-level click hyperlink address if available."""
         try:
             click = getattr(shape, "click_action", None)
@@ -564,7 +565,7 @@ class PPTXLoader(BaseLoader):
             return None
         return None
 
-    def _get_paragraph_hyperlink(self, para) -> Optional[str]:
+    def _get_paragraph_hyperlink(self, para: Any) -> str | None:
         """Return first run hyperlink in a paragraph if available."""
         try:
             for run in getattr(para, "runs", []) or []:
@@ -578,7 +579,9 @@ class PPTXLoader(BaseLoader):
             return None
         return None
 
-    def _paragraph_font_delta(self, para, body_pt: float) -> Tuple[float, bool]:
+    def _paragraph_font_delta(
+        self, para: Any, body_pt: float
+    ) -> tuple[float, bool]:
         """Compute delta (max run pt - body_pt) and any_bold flag for a paragraph."""
         max_pt = 0.0
         any_bold = False
@@ -599,10 +602,10 @@ class PPTXLoader(BaseLoader):
         delta = max_pt - float(body_pt or 0.0)
         return delta, any_bold
 
-    def _detect_language_voted(self, text: str) -> Optional[str]:
+    def _detect_language_voted(self, text: str) -> str | None:
         """Language detection via voting over start/middle/end chunks."""
         try:
-            from langdetect import detect  # type: ignore
+            from langdetect import detect
         except Exception:
             return None
         try:
@@ -612,13 +615,11 @@ class PPTXLoader(BaseLoader):
                 text[max(0, n // 2 - 1000) : min(n, n // 2 + 1000)],
                 text[max(0, n - 2000) :],
             ]
-            votes = []
+            votes: list[str] = []
             for ch in chunks:
-                try:
+                with contextlib.suppress(Exception):
                     if ch.strip():
-                        votes.append(detect(ch))
-                except Exception:
-                    continue
+                        votes.append(str(detect(ch)))
             if not votes:
                 return None
             from collections import Counter
@@ -630,7 +631,7 @@ class PPTXLoader(BaseLoader):
     def _estimate_tokens(self, text: str) -> int:
         """Best-effort token estimation with tiktoken (fallback to whitespace)."""
         try:
-            import tiktoken  # type: ignore
+            import tiktoken
 
             try:
                 enc = tiktoken.get_encoding("cl100k_base")
