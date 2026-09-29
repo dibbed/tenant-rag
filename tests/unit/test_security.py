@@ -4,37 +4,32 @@ Unit tests for security components
 Tests for encryption, key management, and secure backup functionality.
 """
 
-import pytest
-import asyncio
-import tempfile
 import shutil
-from datetime import datetime, timedelta
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
+from ragbot.rag.store.base import VectorDocument
 from ragbot.security.encryption import (
-    EncryptionManager,
-    EncryptionAlgorithm,
-    EncryptionMode,
     EncryptedDocument,
-    KeyRotationResult,
+    EncryptionAlgorithm,
     EncryptionKey,
+    EncryptionManager,
+    KeyRotationResult,
 )
 from ragbot.security.key_manager import (
     KeyManager,
     KeyType,
-    KeyStatus,
-    KeyPolicy,
 )
 from ragbot.security.secure_backup import (
-    SecureBackupManager,
-    BackupStatus,
-    BackupType,
     BackupResult,
+    BackupStatus,
     RestoreResult,
+    SecureBackupManager,
     VerificationResult,
 )
-from ragbot.rag.store.base import VectorDocument
 
 
 class TestEncryptionManager:

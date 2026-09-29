@@ -7,7 +7,6 @@ like embeddings, chunkers, loaders, and QA systems.
 
 import asyncio
 import importlib.util
-from typing import List
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -15,7 +14,6 @@ import pytest
 from ragbot.configs.settings import VectorStoreConfig
 from ragbot.rag.store.base import VectorDocument
 from ragbot.rag.store.factory import VectorStoreFactory
-
 
 # These tests create a "chroma" store through VectorStoreFactory with a mocked
 # ChromaVectorStore class. The factory uses the class only when chromadb can be
@@ -52,7 +50,7 @@ class TestVectorStoreRAGIntegration:
         )
 
     @pytest.fixture
-    def sample_documents(self) -> List[VectorDocument]:
+    def sample_documents(self) -> list[VectorDocument]:
         """Create sample documents for testing."""
         return [
             VectorDocument(
@@ -534,16 +532,15 @@ class TestVectorStorePerformanceIntegration(TestVectorStoreRAGIntegration):
     async def test_batch_operations(self, sample_config):
         """Test batch operations for performance."""
         # Create large batch of documents
-        large_batch = []
-        for i in range(100):
-            large_batch.append(
-                VectorDocument(
-                    id=f"doc_{i}",
-                    content=f"Document {i} content about machine learning and AI.",
-                    embedding=[0.1] * 384,
-                    metadata={"batch_id": i, "source": f"batch_doc_{i}.pdf"},
-                )
+        large_batch = [
+            VectorDocument(
+                id=f"doc_{i}",
+                content=f"Document {i} content about machine learning and AI.",
+                embedding=[0.1] * 384,
+                metadata={"batch_id": i, "source": f"batch_doc_{i}.pdf"},
             )
+            for i in range(100)
+        ]
 
         # Test with FAISS store
         with patch("ragbot.rag.store.faiss_store.FAISSVectorStore") as mock_faiss_class:

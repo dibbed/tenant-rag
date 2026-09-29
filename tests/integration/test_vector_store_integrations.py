@@ -1,6 +1,5 @@
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 try:  # pragma: no cover - optional dependency

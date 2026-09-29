@@ -9,8 +9,8 @@ import json
 import os
 import pickle
 import tarfile
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -30,6 +30,9 @@ from ragbot.rag.store.faiss_store import (
     _write_documents_file,
 )
 from ragbot.security.secure_backup import _extract_tar_safely
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class _TenantManager:
@@ -128,7 +131,7 @@ def test_redis_cache_rejects_malformed_or_wrong_schema():
         b'{"version":1,"value":{},"extra":true}',
     ]
     for payload in payloads:
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             cache._deserialize(payload)
 
 
@@ -141,7 +144,7 @@ def test_redis_cache_never_executes_legacy_pickle(tmp_path: Path):
 
     legacy = pickle.dumps(Payload())
     cache = RedisCache(redis_url="redis://localhost:6379/15")
-    with pytest.raises(Exception):
+    with pytest.raises(UnicodeDecodeError):
         cache._deserialize(legacy)
     assert not marker.exists()
 

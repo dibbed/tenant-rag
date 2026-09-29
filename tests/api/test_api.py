@@ -14,7 +14,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-from ragbot.api.app import app, create_app
+from ragbot.api.app import create_app
 from ragbot.api.dependencies import get_integration_service_dep, get_rag_service_dep
 from ragbot.rag.exceptions import EmbeddingError, VectorStoreError
 from ragbot.services.rag_service import IngestResult, QueryResult
@@ -210,6 +210,7 @@ class TestDocumentIngestRoutes:
         captured_path: list[Path] = []
 
         async def capture_temp_file(source, *args, **kwargs):
+            del args, kwargs
             p = Path(source)
             captured_path.append(p)
             assert p.exists()  # Temp file must exist during ingestion
@@ -251,6 +252,7 @@ class TestDocumentIngestRoutes:
         captured_path: list[Path] = []
 
         async def failing_ingest(source, *args, **kwargs):
+            del args, kwargs
             p = Path(source)
             captured_path.append(p)
             raise RuntimeError("Parser crashed unexpectedly")
@@ -314,6 +316,7 @@ class TestDocumentIngestRoutes:
         captured_meta = []
 
         async def capture_ingest(source, *args, **kwargs):
+            del source, args
             meta = kwargs.get("metadata", {})
             captured_meta.append(meta)
             return IngestResult(

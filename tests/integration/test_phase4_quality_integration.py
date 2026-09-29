@@ -180,10 +180,9 @@ class TestPhase4QualityIntegration:
                     "factual_accuracy": 0.9,
                 },
             )
-            == True
         )
         assert (
-            evaluator._is_high_quality(
+            not evaluator._is_high_quality(
                 0.4,
                 {
                     "accuracy": 0.4,
@@ -193,7 +192,6 @@ class TestPhase4QualityIntegration:
                     "factual_accuracy": 0.4,
                 },
             )
-            == False
         )
 
     def test_user_satisfaction_tracking(self):

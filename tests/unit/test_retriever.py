@@ -6,14 +6,13 @@ and context retrieval from vector stores.
 """
 
 from types import SimpleNamespace
-from typing import List
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from ragbot.rag import SearchResult, VectorDocument
 from ragbot.rag.exceptions import RAGError, RetrievalError
 from ragbot.rag.retrieve.retriever import DocumentRetriever, Retriever
-from ragbot.rag import SearchResult, VectorDocument
 
 
 class TestRetriever:
@@ -107,7 +106,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test retrieval with similarity threshold."""
         query = "Test query"
@@ -168,7 +167,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test retrieval with multilingual queries."""
         queries = ["English query text", "متن جستجوی فارسی", "نص البحث العربي"]
@@ -286,17 +285,14 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test that top_k parameter properly limits results."""
         query = "Test query"
         query_embedding = [0.1] * 768
 
         # Return more results than requested
-        extended_results = sample_search_results + [
-            SearchResult(content="Fourth result", metadata={}, score=0.6),
-            SearchResult(content="Fifth result", metadata={}, score=0.5),
-        ]
+        extended_results = [*sample_search_results, SearchResult(content="Fourth result", metadata={}, score=0.6), SearchResult(content="Fifth result", metadata={}, score=0.5)]
 
         mock_embedder.embed_text.return_value = query_embedding
         mock_vector_store.query.return_value = extended_results
@@ -313,7 +309,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test retrieval with context window considerations."""
         query = "Test query"
@@ -342,7 +338,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test retrieval performance with large result sets."""
         import time
@@ -351,15 +347,14 @@ class TestRetriever:
         query_embedding = [0.1] * 768
 
         # Create large result set
-        large_results = []
-        for i in range(1000):
-            large_results.append(
-                SearchResult(
-                    content=f"Document {i} content",
-                    metadata={"id": i},
-                    score=0.9 - (i * 0.0001),
-                )
+        large_results = [
+            SearchResult(
+                content=f"Document {i} content",
+                metadata={"id": i},
+                score=0.9 - (i * 0.0001),
             )
+            for i in range(1000)
+        ]
 
         mock_embedder.embed_text.return_value = query_embedding
         mock_vector_store.query.return_value = large_results
@@ -378,7 +373,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test retrieval with query expansion if supported."""
         query = "AI machine learning"
@@ -403,7 +398,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test retrieval with result reranking if supported."""
         query = "Test query for reranking"
@@ -430,7 +425,7 @@ class TestRetriever:
         retriever: Retriever,
         mock_vector_store: MagicMock,
         mock_embedder: MagicMock,
-        sample_search_results: List[SearchResult],
+        sample_search_results: list[SearchResult],
     ) -> None:
         """Test concurrent retrieval operations."""
         import asyncio
@@ -540,7 +535,7 @@ async def test_retriever_embedding_failure_raises():
     bad_embedder = MagicMock()
     bad_embedder.embed_text = AsyncMock(side_effect=RuntimeError("nope"))
     r = DocumentRetriever(mock_store, bad_embedder)
-    with pytest.raises(Exception):
+    with pytest.raises(RetrievalError, match="Failed to embed query"):
         await r.retrieve("q")
 
 

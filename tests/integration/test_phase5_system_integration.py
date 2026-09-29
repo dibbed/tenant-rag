@@ -157,38 +157,40 @@ class TestSystemPerformanceIntegration:
         assert not monitor.is_monitoring
 
         # Test start monitoring (mock to avoid blocking)
-        with patch.object(monitor, "collect_metrics") as mock_collect:
-            with patch.object(monitor, "record_metrics"):
-                mock_collect.return_value = {
-                    "cpu_percent": 50.0,
-                    "memory_bytes": 1024000000,
-                    "memory_percent": 60.0,
-                    "disk_bytes": 512000000000,
-                    "disk_percent": 50.0,
-                    "network_latency": 0.05,
-                    "gpu_percent": 0.0,
-                    "gpu_memory": 0,
-                    "timestamp": time.time(),
-                }
+        with (
+            patch.object(monitor, "collect_metrics") as mock_collect,
+            patch.object(monitor, "record_metrics"),
+        ):
+            mock_collect.return_value = {
+                "cpu_percent": 50.0,
+                "memory_bytes": 1024000000,
+                "memory_percent": 60.0,
+                "disk_bytes": 512000000000,
+                "disk_percent": 50.0,
+                "network_latency": 0.05,
+                "gpu_percent": 0.0,
+                "gpu_memory": 0,
+                "timestamp": time.time(),
+            }
 
-                # Start monitoring in a separate thread
-                import threading
+            # Start monitoring in a separate thread
+            import threading
 
-                monitor_thread = threading.Thread(
-                    target=monitor.start_monitoring,
-                    args=(0.1,),  # Very short interval for testing
-                )
-                monitor_thread.daemon = True
-                monitor_thread.start()
+            monitor_thread = threading.Thread(
+                target=monitor.start_monitoring,
+                args=(0.1,),  # Very short interval for testing
+            )
+            monitor_thread.daemon = True
+            monitor_thread.start()
 
-                # Wait a bit
-                time.sleep(0.5)
+            # Wait a bit
+            time.sleep(0.5)
 
-                # Stop monitoring
-                monitor.stop_monitoring()
+            # Stop monitoring
+            monitor.stop_monitoring()
 
-                # Verify monitoring was active
-                assert monitor.is_monitoring == False
+            # Verify monitoring was active
+            assert not monitor.is_monitoring
 
     def test_system_performance_thresholds(self):
         """Test system performance thresholds."""

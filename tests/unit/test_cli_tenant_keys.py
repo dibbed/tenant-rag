@@ -2,12 +2,13 @@
 
 import argparse
 from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from ragbot.cli import (
     cmd_create_tenant_api_key,
-    cmd_revoke_tenant_api_key,
     cmd_list_tenant_api_keys,
+    cmd_revoke_tenant_api_key,
 )
 
 

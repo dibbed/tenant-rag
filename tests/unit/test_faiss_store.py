@@ -5,18 +5,18 @@ This module tests the FAISS vector store functionality with various scenarios
 including storage operations, querying, and error handling.
 """
 
-import tempfile
 from pathlib import Path
-from typing import List, Dict, Any
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 
 # Import FAISS with proper error handling
 faiss = pytest.importorskip("faiss", reason="faiss-cpu not installed")
 
-from ragbot.rag.store.faiss_store import FAISSStore, FAISSVectorStore
-from ragbot.rag import SearchResult, VectorDocument, RAGError
+# Import after importorskip so missing optional FAISS skips the module cleanly.
+from ragbot.rag import VectorDocument  # noqa: E402
+from ragbot.rag.exceptions import VectorStoreError  # noqa: E402
+from ragbot.rag.store.faiss_store import FAISSStore  # noqa: E402
 
 
 class TestFAISSStore:
@@ -33,7 +33,7 @@ class TestFAISSStore:
         return FAISSStore(store_path=tmp_store_path)
 
     @pytest.fixture
-    def sample_texts(self) -> List[str]:
+    def sample_texts(self) -> list[str]:
         """Create sample texts for testing."""
         return [
             "Hello world, this is a test document.",
@@ -44,7 +44,7 @@ class TestFAISSStore:
         ]
 
     @pytest.fixture
-    def sample_metadata(self) -> List[Dict[str, Any]]:
+    def sample_metadata(self) -> list[dict[str, Any]]:
         """Create sample metadata for testing."""
         return [
             {"id": 0, "source": "doc1.txt", "language": "en"},
@@ -55,7 +55,7 @@ class TestFAISSStore:
         ]
 
     @pytest.fixture
-    def sample_embeddings(self) -> List[List[float]]:
+    def sample_embeddings(self) -> list[list[float]]:
         """Create sample embeddings for testing."""
         # Create mock embeddings with 1536 dimensions (OpenAI default)
         return [[0.1 * i] * 1536 for i in range(5)]
@@ -79,9 +79,9 @@ class TestFAISSStore:
     async def test_upsert_and_query_basic(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test basic upsert and query workflow."""
         # Upsert documents using add_texts method
@@ -102,8 +102,8 @@ class TestFAISSStore:
     async def test_upsert_with_mock_embeddings(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
     ) -> None:
         """Test upsert with mocked embeddings."""
         # Mock embedding generation
@@ -151,9 +151,9 @@ class TestFAISSStore:
     async def test_save_and_load(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test saving and loading the store."""
         # Add data and save
@@ -191,9 +191,9 @@ class TestFAISSStore:
     async def test_query_with_similarity_threshold(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test querying with similarity threshold."""
         await store.add_texts(sample_texts, sample_embeddings, sample_metadata)
@@ -215,9 +215,9 @@ class TestFAISSStore:
     async def test_query_multilingual_content(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test querying multilingual content."""
         await store.add_texts(sample_texts, sample_embeddings, sample_metadata)
@@ -237,9 +237,9 @@ class TestFAISSStore:
     async def test_delete_functionality(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test document deletion if supported."""
         await store.add_texts(sample_texts, sample_embeddings, sample_metadata)
@@ -294,7 +294,7 @@ class TestFAISSStore:
         await asyncio.gather(*tasks)
 
         # Verify all stores have correct data
-        for i, store in enumerate(stores):
+        for _i, store in enumerate(stores):
             assert store.get_document_count() == 10
 
     @pytest.mark.asyncio
@@ -343,7 +343,7 @@ class TestFAISSStore:
         (Path(tmp_store_path) / "index.faiss").write_bytes(b"corrupted data")
 
         # Should handle corrupted files gracefully
-        with pytest.raises(Exception):  # Could be various exceptions
+        with pytest.raises(VectorStoreError, match="Corrupted index detected"):
             await store.load()
 
     def test_faiss_vector_store_integration(self, tmp_store_path: str) -> None:
@@ -372,9 +372,9 @@ class TestFAISSStore:
     async def test_metadata_retrieval(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test metadata retrieval in search results."""
         await store.add_texts(sample_texts, sample_embeddings, sample_metadata)
@@ -393,9 +393,9 @@ class TestFAISSStore:
     async def test_store_statistics(
         self,
         store: FAISSStore,
-        sample_texts: List[str],
-        sample_metadata: List[Dict[str, Any]],
-        sample_embeddings: List[List[float]],
+        sample_texts: list[str],
+        sample_metadata: list[dict[str, Any]],
+        sample_embeddings: list[list[float]],
     ) -> None:
         """Test store statistics and information."""
         await store.add_texts(sample_texts, sample_embeddings, sample_metadata)

@@ -124,9 +124,9 @@ class TestApplicationEntrypoints:
 
     def test_app_creation_and_health_probe(self) -> None:
         """Verify created app responds to /health probe."""
-        from ragbot.api.dependencies import get_integration_service_dep
-
         from unittest.mock import AsyncMock
+
+        from ragbot.api.dependencies import get_integration_service_dep
 
         mock_svc = MagicMock()
         mock_svc.health_check = AsyncMock(

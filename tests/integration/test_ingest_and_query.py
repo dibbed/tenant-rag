@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ragbot.rag import TokenChunker, OpenAIEmbedder, TextLoader, QAChain
+from ragbot.rag import OpenAIEmbedder, QAChain, TextLoader, TokenChunker
 from ragbot.rag.retrieve.retriever import Retriever
 from ragbot.rag.store.faiss_store import FAISSStore
 
@@ -167,7 +167,7 @@ class TestIngestAndQuery:
 
         # Mock embeddings for different languages
         mock_embeddings = []
-        for i, chunk in enumerate(chunks):
+        for _i, chunk in enumerate(chunks):
             if "English" in chunk:
                 embedding = [0.1] * 768
             elif "Persian" in chunk or "هوش" in chunk:
@@ -258,13 +258,13 @@ class TestIngestAndQuery:
     ) -> None:
         """Test error handling throughout the pipeline."""
         # Test with embedding failure
-        mock_embedder.embed_texts.side_effect = Exception("Embedding failed")
+        mock_embedder.embed_texts.side_effect = RuntimeError("Embedding failed")
 
         chunks = ["Test chunk 1", "Test chunk 2"]
         store = FAISSStore(store_path=str(tmp_workspace / "error_test"))
 
         # Should handle embedding errors gracefully
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="Embedding failed"):
             mock_embeddings = await mock_embedder.embed_texts(chunks)
             await store.upsert(
                 texts=chunks,

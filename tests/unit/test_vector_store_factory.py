@@ -5,7 +5,7 @@ This module provides unit tests, integration tests, and performance benchmarks
 for all vector store implementations in the RAG system.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from ragbot.rag.store.factory import VectorStoreFactory
 
@@ -17,8 +17,8 @@ class MockVectorDocument:
         self,
         id: str,
         content: str,
-        embedding: List[float],
-        metadata: Dict[str, Any] = None,
+        embedding: list[float],
+        metadata: dict[str, Any] | None = None,
     ):
         self.id = id
         self.content = content
@@ -59,7 +59,7 @@ class TestVectorStoreFactory:
         assert isinstance(all_info, dict)
         assert len(all_info) == 3  # faiss, chroma, qdrant
 
-        for store_type, info in all_info.items():
+        for info in all_info.values():
             assert isinstance(info, dict)
             assert "class_name" in info
             assert "capabilities" in info

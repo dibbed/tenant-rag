@@ -1,8 +1,8 @@
 """Integration tests for FastAPI routes with Multi-Tenant headers and Plugin lifecycle."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -13,7 +13,6 @@ from ragbot.api.dependencies import (
     get_integration_service_dep,
     get_rag_service_dep,
 )
-from ragbot.configs.settings import Settings, MultiTenantSettings
 from ragbot.multi_tenant.models import AuthenticatedPrincipal
 from ragbot.services.rag_service import IngestResult, QueryResult
 

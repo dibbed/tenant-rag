@@ -1,18 +1,15 @@
 """Unit tests for Multi-Tenant management, persistence, and limits."""
 
-import os
-import sqlite3
 import tempfile
 from pathlib import Path
+
 import pytest
 
-from ragbot.configs.settings import Settings, MultiTenantSettings
+from ragbot.configs.settings import MultiTenantSettings, Settings
 from ragbot.multi_tenant.models import (
-    TenantConfig,
     TenantPlan,
     TenantStatus,
     TenantTier,
-    TenantUser,
 )
 from ragbot.multi_tenant.tenant_auth import TenantAuth, UserRole
 from ragbot.multi_tenant.tenant_manager import TenantManager

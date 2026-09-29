@@ -25,7 +25,7 @@ from ragbot.cli import (
 def mock_rag_service():
     """Mock RAG service for CLI tests."""
     service = AsyncMock()
-    
+
     # Mock health status
     health_status = SimpleNamespace(
         overall_status="healthy",
@@ -33,10 +33,10 @@ def mock_rag_service():
         document_count=5
     )
     service.get_health_status.return_value = health_status
-    
+
     # Mock reset
     service.reset_store.return_value = True
-    
+
     # Mock query result
     query_result = SimpleNamespace(
         answer="Test answer",
@@ -45,7 +45,7 @@ def mock_rag_service():
         processing_time=1.23
     )
     service.query_documents.return_value = query_result
-    
+
     # Mock ingest result
     ingest_result = SimpleNamespace(
         success=True,
@@ -55,7 +55,7 @@ def mock_rag_service():
         error_message=None
     )
     service.ingest_document.return_value = ingest_result
-    
+
     # Mock batch ingest result
     batch_result = {
         "total": 2,
@@ -82,7 +82,7 @@ def mock_rag_service():
         ]
     }
     service.batch_ingest.return_value = batch_result
-    
+
     return service
 
 
@@ -91,39 +91,39 @@ def mock_integration_service(mock_rag_service):
     """Mock integration service."""
     with patch("ragbot.cli.get_integration_service") as mock_get:
         integration = AsyncMock()
-        integration.get_rag_service.return_value = mock_rag_service
+        integration.get_rag_service = Mock(return_value=mock_rag_service)
         mock_get.return_value = integration
         yield integration
 
 
 class TestCLIParser:
     """Test CLI argument parser."""
-    
+
     def test_build_parser_basic(self):
         """Test basic parser construction."""
         parser = _build_parser()
         assert isinstance(parser, argparse.ArgumentParser)
         assert parser.prog in ("tenantrag", "ragbot-cli")
-    
+
     def test_status_command(self):
         """Test status command parsing."""
         parser = _build_parser()
         args = parser.parse_args(["status"])
         assert args.cmd == "status"
         assert args.func == cmd_status
-    
+
     def test_reset_command(self):
         """Test reset command parsing."""
         parser = _build_parser()
         args = parser.parse_args(["reset"])
         assert args.cmd == "reset"
         assert args.func == cmd_reset
-    
+
     def test_query_command(self):
         """Test query command parsing."""
         parser = _build_parser()
         args = parser.parse_args([
-            "query", 
+            "query",
             "--question", "What is RAG?",
             "--lang", "en",
             "--top-k", "5",
@@ -135,7 +135,7 @@ class TestCLIParser:
         assert args.top_k == 5
         assert args.threshold == 0.8
         assert args.func == cmd_query
-    
+
     def test_query_command_defaults(self):
         """Test query command with defaults."""
         parser = _build_parser()
@@ -143,12 +143,12 @@ class TestCLIParser:
         assert args.lang == "fa"
         assert args.top_k is None
         assert args.threshold is None
-    
+
     def test_ingest_file_command(self):
         """Test ingest file command."""
         parser = _build_parser()
         args = parser.parse_args([
-            "ingest", 
+            "ingest",
             "--file", "test.pdf",
             "--type", "pdf"
         ])
@@ -157,7 +157,7 @@ class TestCLIParser:
         assert args.type == "pdf"
         assert args.url is None
         assert args.text is None
-    
+
     def test_ingest_url_command(self):
         """Test ingest URL command."""
         parser = _build_parser()
@@ -168,7 +168,7 @@ class TestCLIParser:
         assert args.url == "https://example.com"
         assert args.file is None
         assert args.text is None
-    
+
     def test_ingest_text_command(self):
         """Test ingest text command."""
         parser = _build_parser()
@@ -179,7 +179,7 @@ class TestCLIParser:
         assert args.text == "Some text content"
         assert args.file is None
         assert args.url is None
-    
+
     def test_batch_ingest_command(self):
         """Test batch ingest command."""
         parser = _build_parser()
@@ -207,48 +207,48 @@ class TestCLIParser:
 
 class TestCLICommands:
     """Test CLI command implementations."""
-    
+
     @pytest.mark.asyncio
     async def test_get_rag_service(self, mock_integration_service, mock_rag_service):
         """Test _get_rag_service function."""
         service = await _get_rag_service()
         assert service == mock_rag_service
         mock_integration_service.get_rag_service.assert_called_once()
-    
+
     @pytest.mark.asyncio
     async def test_cmd_status(self, mock_integration_service, capsys):
         """Test status command."""
         args = SimpleNamespace()
         result = await cmd_status(args)
-        
+
         assert result == 0
         captured = capsys.readouterr()
         assert "status: healthy" in captured.out
         assert "uptime: 123.45s" in captured.out
         assert "documents: 5" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_reset_success(self, mock_integration_service, capsys):
         """Test reset command success."""
         args = SimpleNamespace()
         result = await cmd_reset(args)
-        
+
         assert result == 0
         captured = capsys.readouterr()
         assert "reset: success" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_reset_failure(self, mock_integration_service, mock_rag_service, capsys):
         """Test reset command failure."""
         mock_rag_service.reset_store.return_value = False
-        
+
         args = SimpleNamespace()
         result = await cmd_reset(args)
-        
+
         assert result == 1
         captured = capsys.readouterr()
         assert "reset: failed" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_query(self, mock_integration_service, capsys):
         """Test query command."""
@@ -259,7 +259,7 @@ class TestCLICommands:
             threshold=0.7
         )
         result = await cmd_query(args)
-        
+
         assert result == 0
         captured = capsys.readouterr()
         assert "answer:" in captured.out
@@ -268,7 +268,7 @@ class TestCLICommands:
         assert "source1.pdf" in captured.out
         assert "confidence: 0.85" in captured.out
         assert "processing_time: 1.23s" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_ingest_file(self, mock_integration_service, capsys):
         """Test ingest file command."""
@@ -279,14 +279,14 @@ class TestCLICommands:
             type="pdf"
         )
         result = await cmd_ingest(args)
-        
+
         assert result == 0
         captured = capsys.readouterr()
         assert "success: True" in captured.out
         assert "document_id: doc123" in captured.out
         assert "chunks: 3" in captured.out
         assert "processing_time: 2.34s" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_ingest_url(self, mock_integration_service, mock_rag_service):
         """Test ingest URL command."""
@@ -297,12 +297,12 @@ class TestCLICommands:
             type=None
         )
         result = await cmd_ingest(args)
-        
+
         assert result == 0
         mock_rag_service.ingest_document.assert_called_once_with(
             "https://example.com", "url"
         )
-    
+
     @pytest.mark.asyncio
     async def test_cmd_ingest_text(self, mock_integration_service, mock_rag_service):
         """Test ingest text command."""
@@ -313,12 +313,12 @@ class TestCLICommands:
             type=None
         )
         result = await cmd_ingest(args)
-        
+
         assert result == 0
         mock_rag_service.ingest_document.assert_called_once_with(
             "Some text", "text"
         )
-    
+
     @pytest.mark.asyncio
     async def test_cmd_ingest_pdf_auto_detect(self, mock_integration_service, mock_rag_service):
         """Test ingest with PDF auto-detection."""
@@ -329,12 +329,31 @@ class TestCLICommands:
             type=None
         )
         result = await cmd_ingest(args)
-        
+
         assert result == 0
         mock_rag_service.ingest_document.assert_called_once_with(
             "document.pdf", "pdf"
         )
-    
+
+    @pytest.mark.asyncio
+    async def test_cmd_ingest_explicit_non_pdf_type(
+        self, mock_integration_service, mock_rag_service
+    ):
+        """Explicit file type should not depend on the filename extension."""
+        args = SimpleNamespace(
+            file="document.docx",
+            url=None,
+            text=None,
+            type="docx",
+        )
+
+        result = await cmd_ingest(args)
+
+        assert result == 0
+        mock_rag_service.ingest_document.assert_called_once_with(
+            "document.docx", "docx"
+        )
+
     @pytest.mark.asyncio
     async def test_cmd_ingest_no_source(self, mock_integration_service, capsys):
         """Test ingest with no source provided."""
@@ -345,11 +364,11 @@ class TestCLICommands:
             type=None
         )
         result = await cmd_ingest(args)
-        
+
         assert result == 2
         captured = capsys.readouterr()
         assert "Provide one of --file/--url/--text" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_ingest_failure(self, mock_integration_service, mock_rag_service, capsys):
         """Test ingest command failure."""
@@ -362,7 +381,7 @@ class TestCLICommands:
             error_message="Processing failed"
         )
         mock_rag_service.ingest_document.return_value = failed_result
-        
+
         args = SimpleNamespace(
             file="test.pdf",
             url=None,
@@ -370,12 +389,12 @@ class TestCLICommands:
             type="pdf"
         )
         result = await cmd_ingest(args)
-        
+
         assert result == 1
         captured = capsys.readouterr()
         assert "success: False" in captured.out
         assert "error: Processing failed" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_batch_ingest_with_patterns(self, mock_integration_service, mock_rag_service, capsys):
         """Test batch ingest with custom patterns."""
@@ -390,7 +409,7 @@ class TestCLICommands:
             max_concurrency=4
         )
         result = await cmd_batch_ingest(args)
-        
+
         assert result == 0
         mock_rag_service.batch_ingest.assert_called_once_with(
             sources=["file1.pdf"],
@@ -400,12 +419,12 @@ class TestCLICommands:
             source_type=None,
             max_concurrency=4
         )
-        
+
         captured = capsys.readouterr()
         assert "total: 2" in captured.out
         assert "succeeded: 2" in captured.out
         assert "failed: 0" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_batch_ingest_default_patterns(self, mock_integration_service, mock_rag_service):
         """Test batch ingest with default patterns."""
@@ -420,7 +439,7 @@ class TestCLICommands:
             max_concurrency=4
         )
         await cmd_batch_ingest(args)
-        
+
         mock_rag_service.batch_ingest.assert_called_once_with(
             sources=[],
             directory="./docs",
@@ -429,7 +448,7 @@ class TestCLICommands:
             source_type=None,
             max_concurrency=4
         )
-    
+
     @pytest.mark.asyncio
     async def test_cmd_batch_ingest_include_flags(self, mock_integration_service, mock_rag_service):
         """Test batch ingest with include flags."""
@@ -444,7 +463,7 @@ class TestCLICommands:
             max_concurrency=8
         )
         await cmd_batch_ingest(args)
-        
+
         mock_rag_service.batch_ingest.assert_called_once_with(
             sources=[],
             directory="./docs",
@@ -453,7 +472,7 @@ class TestCLICommands:
             source_type="pdf",
             max_concurrency=8
         )
-    
+
     @pytest.mark.asyncio
     async def test_cmd_batch_ingest_with_failures(self, mock_integration_service, mock_rag_service, capsys):
         """Test batch ingest with some failures."""
@@ -469,7 +488,7 @@ class TestCLICommands:
             ]
         }
         mock_rag_service.batch_ingest.return_value = batch_result
-        
+
         args = SimpleNamespace(
             pattern=None,
             include_txt=False,
@@ -481,23 +500,24 @@ class TestCLICommands:
             max_concurrency=4
         )
         result = await cmd_batch_ingest(args)
-        
+
         assert result == 1  # Should return 1 when there are failures
         captured = capsys.readouterr()
         assert "failed: 1" in captured.out
-    
+
     @pytest.mark.asyncio
     async def test_cmd_batch_ingest_many_results(self, mock_integration_service, mock_rag_service, capsys):
         """Test batch ingest with many results (truncation)."""
         # Create 15 results to test truncation at 10
-        results = []
-        for i in range(15):
-            results.append({
+        results = [
+            {
                 "success": True,
                 "document_id": f"doc{i}",
-                "source": f"file{i}.pdf"
-            })
-        
+                "source": f"file{i}.pdf",
+            }
+            for i in range(15)
+        ]
+
         batch_result = {
             "total": 15,
             "succeeded": 15,
@@ -506,7 +526,7 @@ class TestCLICommands:
             "results": results
         }
         mock_rag_service.batch_ingest.return_value = batch_result
-        
+
         args = SimpleNamespace(
             pattern=None,
             include_txt=False,
@@ -518,7 +538,7 @@ class TestCLICommands:
             max_concurrency=4
         )
         result = await cmd_batch_ingest(args)
-        
+
         assert result == 0
         captured = capsys.readouterr()
         assert "total: 15" in captured.out
@@ -527,57 +547,60 @@ class TestCLICommands:
 
 class TestCLIMain:
     """Test CLI main function."""
-    
+
     def test_main_keyboard_interrupt(self):
         """Test main function with keyboard interrupt."""
-        with patch("ragbot.cli._build_parser") as mock_parser:
-            with patch("ragbot.cli.asyncio.run") as mock_run:
-                # Mock parser and args
-                parser = MagicMock()
-                args = MagicMock()
-                args.func = AsyncMock(side_effect=KeyboardInterrupt())
-                parser.parse_args.return_value = args
-                mock_parser.return_value = parser
-                mock_run.side_effect = KeyboardInterrupt()
-                
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                
-                assert exc_info.value.code == 130
-    
+        with (
+            patch("ragbot.cli._build_parser") as mock_parser,
+            patch("ragbot.cli.asyncio.run") as mock_run,
+        ):
+            parser = MagicMock()
+            args = MagicMock()
+            args.func = AsyncMock(side_effect=KeyboardInterrupt())
+            parser.parse_args.return_value = args
+            mock_parser.return_value = parser
+            mock_run.side_effect = KeyboardInterrupt()
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+            assert exc_info.value.code == 130
+
     def test_main_exception(self):
         """Test main function with exception."""
-        with patch("ragbot.cli._build_parser") as mock_parser:
-            with patch("ragbot.cli.asyncio.run") as mock_run:
-                # Mock parser and args
-                parser = MagicMock()
-                args = MagicMock()
-                args.func = AsyncMock(side_effect=Exception("Test error"))
-                parser.parse_args.return_value = args
-                mock_parser.return_value = parser
-                mock_run.side_effect = Exception("Test error")
-                
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                
-                assert exc_info.value.code == 1
-    
+        with (
+            patch("ragbot.cli._build_parser") as mock_parser,
+            patch("ragbot.cli.asyncio.run") as mock_run,
+        ):
+            parser = MagicMock()
+            args = MagicMock()
+            args.func = AsyncMock(side_effect=Exception("Test error"))
+            parser.parse_args.return_value = args
+            mock_parser.return_value = parser
+            mock_run.side_effect = Exception("Test error")
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+            assert exc_info.value.code == 1
+
     def test_main_success(self):
         """Test main function success."""
-        with patch("ragbot.cli._build_parser") as mock_parser:
-            with patch("ragbot.cli.asyncio.run") as mock_run:
-                # Mock parser and args
-                parser = MagicMock()
-                args = MagicMock()
-                args.func = AsyncMock(return_value=0)
-                parser.parse_args.return_value = args
-                mock_parser.return_value = parser
-                mock_run.return_value = 0
-                
-                with pytest.raises(SystemExit) as exc_info:
-                    main()
-                
-                assert exc_info.value.code == 0
+        with (
+            patch("ragbot.cli._build_parser") as mock_parser,
+            patch("ragbot.cli.asyncio.run") as mock_run,
+        ):
+            parser = MagicMock()
+            args = MagicMock()
+            args.func = AsyncMock(return_value=0)
+            parser.parse_args.return_value = args
+            mock_parser.return_value = parser
+            mock_run.return_value = 0
+
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+            assert exc_info.value.code == 0
 
 
 class TestCLIPerformance:

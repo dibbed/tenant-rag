@@ -16,7 +16,6 @@ Cross-tenant attempts return HTTP 403.
 
 from __future__ import annotations
 
-from typing import Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -98,6 +97,7 @@ def client(rag_service):
 
         @app.post(MANAGE_PATH)
         async def manage_tenant(principal=Depends(require_tenant_admin)):
+            del principal
             return {"managed": True}
 
         app.dependency_overrides[get_integration_service_dep] = lambda: integration
@@ -106,7 +106,7 @@ def client(rag_service):
             yield test_client
 
 
-async def _setup(manager, auth) -> Dict[str, str]:
+async def _setup(manager, auth) -> dict[str, str]:
     for tenant_id in ("tenant_a", "tenant_b", "ops_root"):
         await manager.create_tenant(name=tenant_id, tenant_id=tenant_id, tier=TenantTier.ENTERPRISE)
 

@@ -10,15 +10,14 @@ import importlib.util
 import os
 import shutil
 import tempfile
-from typing import List
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+import ragbot.services.rag_service as _rag_service_mod
 from ragbot.configs.settings import VectorStoreConfig
 from ragbot.rag.store.base import VectorDocument
 from ragbot.rag.store.factory import VectorStoreFactory
-
 
 # These tests create a "chroma" store through VectorStoreFactory with a mocked
 # ChromaVectorStore class. The factory uses the class only when chromadb can be
@@ -28,8 +27,10 @@ requires_chromadb = pytest.mark.skipif(
     importlib.util.find_spec("chromadb") is None,
     reason="chromadb is optional (vectorstores extra) and not installed",
 )
-import ragbot.services.rag_service as _rag_service_mod
-RAGService = lambda *args, **kwargs: _rag_service_mod.RAGService(*args, **kwargs)
+
+
+def RAGService(*args, **kwargs):
+    return _rag_service_mod.RAGService(*args, **kwargs)
 
 
 class TestVectorStoreE2E:
@@ -65,7 +66,7 @@ class TestVectorStoreE2E:
         )
 
     @pytest.fixture
-    def sample_documents(self) -> List[VectorDocument]:
+    def sample_documents(self) -> list[VectorDocument]:
         """Create comprehensive sample documents for testing."""
         return [
             VectorDocument(
@@ -461,20 +462,19 @@ class TestPerformanceE2E(TestVectorStoreE2E):
     async def test_large_dataset_performance(self, sample_config, temp_dir):
         """Test performance with large datasets."""
         # Create large dataset
-        large_dataset = []
-        for i in range(1000):
-            large_dataset.append(
-                VectorDocument(
-                    id=f"doc_{i}",
-                    content=f"Document {i} content about machine learning, artificial intelligence, and data science.",
-                    embedding=[0.1 + (i % 10) * 0.01] * 384,
-                    metadata={
-                        "batch_id": i // 100,
-                        "source": f"large_dataset_{i}.pdf",
-                        "topic": ["ml", "ai", "data_science"][i % 3],
-                    },
-                )
+        large_dataset = [
+            VectorDocument(
+                id=f"doc_{i}",
+                content=f"Document {i} content about machine learning, artificial intelligence, and data science.",
+                embedding=[0.1 + (i % 10) * 0.01] * 384,
+                metadata={
+                    "batch_id": i // 100,
+                    "source": f"large_dataset_{i}.pdf",
+                    "topic": ["ml", "ai", "data_science"][i % 3],
+                },
             )
+            for i in range(1000)
+        ]
 
         with patch("ragbot.rag.store.faiss_store.FAISSVectorStore") as mock_faiss_class:
             mock_store = Mock()
@@ -557,12 +557,10 @@ class TestPerformanceE2E(TestVectorStoreE2E):
             tasks.append(store.add_documents(sample_documents))
 
             # Multiple searches
-            for i in range(5):
-                tasks.append(store.search(f"query {i}", top_k=1))
+            tasks.extend(store.search(f"query {i}", top_k=1) for i in range(5))
 
             # Health checks
-            for _ in range(3):
-                tasks.append(store.health_check())
+            tasks.extend(store.health_check() for _ in range(3))
 
             # Execute all tasks concurrently
             results = await asyncio.gather(*tasks)

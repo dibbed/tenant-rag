@@ -238,19 +238,18 @@ async def test_requests_without_credentials_are_refused_before_the_body_is_read(
     edge_app, asgi_call
 ):
     app, _ = edge_app(limit=2, multi_tenant=True, principals={})
-    results = []
-    for _ in range(3):
-        results.append(
-            await asgi_call(
-                app,
-                path="/api/v1/documents/text",
-                chunks=[b'{"text": "hello"}'],
-                headers=[
-                    ("content-type", "application/json"),
-                    ("content-length", "17"),
-                ],
-            )
+    results = [
+        await asgi_call(
+            app,
+            path="/api/v1/documents/text",
+            chunks=[b'{"text": "hello"}'],
+            headers=[
+                ("content-type", "application/json"),
+                ("content-length", "17"),
+            ],
         )
+        for _ in range(3)
+    ]
     assert [result.status for result in results] == [401, 401, 429]
     assert results[2].receive_calls == 0
 
@@ -299,14 +298,13 @@ async def test_failed_authentication_counts_against_the_address(edge_app, peer_c
     app, rag = edge_app(
         limit=3, multi_tenant=True, principals={"key-a": make_principal("key-a")}
     )
-    failures = []
     async with peer_client(app, "198.51.100.50") as client:
-        for index in range(4):
-            failures.append(
-                await client.post(
-                    QUERY_PATH, json=QUERY, headers={"X-API-Key": f"wrong-{index}"}
-                )
+        failures = [
+            await client.post(
+                QUERY_PATH, json=QUERY, headers={"X-API-Key": f"wrong-{index}"}
             )
+            for index in range(4)
+        ]
         valid = await client.post(
             QUERY_PATH, json=QUERY, headers={"X-API-Key": "key-a"}
         )

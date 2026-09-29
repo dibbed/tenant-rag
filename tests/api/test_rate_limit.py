@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 from fastapi import FastAPI, status
-from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from ragbot.api.middleware.rate_limit import RateLimitMiddleware
