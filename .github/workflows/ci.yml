@@ -5,12 +5,11 @@
 # Blocking Checks (required status checks of main):
 #   Tests (Python 3.10), Tests (Python 3.11), Tests (Python 3.12)
 #   Security Regression Suite (Python 3.10), (Python 3.11), (Python 3.12)
-#   Static Analysis (bandit, blocking)
+#   Static Analysis (ruff, blocking), (mypy, blocking), (bandit, blocking)
 #   Dependency Vulnerability Check (includes lock drift validation)
 #   Container Build Check
 #   Verification Summary
 # Report-Only Checks (visible, do not block a merge):
-#   Static Analysis (ruff, report-only), (mypy, report-only)
 #   Optional Extra Audit (<extra>)
 name: Verification Pipeline
 
@@ -154,9 +153,9 @@ jobs:
         # "Static Analysis (<tool>, blocking)" to the required status checks.
         include:
           - tool: ruff
-            mode: report-only
+            mode: blocking
           - tool: mypy
-            mode: report-only
+            mode: blocking
           - tool: bandit
             mode: blocking
     steps:

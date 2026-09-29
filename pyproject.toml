@@ -109,6 +109,7 @@ dev = [
     "ruff==0.12.12",
     "pre-commit==3.7.1",
     "bandit==1.7.9",
+    "types-markdown==3.10.2.20260712",
 ]
 full = [
     # Full installs add the optional vector-store backends. Provider/NLP
@@ -190,6 +191,8 @@ ragbot = ["py.typed"]
 [tool.ruff]
 target-version = "py310"
 line-length = 88
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -213,6 +216,10 @@ ignore = [
     "C901",  # too complex
     "W191",  # indentation contains tabs
 ]
+# Intentional multilingual content in Persian text, localized examples, and
+# Unicode-aware sentence-boundary samples. Keep RUF001/RUF002/RUF003 enabled
+# for every other confusable character.
+allowed-confusables = ["ا", "ه", "！", "？", "۵", "۰", "–", "۱", "ℹ", "۷"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -220,7 +227,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["ragbot"]
 
 # MyPy configuration
