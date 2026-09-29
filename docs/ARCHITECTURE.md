@@ -181,10 +181,11 @@ Return QueryResponse
 
 RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
 
-### Durable SQLite Persistence
-- **Storage**: Standard library `sqlite3` at `data/tenants/tenants.db` (zero external ORM dependencies).
-- **Concurrency**: Guarded by `asyncio.Lock()` with WAL mode and atomic transaction commits.
-- **Boot Preloading**: Tenant configs, user credentials, and quotas preloaded into memory caches on application boot.
+### Durable PostgreSQL Persistence
+- **Storage**: PostgreSQL is the authoritative tenant metadata store. SQLAlchemy 2.x async sessions use `asyncpg`; schema changes are owned by Alembic.
+- **Transactions**: Each business operation owns one short-lived database transaction. Repositories stage/query data but do not commit, and external RAG/LLM/vector I/O is kept outside SQL transactions.
+- **Process Independence**: Tenant configs, users, API keys, sessions, quotas, usage, and audit records are read from PostgreSQL rather than process-local authority dictionaries.
+- **Row-Level Security**: Every tenant table has PostgreSQL RLS enabled. Runtime connections set transaction-local `app.tenant_id` or an explicitly authorized system context; the runtime role must be a non-owner with `NOSUPERUSER` and `NOBYPASSRLS`.
 
 ### Multi-Tenant Isolation Invariants
 1. **Vector Store Isolation**:
@@ -199,7 +200,7 @@ RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
    - Resetting Tenant A (`/api/v1/documents/reset` with `X-Tenant-ID: tenant_a`) clears only Tenant A's vector index and semantic cache entries, leaving Tenant B completely unaffected.
    - Reset requires `tenant_admin` (role `admin`) on the target tenant, the explicit `delete_documents` permission on that tenant, or `system_admin` (role `super_admin`). The `manager` role and the `manage_tenant` key permission do not grant reset.
 4. **Transport & Identity Boundaries**:
-   - `get_current_principal` authenticates incoming credentials (`X-API-Key` or `Authorization: Bearer <token>`) against SQLite-backed hashed keys and user sessions.
+   - `get_current_principal` authenticates incoming credentials (`X-API-Key` or `Authorization: Bearer <token>`) against PostgreSQL-backed hashed API keys and hashed session tokens. Narrow `SECURITY DEFINER` lookup functions bootstrap tenant identity before normal RLS-scoped access.
    - `get_authorized_tenant_context` checks tenant matching: only `system_admin` principals (role `super_admin`) may name another tenant in `X-Tenant-ID`. Key permissions never grant cross-tenant access.
    - Missing credentials yield `HTTP 401 Unauthorized`; tenant mismatch or inactive tenant yield `HTTP 403 Forbidden`.
    - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`) there is no credential store. API requests are rejected with `HTTP 401` unless `ENVIRONMENT=development` and `ALLOW_ANONYMOUS=true` are both set (insecure development mode, logged as a warning at startup).
@@ -208,7 +209,7 @@ RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
 - **Key format**: `rgb_<key_id>_<secret>`. `key_id` is 32 hex characters and is used for lookup; `secret` is `secrets.token_urlsafe(32)`. The raw key is shown once and is never stored.
 - **Storage**: `tenant_api_keys.key_hash` holds a salted scrypt hash (`scrypt$n$r$p$salt$hash`, n=2^14, r=8, p=1). Verification is constant-time. The stored hash is never accepted as a credential.
 - **Legacy keys**: keys stored with the old unsalted SHA-256 scheme are rejected with an explicit migration error (`HTTP 401`). See the API key migration section in SECURITY.md.
-- **Immediate Revocation**: revocation and expiry are read from SQLite on every request, so a key revoked from the CLI (another process) stops working at once.
+- **Immediate Revocation**: revocation and expiry are read from PostgreSQL on every authentication path, so revocation by another process or worker takes effect immediately.
 - **Secret Masking**: key listings return only the 12-character prefix, metadata and `hash_scheme`, never the secret or the hash.
 - **Authorization levels**: `system_admin` (role `super_admin`), `tenant_admin` (role `admin`) and user (all other roles). Key permissions never raise the level; only `system_admin` can cross tenant boundaries.
 

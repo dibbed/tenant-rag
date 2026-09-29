@@ -145,7 +145,7 @@ flowchart TD
     subgraph ServiceLayer ["2. Orchestration & Core Services"]
         IntService["IntegrationService<br/>(Lifespan Engine)"]
         RAGService["RAGService<br/>(Ingest, Query, Reset)"]
-        TenantMgr["TenantManager & TenantAuth<br/>(SQLite WAL & scrypt Key Hashes)"]
+        TenantMgr["TenantManager & TenantAuth<br/>(PostgreSQL RLS, Async SQLAlchemy & scrypt)"]
         PluginMgr["PluginManager<br/>(In-Process Lifecycle Hooks)"]
     end
 
@@ -189,13 +189,13 @@ flowchart TD
 
 ## ✨ Verified Capabilities
 
-1. **Multi-Tenant by Design:** Native SQLite WAL database (`data/tenants/tenants.db`) managing tenant metadata, quotas, and API keys. Vector indices and semantic caches are physically separated per tenant.
+1. **Multi-Tenant by Design:** PostgreSQL is the authoritative store for tenant metadata, users, API keys, sessions, quotas, usage, and audit records. PostgreSQL RLS enforces tenant row boundaries, while vector indices and semantic caches remain partitioned per tenant.
 2. **Headless FastAPI Microservice:** Designed as a standalone REST API microservice rather than a full visual AI application platform. Standard JSON schemas, automated Pydantic validation, and interactive OpenAPI documentation.
 3. **Tenant-Scoped Semantic Cache:** Reuses responses for semantically similar queries by computing embedding cosine similarity within the caller's tenant partition.
 4. **Vector Store Backends:** Modular vector storage supporting **FAISS** (with class-level async locks), **ChromaDB**, and **Qdrant**.
 5. **LLM Provider Flexibility:** Connect to **OpenAI**, **Anthropic Claude**, **OpenRouter**, **Ollama** (offline local models), or **HuggingFace Local**.
 6. **Salted scrypt API Key Hashing:** Keys (`rgb_<key_id>_<secret>`) are stored only as salted scrypt hashes and looked up by key id. Verification is constant-time (`hmac.compare_digest`). Legacy SHA-256 keys are rejected (see [SECURITY.md](SECURITY.md)).
-7. **Concurrency-Hardened for Single Nodes:** `FAISSVectorStore` uses class-level `asyncio.Lock()` to prevent Windows OS file-locking collisions (`PermissionError`) during simultaneous reads and writes. SQLite uses WAL journal mode with write locks.
+7. **Transactional Multi-Worker Metadata:** PostgreSQL transactions and atomic quota/usage updates provide cross-worker consistency for tenant metadata, API-key revocation, and sessions. `FAISSVectorStore` still uses class-level `asyncio.Lock()` to protect local file operations when FAISS is selected.
 8. **Failure-Isolated Plugins:** In-process plugin architecture supporting lifecycle hooks (`PRE/POST_QUERY`, `PRE/POST_DOCUMENT_INGEST`, `PRE/POST_RESPONSE`). Exceptions in plugins are caught and logged without aborting client requests.
 9. **Bilingual English & Persian Support:** Out-of-the-box support for Persian punctuation marks (`؟`, `؛`, `،`), numeral conversion, localized QA prompt templates, and `fas+eng` OCR defaults.
 10. **Administrative CLI (`tenantrag`):** Command-line tool for tenant provisioning, key lifecycle, store migration, and benchmarking.

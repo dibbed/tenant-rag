@@ -30,7 +30,7 @@ pytest -o addopts='' -q
 
 ## 2. Test Suite Topology
 
-The repository organizes tests into five clean, isolated directories under `tests/`:
+The repository organizes tests by responsibility under `tests/`, including a dedicated real-PostgreSQL verification directory:
 
 ```text
 tests/
@@ -42,7 +42,7 @@ tests/
 │   ├── test_semantic_cache.py   # Cosine similarity cache hits/misses, eviction
 │   ├── test_chunkers.py         # Text chunking algorithms and boundary detection
 │   ├── test_loaders.py          # PDF, DOCX, TXT, HTML parsers
-│   ├── test_multi_tenant.py     # Tenant CRUD, SQLite persistence, quota enforcement
+│   ├── test_multi_tenant.py     # Legacy SQLite characterization kept for migration regression coverage
 │   ├── test_cli_tenant_keys.py  # CLI tenant API key commands
 │   └── test_validation.py       # Pydantic schema validation rules
 ├── integration/          # Multi-component integration tests
@@ -52,12 +52,14 @@ tests/
 │   └── test_migrate_faiss_to_qdrant.py    # Cross-store migration verification
 ├── security/             # Security, authentication, and authorization test suite
 │   └── test_tenant_auth_security.py       # Impersonation, cross-tenant, reset RBAC, revocation
+├── postgres/             # Real PostgreSQL Alembic, RLS, runtime-role, and auth bootstrap checks
+│   └── test_phase5_postgres.py
 └── e2e/                  # End-to-end full system flows
     ├── test_project_e2e_complete.py       # Complete ingest-retrieve-answer flows
     └── test_security_workflows.py         # End-to-end security and rate limit validation
 ```
 
-The Security Regression Suite (section 5) is `tests/security` together with the edge protection and tenant isolation tests that `tests/security/suite_manifest.json` lists. `tests/verification` tests the tools of the Verification Pipeline.
+The Security Regression Suite (section 5) is `tests/security` together with the edge protection and tenant isolation tests that `tests/security/suite_manifest.json` lists. `tests/postgres` is executed by the blocking PostgreSQL Verification job against a real PostgreSQL instance. `tests/verification` tests the tools of the Verification Pipeline.
 
 ---
 
@@ -111,6 +113,7 @@ make verify            # every check; the container check needs Docker
 make verify-tests      # full test suite
 make verify-security   # Security Regression Suite
 make verify-static     # Ruff, MyPy and Bandit (Blocking)
+make verify-postgres   # Alembic + real PostgreSQL RLS/auth checks; needs TEST_DATABASE_URL
 make verify-deps       # Dependency Vulnerability Check
 make verify-container  # Container Build Check
 ```
