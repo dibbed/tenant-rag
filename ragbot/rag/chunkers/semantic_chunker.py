@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 try:
-    import numpy as np
+    import numpy as np  # Runtime dependency probe.
     from sentence_transformers import SentenceTransformer
     from sklearn.metrics.pairwise import cosine_similarity
 
@@ -55,17 +55,19 @@ class SemanticChunker(BaseChunker):
         """
         super().__init__(**kwargs)
 
-        self.max_chunk_size = kwargs.get(
-            "max_chunk_size", kwargs.get("chunk_size", settings.rag.chunk_size)
+        self.max_chunk_size = int(
+            kwargs.get("max_chunk_size", kwargs.get("chunk_size", settings.rag.chunk_size))
         )
-        self.min_chunk_size = kwargs.get("min_chunk_size", 100)
+        self.min_chunk_size = int(kwargs.get("min_chunk_size", 100))
         # Minimum characters for a sentence to be considered (configurable)
         adv = getattr(settings, "advanced_chunking", None)
-        self.min_sentence_chars = kwargs.get(
-            "min_sentence_chars",
-            getattr(adv, "semantic_min_sentence_chars", 8),
+        self.min_sentence_chars = int(
+            kwargs.get(
+                "min_sentence_chars",
+                getattr(adv, "semantic_min_sentence_chars", 8),
+            )
         )
-        self.similarity_threshold = kwargs.get("similarity_threshold", 0.7)
+        self.similarity_threshold = float(kwargs.get("similarity_threshold", 0.7))
         # Model resolution: explicit arg -> embedding.model (single source of truth)
         self.model_name = kwargs.get(
             "model_name",
@@ -76,7 +78,7 @@ class SemanticChunker(BaseChunker):
         self.fallback_to_token = kwargs.get("fallback_to_token", True)
 
         # Initialize components
-        self.model: Optional[SentenceTransformer] = None
+        self.model: SentenceTransformer | None = None
         # Optional external embedder (unified provider: openai/hf/st)
         self._external_embedder = kwargs.get("embedder")
         self.token_chunker = TokenChunker(
@@ -137,11 +139,11 @@ class SemanticChunker(BaseChunker):
         """Compatibility property for chunk_size."""
         return self.max_chunk_size
 
-    async def chunk_text(self, text: str, **kwargs: Any) -> List[TextChunk]:
+    async def chunk_text(self, text: str, **kwargs: Any) -> list[TextChunk]:
         """Async compatibility method for chunk_text."""
         return self.chunk(text, **kwargs)
 
-    async def chunk_document(self, document: "Document") -> List["Document"]:
+    async def chunk_document(self, document: Document) -> list[Document]:
         """Chunk a document into smaller documents.
 
         Args:
@@ -190,19 +192,25 @@ class SemanticChunker(BaseChunker):
         except Exception as e:
             from ragbot.rag.exceptions import DocumentProcessingError
 
-            raise DocumentProcessingError(f"Failed to chunk document: {str(e)}") from e
+            raise DocumentProcessingError(f"Failed to chunk document: {e!s}") from e
 
-    def _get_sentence_embeddings(self, sentences: List[str]) -> List[List[float]]:
+    def _get_sentence_embeddings(self, sentences: list[str]) -> list[list[float]]:
         """Compatibility method for _get_sentence_embeddings."""
-        return self._compute_sentence_embeddings([(s, 0, len(s)) for s in sentences])
+        embeddings = self._compute_sentence_embeddings(
+            [(sentence, 0, len(sentence)) for sentence in sentences]
+        )
+        return [
+            [float(value) for value in row]
+            for row in embeddings.tolist()
+        ]
 
-    def _calculate_similarity(self, emb1: List[float], emb2: List[float]) -> float:
+    def _calculate_similarity(self, emb1: list[float], emb2: list[float]) -> float:
         """Compatibility method for _calculate_similarity."""
         if not SEMANTIC_DEPS_AVAILABLE:
             return 0.5  # Default similarity
         return float(cosine_similarity([emb1], [emb2])[0][0])
 
-    def chunk(self, text: str, **kwargs: Any) -> List[TextChunk]:
+    def chunk(self, text: str, **kwargs: Any) -> list[TextChunk]:
         """
         Split text into semantically coherent chunks.
 
@@ -228,14 +236,14 @@ class SemanticChunker(BaseChunker):
             )
 
         # Consume structural metadata for boundary protection
-        metadata_in: Dict[str, Any] = kwargs.get("metadata", {}) or {}
+        metadata_in: dict[str, Any] = kwargs.get("metadata", {}) or {}
         headings = metadata_in.get("headings") or []
         # Optional hints (may be unused depending on structure availability)
         _tables_max_cols = metadata_in.get("tables_max_cols")
         _language = metadata_in.get("language") or metadata_in.get("likely_language")
 
         # Build protected spans: headings text occurrences and table-like lines
-        protected_spans: List[Tuple[int, int]] = []
+        protected_spans: list[tuple[int, int]] = []
         try:
             if isinstance(headings, list):
                 cursor = 0
@@ -254,15 +262,19 @@ class SemanticChunker(BaseChunker):
             pass
 
         # Mark table/code blocks as protected (avoid splitting inside)
-        for m in re.finditer(
-            r"(^\s*\[Table\].*$)|(^\s*```[\s\S]*?```)|(^.*\t.*$)", text, re.MULTILINE
-        ):
-            protected_spans.append((m.start(), m.end()))
+        protected_spans.extend(
+            (m.start(), m.end())
+            for m in re.finditer(
+                r"(^\s*\[Table\].*$)|(^\s*```[\s\S]*?```)|(^.*\t.*$)",
+                text,
+                re.MULTILINE,
+            )
+        )
 
         # Normalize and merge protected spans to simplify checks
         if protected_spans:
             protected_spans.sort(key=lambda x: x[0])
-            merged: List[Tuple[int, int]] = []
+            merged: list[tuple[int, int]] = []
             for s, e in protected_spans:
                 if not merged or s > merged[-1][1]:
                     merged.append((s, e))
@@ -294,8 +306,8 @@ class SemanticChunker(BaseChunker):
             sentences = self._split_into_sentences(text)
             # Penalize/adjust boundaries using structure: avoid starting/ending inside protected spans
             if sentences:
-                adjusted: List[Tuple[str, int, int]] = []
-                for s, a, b in sentences:
+                adjusted: list[tuple[str, int, int]] = []
+                for sentence_text, a, b in sentences:
                     if self._intersects_protected(a, b, protected_spans):
                         # extend to cover full protected block
                         a2, b2 = self._expand_to_protected(a, b, protected_spans)
@@ -303,7 +315,7 @@ class SemanticChunker(BaseChunker):
                         if seg:
                             adjusted.append((seg, a2, b2))
                     else:
-                        adjusted.append((s, a, b))
+                        adjusted.append((sentence_text, a, b))
                 sentences = adjusted
 
             if len(sentences) <= 1:
@@ -361,10 +373,10 @@ class SemanticChunker(BaseChunker):
                 return self.token_chunker.chunk(text, **kwargs)
 
             raise DocumentProcessingError(
-                f"Failed to perform semantic chunking: {str(e)}", details=str(e)
+                f"Failed to perform semantic chunking: {e!s}", details=str(e)
             ) from e
 
-    def _split_into_sentences(self, text: str) -> List[Tuple[str, int, int]]:
+    def _split_into_sentences(self, text: str) -> list[tuple[str, int, int]]:
         """
         Split text into sentences with position information.
 
@@ -407,8 +419,8 @@ class SemanticChunker(BaseChunker):
         return sentences
 
     def _compute_sentence_embeddings(
-        self, sentences: List[Tuple[str, int, int]]
-    ) -> "np.ndarray":
+        self, sentences: list[tuple[str, int, int]]
+    ) -> np.ndarray[Any, np.dtype[Any]]:
         """
         Compute embeddings for sentences.
 
@@ -426,36 +438,40 @@ class SemanticChunker(BaseChunker):
                 try:
                     import numpy as _np  # local import to avoid hard dependency
 
-                    return _np.array(vecs)
+                    array: np.ndarray[Any, np.dtype[Any]] = _np.asarray(vecs, dtype=float)
+                    return array
                 except Exception as e:
                     # As a minimal fallback, require ST deps
                     if not SEMANTIC_DEPS_AVAILABLE:
                         raise DocumentProcessingError(
                             "NumPy not available for external embeddings conversion"
                         ) from e
-                    import numpy as _np  # type: ignore
+                    import numpy as _np
 
-                    return _np.array(vecs)
+                    fallback_array: np.ndarray[Any, np.dtype[Any]] = _np.asarray(vecs, dtype=float)
+                    return fallback_array
             # Local ST model path
-            embeddings = self.model.encode(sentence_texts, convert_to_numpy=True)  # type: ignore[union-attr]
+            raw_embeddings = self.model.encode(  # type: ignore[union-attr]
+                sentence_texts, convert_to_numpy=True
+            )
+            embeddings: np.ndarray[Any, np.dtype[Any]] = np.asarray(
+                raw_embeddings, dtype=float
+            )
             return embeddings
         except Exception as e:
             logger.error(f"Error computing sentence embeddings: {e}")
             raise DocumentProcessingError(
-                f"Failed to compute sentence embeddings: {str(e)}", details=str(e)
+                f"Failed to compute sentence embeddings: {e!s}", details=str(e)
             ) from e
 
     def _intersects_protected(
-        self, a: int, b: int, spans: List[Tuple[int, int]]
+        self, a: int, b: int, spans: list[tuple[int, int]]
     ) -> bool:
-        for s, e in spans:
-            if a < e and b > s:
-                return True
-        return False
+        return any(a < e and b > s for s, e in spans)
 
     def _expand_to_protected(
-        self, a: int, b: int, spans: List[Tuple[int, int]]
-    ) -> Tuple[int, int]:
+        self, a: int, b: int, spans: list[tuple[int, int]]
+    ) -> tuple[int, int]:
         if not spans:
             return a, b
         new_a, new_b = a, b
@@ -467,29 +483,28 @@ class SemanticChunker(BaseChunker):
 
     def _respect_structural_boundaries(
         self,
-        groups: List[List[int]],
-        sentences: List[Tuple[str, int, int]],
-        protected: List[Tuple[int, int]],
-    ) -> List[List[int]]:
+        groups: list[list[int]],
+        sentences: list[tuple[str, int, int]],
+        protected: list[tuple[int, int]],
+    ) -> list[list[int]]:
         if not groups:
             return groups
         if not protected:
             return groups
-        out: List[List[int]] = []
+        out: list[list[int]] = []
         for grp in groups:
             if not grp:
                 continue
-            current: List[int] = []
-            prev_end: Optional[int] = None
+            current: list[int] = []
+            prev_end: int | None = None
             for idx in grp:
                 s, a, b = sentences[idx]
                 # cut if a protected boundary between previous and current
                 if prev_end is not None and any(
                     prev_end <= ps <= a or prev_end <= pe <= a for ps, pe in protected
-                ):
-                    if current:
-                        out.append(current)
-                        current = []
+                ) and current:
+                    out.append(current)
+                    current = []
                 current.append(idx)
                 prev_end = b
             if current:
@@ -497,8 +512,10 @@ class SemanticChunker(BaseChunker):
         return out
 
     def _group_sentences_by_similarity(
-        self, sentences: List[Tuple[str, int, int]], embeddings: np.ndarray
-    ) -> List[List[int]]:
+        self,
+        sentences: list[tuple[str, int, int]],
+        embeddings: np.ndarray[Any, np.dtype[Any]],
+    ) -> list[list[int]]:
         """
         Group sentences by semantic similarity.
 
@@ -545,11 +562,11 @@ class SemanticChunker(BaseChunker):
 
     def _create_chunks_from_groups(
         self,
-        sentence_groups: List[List[int]],
+        sentence_groups: list[list[int]],
         original_text: str,
         document_id: str,
-        sentences: List[Tuple[str, int, int]],
-    ) -> List[TextChunk]:
+        sentences: list[tuple[str, int, int]],
+    ) -> list[TextChunk]:
         """
         Create text chunks from sentence groups.
 
@@ -568,7 +585,7 @@ class SemanticChunker(BaseChunker):
                 continue
 
             # Combine actual sentences in group preserving order and positions
-            group_sentences: List[str] = []
+            group_sentences: list[str] = []
             min_start = float("inf")
             max_end = 0
 
@@ -617,8 +634,8 @@ class SemanticChunker(BaseChunker):
         return chunks
 
     def _enforce_size_constraints(
-        self, chunks: List[TextChunk], document_id: str
-    ) -> List[TextChunk]:
+        self, chunks: list[TextChunk], document_id: str
+    ) -> list[TextChunk]:
         """
         Ensure chunks meet size constraints by splitting or merging as needed.
 
@@ -631,7 +648,7 @@ class SemanticChunker(BaseChunker):
         """
         constrained_chunks = []
 
-        prev_chunk: Optional[TextChunk] = None
+        prev_chunk: TextChunk | None = None
         for chunk in chunks:
             token_count = self.token_chunker.count_tokens(chunk.content)
             # If very small chunk and there is a previous one, try merging for quality
@@ -683,7 +700,7 @@ class SemanticChunker(BaseChunker):
 
         return constrained_chunks
 
-    def _create_single_chunk(self, text: str, document_id: str) -> List[TextChunk]:
+    def _create_single_chunk(self, text: str, document_id: str) -> list[TextChunk]:
         """Create a single chunk from text."""
         chunk_id = self._generate_chunk_id(document_id, 0)
         token_count = self.token_chunker.count_tokens(text)
@@ -734,7 +751,7 @@ class SemanticChunker(BaseChunker):
             # Fallback to token chunker estimate
             return self.token_chunker.estimate_chunks(text)
 
-    def get_chunk_overlap_info(self) -> Dict[str, Any]:
+    def get_chunk_overlap_info(self) -> dict[str, Any]:
         """Get information about chunk overlap settings."""
         return {
             "has_overlap": False,  # Semantic chunking doesn't use traditional overlap

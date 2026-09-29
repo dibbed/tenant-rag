@@ -193,7 +193,7 @@ class TestRetrievalEvaluator:
 
         for key in expected_keys:
             assert key in evaluation
-            assert isinstance(evaluation[key], (int, float))
+            assert isinstance(evaluation[key], int | float)
 
         # Check that evaluation history was updated
         assert len(evaluator.evaluation_history) == 1
@@ -1232,23 +1232,21 @@ class TestQualityEvaluator:
 
         # High quality case
         assert (
-            evaluator._is_high_quality(0.9, {"accuracy": 0.8, "relevance": 0.9}) == True
+            evaluator._is_high_quality(0.9, {"accuracy": 0.8, "relevance": 0.9})
         )
 
         # Low confidence case
         assert (
-            evaluator._is_high_quality(0.6, {"accuracy": 0.8, "relevance": 0.9})
-            == False
+            not evaluator._is_high_quality(0.6, {"accuracy": 0.8, "relevance": 0.9})
         )
 
         # Low quality case
         assert (
-            evaluator._is_high_quality(0.9, {"accuracy": 0.6, "relevance": 0.5})
-            == False
+            not evaluator._is_high_quality(0.9, {"accuracy": 0.6, "relevance": 0.5})
         )
 
         # Edge case
-        assert evaluator._is_high_quality(0.8, {}) == False
+        assert not evaluator._is_high_quality(0.8, {})
 
     def test_update_averages(self):
         """Test average statistics update."""
@@ -1541,62 +1539,6 @@ class TestSystemPerformanceMonitor:
         mock_manager._metrics["system_error_rate"].set.assert_called_with(2.0)
         mock_manager._metrics["system_gpu_usage"].set.assert_called_with(50.0)
         mock_manager._metrics["system_gpu_memory"].set.assert_called_with(2048000000)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
-    """Test cases for AdvancedRetriever metrics integration."""
-
-    @pytest.fixture
-    def mock_vector_store(self):
-        """Create mock vector store."""
-        mock_store = Mock()
-        mock_store.search.return_value = [
-            VectorDocument(
-                id="doc1",
-                content="Test content 1",
-                metadata={},
-                embedding=[0.1, 0.2, 0.3],
-            ),
-            VectorDocument(
-                id="doc2",
-                content="Test content 2",
-                metadata={},
-                embedding=[0.4, 0.5, 0.6],
-            ),
-            VectorDocument(
-                id="doc3",
-                content="Test content 3",
-                metadata={},
-                embedding=[0.7, 0.8, 0.9],
-            ),
-        ]
-        return mock_store
-
-    @pytest.fixture
-    def mock_embedder(self):
-        """Create mock embedder."""
-        mock_embedder = Mock()
-        mock_embedder.embed.return_value = np.array([0.1, 0.2, 0.3])
-        return mock_embedder
-
-    def test_advanced_retriever_metrics_integration(
-        self, mock_vector_store, mock_embedder
-    ):
-        """Test that AdvancedRetriever properly integrates with metrics."""
-        retriever = AdvancedRetriever(
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            enable_reranking=False,
-            enable_hybrid=False,
-            enable_expansion=False,
-        )
-
-        # Verify that retriever has metrics integration capability
-        assert hasattr(retriever, "_record_advanced_metrics")
-
-        # Test that metrics recording method exists and is callable
-        assert callable(retriever._record_advanced_metrics)
 
 
 if __name__ == "__main__":

@@ -7,12 +7,15 @@ and document storage with proper persistence and atomic operations.
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
 import threading
 import time
+from collections.abc import Coroutine, Generator
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from types import TracebackType
+from typing import Any
 
 import numpy as np
 
@@ -29,7 +32,6 @@ from ragbot.outputs.metrics import metrics_manager
 from ragbot.rag.exceptions import VectorStoreError
 from ragbot.rag.store.base import BaseVectorStore, SearchResult, VectorDocument
 
-
 _DOCUMENTS_SCHEMA_VERSION = 1
 _DOCUMENTS_FILENAME = "documents.json"
 _LEGACY_DOCUMENTS_FILENAME = "documents.pkl"
@@ -38,7 +40,7 @@ _JSON_TYPE_KEY = "__tenant_rag_type__"
 
 def _encode_json_value(value: Any, *, path: str = "value") -> Any:
     """Convert supported document data to an explicit JSON-safe representation."""
-    if value is None or isinstance(value, (str, bool, int, float)):
+    if value is None or isinstance(value, str | bool | int | float):
         return value
     if isinstance(value, bytes):
         return {
@@ -61,7 +63,7 @@ def _encode_json_value(value: Any, *, path: str = "value") -> Any:
     if isinstance(value, dict):
         if _JSON_TYPE_KEY in value:
             raise ValueError(f"{path} uses reserved key {_JSON_TYPE_KEY!r}")
-        encoded: Dict[str, Any] = {}
+        encoded: dict[str, Any] = {}
         for key, item in value.items():
             if not isinstance(key, str):
                 raise TypeError(f"{path} contains non-string key {key!r}")
@@ -72,7 +74,7 @@ def _encode_json_value(value: Any, *, path: str = "value") -> Any:
 
 def _decode_json_value(value: Any, *, path: str = "value") -> Any:
     """Decode the safe tagged JSON representation used by document persistence."""
-    if value is None or isinstance(value, (str, bool, int, float)):
+    if value is None or isinstance(value, str | bool | int | float):
         return value
     if isinstance(value, list):
         return [
@@ -108,8 +110,8 @@ def _decode_json_value(value: Any, *, path: str = "value") -> Any:
 
 
 def _documents_payload(
-    documents: Dict[str, VectorDocument], *, keep_embeddings: bool = True
-) -> Dict[str, Any]:
+    documents: dict[str, VectorDocument], *, keep_embeddings: bool = True
+) -> dict[str, Any]:
     items = []
     for document in documents.values():
         data = document.to_dict()
@@ -120,15 +122,15 @@ def _documents_payload(
 
 
 def _write_documents_file(
-    path: Path, documents: Dict[str, VectorDocument], *, keep_embeddings: bool = True
+    path: Path, documents: dict[str, VectorDocument], *, keep_embeddings: bool = True
 ) -> None:
     payload = _documents_payload(documents, keep_embeddings=keep_embeddings)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
 
 
-def _load_documents_file(path: Path) -> Dict[str, VectorDocument]:
-    with open(path, "r", encoding="utf-8") as handle:
+def _load_documents_file(path: Path) -> dict[str, VectorDocument]:
+    with open(path, encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict) or set(payload) != {"version", "documents"}:
         raise ValueError("FAISS documents payload has an invalid schema")
@@ -140,7 +142,7 @@ def _load_documents_file(path: Path) -> Dict[str, VectorDocument]:
     if not isinstance(raw_documents, list):
         raise ValueError("FAISS documents payload must contain a list")
 
-    documents: Dict[str, VectorDocument] = {}
+    documents: dict[str, VectorDocument] = {}
     for index, raw in enumerate(raw_documents):
         raw = _decode_json_value(raw, path=f"documents[{index}]")
         if not isinstance(raw, dict):
@@ -165,35 +167,17 @@ def _legacy_pickle_error(path: Path) -> VectorStoreError:
     )
 
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Legacy function for backward compatibility with tests."""
-    try:
-        # Use actual embedding service if available
-        from ragbot.rag.embeddings import EmbeddingFactory
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Generate deterministic embeddings for the legacy compatibility API.
 
-        factory = EmbeddingFactory()
-        embedder = factory.get_embedder()
-
-        if embedder:
-            embeddings = []
-            for text in texts:
-                # Handle both sync and async embedders
-                if hasattr(embedder, "embed_text_async"):
-                    import asyncio
-
-                    embedding = asyncio.run(embedder.embed_text_async(text))
-                else:
-                    embedding = embedder.embed_text(text)
-                embeddings.append(embedding)
-            return embeddings
-    except Exception as e:
-        logger.warning(f"Failed to use real embedder: {e}")
-
-    # Fallback to deterministic embeddings
+    The former implementation imported a non-existent ``EmbeddingFactory`` and
+    therefore always reached this deterministic fallback. Making that effective
+    behavior explicit removes dead code without changing runtime results.
+    """
     return _generate_deterministic_embeddings(texts)
 
 
-def _generate_deterministic_embeddings(texts: List[str]) -> List[List[float]]:
+def _generate_deterministic_embeddings(texts: list[str]) -> list[list[float]]:
     """Generate deterministic embeddings for testing."""
     import hashlib
 
@@ -276,17 +260,20 @@ class FAISSVectorStore(BaseVectorStore):
         self.legacy_documents_path = self.index_path / _LEGACY_DOCUMENTS_FILENAME
         self.metadata_path = self.index_path / "metadata.json"
 
-        # Initialize storage
-        self.index: Optional[faiss.Index] = None
-        self.documents: Dict[str, VectorDocument] = {}
+        # Initialize storage. Construction always loads or creates the index
+        # before returning, so the steady-state invariant is non-optional.
+        self.index: faiss.Index
+        self.documents: dict[str, VectorDocument] = {}
+        self.id_to_index: dict[str, int] = {}
+        self.index_to_id: dict[int, str] = {}
         # Stable ID mapping (string doc_id <-> int64 FAISS ID)
-        self.docid_to_faissid: Dict[str, int] = {}
-        self.faissid_to_docid: Dict[int, str] = {}
+        self.docid_to_faissid: dict[str, int] = {}
+        self.faissid_to_docid: dict[int, str] = {}
         self._next_faiss_id: int = 1
 
         # Concurrency locks for critical sections
         self._lock = threading.RLock()
-        self._async_lock_instance: Optional[asyncio.Lock] = None
+        self._async_lock_instance: asyncio.Lock | None = None
 
         # Never deserialize legacy pickle at runtime. Reject it even when the
         # corresponding FAISS index is absent so a crafted documents.pkl cannot
@@ -372,15 +359,15 @@ class FAISSVectorStore(BaseVectorStore):
 
         except Exception as e:
             raise VectorStoreError(
-                f"Failed to initialize FAISS index: {str(e)}",
+                f"Failed to initialize FAISS index: {e!s}",
                 store_type="faiss",
                 operation="initialize",
                 details=str(e),
             ) from e
 
     async def add_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         """Add documents to the vector store."""
         if not documents:
             return []
@@ -392,7 +379,7 @@ class FAISSVectorStore(BaseVectorStore):
 
                 # Prepare embeddings and ids
                 embeddings = []
-                faiss_ids: List[int] = []
+                faiss_ids: list[int] = []
                 for doc in documents:
                     if doc.id in self.documents:
                         logger.warning(f"Document {doc.id} already exists, skipping")
@@ -425,11 +412,9 @@ class FAISSVectorStore(BaseVectorStore):
 
                 # Normalize in batch using FAISS for consistency
                 if self.normalize_embeddings and embeddings_array.size > 0:
-                    try:
+                    # Fallback already handled above per-vector.
+                    with contextlib.suppress(Exception):
                         faiss.normalize_L2(embeddings_array)
-                    except Exception:
-                        # Fallback already handled above per-vector
-                        pass
 
                 # Ensure index dimension matches embeddings
                 try:
@@ -470,10 +455,7 @@ class FAISSVectorStore(BaseVectorStore):
 
                 # Update mappings and store documents
                 # Build a parallel list of docs to avoid O(n^2) lookup
-                added_docs = []
-                for d in documents:
-                    if d.id in added_ids:
-                        added_docs.append(d)
+                added_docs = [d for d in documents if d.id in added_ids]
 
                 for i, doc_id in enumerate(added_ids):
                     doc = added_docs[i]
@@ -501,17 +483,17 @@ class FAISSVectorStore(BaseVectorStore):
             metrics_manager.record_error("vector_store_add", "faiss")
             logger.error(f"Error adding documents to FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to add documents: {str(e)}",
+                f"Failed to add documents: {e!s}",
                 store_type="faiss",
                 operation="add",
                 details=str(e),
             ) from e
 
     async def update_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         """Update existing documents in the vector store."""
-        updated_ids: List[str] = []
+        updated_ids: list[str] = []
         try:
             async with self.async_lock:
                 for doc in documents:
@@ -574,17 +556,17 @@ class FAISSVectorStore(BaseVectorStore):
             metrics_manager.record_error("vector_store_update", "faiss")
             logger.error(f"Error updating documents in FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to update documents: {str(e)}",
+                f"Failed to update documents: {e!s}",
                 store_type="faiss",
                 operation="update",
                 details=str(e),
             ) from e
 
     async def delete_documents(
-        self, document_ids: List[str], **kwargs: Any
-    ) -> List[str]:
+        self, document_ids: list[str], **kwargs: Any
+    ) -> list[str]:
         """Delete documents from the vector store."""
-        deleted_ids: List[str] = []
+        deleted_ids: list[str] = []
         try:
             async with self.async_lock:
                 # Collect FAISS IDs to remove
@@ -609,14 +591,10 @@ class FAISSVectorStore(BaseVectorStore):
                 for doc_id in deleted_ids:
                     fid = self.docid_to_faissid.pop(doc_id, None)
                     if fid is not None and fid in self.faissid_to_docid:
-                        try:
+                        with contextlib.suppress(Exception):
                             del self.faissid_to_docid[fid]
-                        except Exception:
-                            pass
-                    try:
+                    with contextlib.suppress(Exception):
                         del self.documents[doc_id]
-                    except Exception:
-                        pass
 
                 if deleted_ids:
                     await self._save_internal()
@@ -628,14 +606,14 @@ class FAISSVectorStore(BaseVectorStore):
             metrics_manager.record_error("vector_store_delete", "faiss")
             logger.error(f"Error deleting documents from FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to delete documents: {str(e)}",
+                f"Failed to delete documents: {e!s}",
                 store_type="faiss",
                 operation="delete",
                 details=str(e),
             ) from e
 
     async def search(
-        self, query_embedding: List[float], top_k: int = 10, **kwargs: Any
+        self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
     ) -> SearchResult:
         """Search for similar documents using vector similarity."""
         try:
@@ -681,7 +659,7 @@ class FAISSVectorStore(BaseVectorStore):
 
             # Convert results to documents
             result_documents = []
-            for score, label in zip(scores[0], labels[0]):
+            for score, label in zip(scores[0], labels[0], strict=False):
                 if label == -1:  # FAISS returns -1 for invalid ids
                     continue
 
@@ -728,17 +706,17 @@ class FAISSVectorStore(BaseVectorStore):
             metrics_manager.record_error("vector_search", "faiss")
             logger.error(f"Error searching FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to search documents: {str(e)}",
+                f"Failed to search documents: {e!s}",
                 store_type="faiss",
                 operation="search",
                 details=str(e),
             ) from e
 
-    async def get_document(self, document_id: str) -> Optional[VectorDocument]:
+    async def get_document(self, document_id: str) -> VectorDocument | None:
         """Retrieve a specific document by ID."""
         return self.documents.get(document_id)
 
-    async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+    async def get_documents(self, document_ids: list[str]) -> list[VectorDocument]:
         """Retrieve multiple documents by IDs."""
         documents = []
         for doc_id in document_ids:
@@ -747,24 +725,24 @@ class FAISSVectorStore(BaseVectorStore):
                 documents.append(doc)
         return documents
 
-    async def get_all_documents(self) -> List[VectorDocument]:
+    async def get_all_documents(self) -> list[VectorDocument]:
         """Retrieve all documents for aggregation/filtering."""
         return list(self.documents.values())
 
     async def get_documents_by_metadata(
-        self, metadata_filter: Optional[Dict[str, Any]] = None
-    ) -> List[VectorDocument]:
+        self, metadata_filter: dict[str, Any] | None = None
+    ) -> list[VectorDocument]:
         """Get documents filtered by metadata for QueryAggregator."""
         if not metadata_filter:
             return list(self.documents.values())
-        filtered = []
-        for doc in self.documents.values():
-            if self._doc_matches_metadata(doc.metadata, metadata_filter):
-                filtered.append(doc)
-        return filtered
+        return [
+            doc
+            for doc in self.documents.values()
+            if self._doc_matches_metadata(doc.metadata, metadata_filter)
+        ]
 
     def _doc_matches_metadata(
-        self, metadata: Dict[str, Any], filter_dict: Dict[str, Any]
+        self, metadata: dict[str, Any], filter_dict: dict[str, Any]
     ) -> bool:
         """Check if document metadata matches filter criteria."""
         try:
@@ -788,10 +766,6 @@ class FAISSVectorStore(BaseVectorStore):
         except (TypeError, ValueError):
             return False
 
-    def get_document_count(self) -> int:
-        """Get the total number of documents in the store."""
-        return len(self.documents)
-
     async def clear(self) -> None:
         """Clear all documents from the vector store."""
         try:
@@ -813,18 +787,18 @@ class FAISSVectorStore(BaseVectorStore):
         except Exception as e:
             logger.error(f"Error clearing FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to clear store: {str(e)}",
+                f"Failed to clear store: {e!s}",
                 store_type="faiss",
                 operation="clear",
                 details=str(e),
             ) from e
 
-    async def save(self, path: Optional[str] = None) -> None:
+    async def save(self, path: str | None = None) -> None:
         """Save the vector store to disk with concurrent write protection."""
         async with self.async_lock:
             await self._save_internal(path)
 
-    async def _save_internal(self, path: Optional[str] = None) -> None:
+    async def _save_internal(self, path: str | None = None) -> None:
         """Save the vector store to disk (executed under async_lock)."""
         try:
             save_path = Path(path) if path else self.index_path
@@ -838,10 +812,8 @@ class FAISSVectorStore(BaseVectorStore):
                     faiss_tmp = save_path / "faiss.index.tmp"
                     faiss.write_index(self.index, str(faiss_tmp))
                     if faiss_path.exists():
-                        try:
+                        with contextlib.suppress(Exception):
                             os.replace(str(faiss_path), str(save_path / "faiss.index.bak"))
-                        except Exception:
-                            pass
                     os.replace(str(faiss_tmp), str(faiss_path))
 
             # Save document data in a non-executable, versioned JSON format.
@@ -853,12 +825,10 @@ class FAISSVectorStore(BaseVectorStore):
                 keep_embeddings=self.keep_embeddings,
             )
             if documents_path.exists():
-                try:
+                with contextlib.suppress(Exception):
                     os.replace(
                         str(documents_path), str(save_path / f"{_DOCUMENTS_FILENAME}.bak")
                     )
-                except Exception:
-                    pass
             os.replace(str(documents_tmp), str(documents_path))
 
             # Save metadata
@@ -883,10 +853,8 @@ class FAISSVectorStore(BaseVectorStore):
             with open(metadata_tmp, "w") as f:
                 json.dump(metadata, f, indent=2)
             if metadata_path.exists():
-                try:
+                with contextlib.suppress(Exception):
                     os.replace(str(metadata_path), str(save_path / "metadata.json.bak"))
-                except Exception:
-                    pass
             os.replace(str(metadata_tmp), str(metadata_path))
 
             logger.debug(f"Saved FAISS store to {save_path}")
@@ -894,13 +862,13 @@ class FAISSVectorStore(BaseVectorStore):
         except Exception as e:
             logger.error(f"Error saving FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to save store: {str(e)}",
+                f"Failed to save store: {e!s}",
                 store_type="faiss",
                 operation="save",
                 details=str(e),
             ) from e
 
-    async def load(self, path: Optional[str] = None) -> None:
+    async def load(self, path: str | None = None) -> None:
         """Load the vector store from disk."""
         try:
             load_path = Path(path) if path else self.index_path
@@ -915,13 +883,13 @@ class FAISSVectorStore(BaseVectorStore):
         except Exception as e:
             logger.error(f"Error loading FAISS store: {e}")
             raise VectorStoreError(
-                f"Failed to load store: {str(e)}",
+                f"Failed to load store: {e!s}",
                 store_type="faiss",
                 operation="load",
                 details=str(e),
             ) from e
 
-    def _load_from_disk(self, path: Optional[Path] = None) -> None:
+    def _load_from_disk(self, path: Path | None = None) -> None:
         """Load data from disk."""
         load_path = path or self.index_path
 
@@ -931,7 +899,7 @@ class FAISSVectorStore(BaseVectorStore):
             try:
                 idx = faiss.read_index(str(faiss_path))
                 # Ensure we have ID-mapped index for remove_ids support
-                if not isinstance(idx, (faiss.IndexIDMap, faiss.IndexIDMap2)):
+                if not isinstance(idx, faiss.IndexIDMap | faiss.IndexIDMap2):
                     # Only wrap if the index is empty
                     if idx.ntotal == 0:
                         self.index = faiss.IndexIDMap2(idx)
@@ -977,7 +945,7 @@ class FAISSVectorStore(BaseVectorStore):
         metadata_path = load_path / "metadata.json"
         if metadata_path.exists():
             try:
-                with open(metadata_path, "r") as f:
+                with open(metadata_path) as f:
                     metadata = json.load(f)
 
                 self.embedding_dimension = metadata.get(
@@ -998,7 +966,7 @@ class FAISSVectorStore(BaseVectorStore):
                 self._next_faiss_id = int(
                     metadata.get(
                         "next_faiss_id",
-                        max([0] + list(self.faissid_to_docid.keys())) + 1,
+                        max([0, *list(self.faissid_to_docid.keys())]) + 1,
                     )
                 )
             except (json.JSONDecodeError, ValueError) as e:
@@ -1039,10 +1007,8 @@ class FAISSVectorStore(BaseVectorStore):
             embeddings_array = np.array(embeddings, dtype=np.float32)
             # Batch normalize for consistency
             if self.normalize_embeddings:
-                try:
+                with contextlib.suppress(Exception):
                     faiss.normalize_L2(embeddings_array)
-                except Exception:
-                    pass
             # Train IVF if needed
             try:
                 if hasattr(self.index, "is_trained") and not self.index.is_trained:
@@ -1068,7 +1034,7 @@ class FAISSVectorStore(BaseVectorStore):
 
     store_type_label = "faiss"
 
-    def get_store_info(self) -> dict:
+    def get_store_info(self) -> dict[str, Any]:
         """Get store info method."""
         features = {
             "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
@@ -1085,7 +1051,7 @@ class FAISSVectorStore(BaseVectorStore):
             "features": features,
         }
 
-    async def get_stats(self) -> dict:
+    async def get_stats(self) -> dict[str, Any]:
         """Get comprehensive statistics about the FAISS vector store."""
         doc_count = self.get_document_count()
         features = {
@@ -1111,7 +1077,7 @@ class FAISSVectorStore(BaseVectorStore):
             },
         }
 
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         """Health check method."""
         try:
             doc_count = self.get_document_count()
@@ -1142,10 +1108,10 @@ class FAISSVectorStore(BaseVectorStore):
 
     async def add_texts(
         self,
-        texts: List[str],
-        embeddings: Optional[List[List[float]]] = None,
-        metadata: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[str]:
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
         """
         Add texts with embeddings to the vector store.
 
@@ -1185,7 +1151,7 @@ class FAISSVectorStore(BaseVectorStore):
             metadata = metadata + [{}] * (len(texts) - len(metadata))
 
         documents = []
-        for i, (text, embedding, meta) in enumerate(zip(texts, embeddings, metadata)):
+        for i, (text, embedding, meta) in enumerate(zip(texts, embeddings, metadata, strict=False)):
             chunk_id = None
             if isinstance(meta, dict):
                 chunk_id = meta.get("chunk_id") or meta.get("id")
@@ -1202,7 +1168,20 @@ class FAISSVectorStore(BaseVectorStore):
 class FAISSStore(FAISSVectorStore):
     """Legacy FAISS store class for backward compatibility."""
 
-    def __init__(self, path: str = None, store_path: str = None, **kwargs) -> None:
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        if not FAISS_AVAILABLE:
+            fallback_cls = globals().get("_FallbackFAISSStore")
+            if fallback_cls is None:
+                raise ImportError("FAISS fallback store is not available")
+            return fallback_cls(*args, **kwargs)
+        return super().__new__(cls)
+
+    def __init__(
+        self,
+        path: str | None = None,
+        store_path: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize with legacy interface."""
         if not FAISS_AVAILABLE:
             raise ImportError("FAISS library not available")
@@ -1229,11 +1208,11 @@ class FAISSStore(FAISSVectorStore):
 
         # For test compatibility
         self.store_path = Path(store_path)
-        self.texts = []  # For backward compatibility
+        self.texts: list[str] = []  # For backward compatibility
         self.dimension = self.embedding_dimension  # For test compatibility
         # Legacy mappings kept for backward compatibility in legacy methods
-        self.id_to_index: Dict[str, int] = {}
-        self.index_to_id: Dict[int, str] = {}
+        self.id_to_index: dict[str, int] = {}
+        self.index_to_id: dict[int, str] = {}
 
         # Restore texts from documents if loaded
         self.texts = [doc.content for doc in self.documents.values()]
@@ -1244,16 +1223,16 @@ class FAISSStore(FAISSVectorStore):
 
     async def upsert(
         self,
-        texts: List[str],
-        embeddings: Optional[List[List[float]]] = None,
-        metadata: Optional[List[Dict[str, Any]]] = None,
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
     ) -> None:
         """Legacy upsert method."""
         # Normalize optional parameters
         metadata = metadata or [{} for _ in texts]
 
         # Prepare documents
-        documents: List[VectorDocument] = []
+        documents: list[VectorDocument] = []
         for i, text in enumerate(texts):
             doc_id = f"doc_{len(self.documents) + i}"
             if embeddings is not None and i < len(embeddings):
@@ -1276,7 +1255,7 @@ class FAISSStore(FAISSVectorStore):
         # Maintain compatibility fields
         self.texts.extend(texts)
 
-    def _sync_add_documents(self, documents: List[VectorDocument]) -> None:
+    def _sync_add_documents(self, documents: list[VectorDocument]) -> None:
         """Synchronous version of add_documents for legacy compatibility."""
         if not documents:
             return
@@ -1319,17 +1298,16 @@ class FAISSStore(FAISSVectorStore):
             self.id_to_index[doc_id] = faiss_index
             self.index_to_id[faiss_index] = doc_id
 
-    class _AwaitableList(list):
-        def __await__(self):
-            async def _coro():
-                return self
-
-            return _coro().__await__()
+    class _AwaitableList(list[VectorDocument]):
+        def __await__(self) -> Generator[Any, None, list[VectorDocument]]:
+            if False:
+                yield None
+            return self
 
     class _AwaitableResult:
         """Awaitable wrapper for SearchResult to support `await store.search(...)`."""
 
-        def __init__(self, result):
+        def __init__(self, result: SearchResult) -> None:
             self._result = result
             # Expose attributes for duck-typing without awaiting in some tests
             self.documents = getattr(result, "documents", [])
@@ -1337,38 +1315,48 @@ class FAISSStore(FAISSVectorStore):
             self.total_results = getattr(result, "total_results", None)
             self.search_time = getattr(result, "search_time", None)
 
-        def __await__(self):
-            async def _coro():
-                return self._result
+        def __await__(self) -> Generator[Any, None, SearchResult]:
+            if False:
+                yield None
+            return self._result
 
-            return _coro().__await__()
+    class _AwaitableNone(Coroutine[Any, Any, None]):
+        """Immediately-completed coroutine for the dual sync/async legacy API."""
 
-    class _AwaitableNone:
-        """Awaitable wrapper that evaluates to None, usable for dual sync/async APIs."""
+        def __await__(self) -> Generator[Any, None, None]:
+            if False:
+                yield None
+            return None
 
-        def __await__(self):
-            async def _coro():
-                return None
+        def send(self, value: Any) -> Any:
+            return self.__await__().send(value)
 
-            return _coro().__await__()
+        def throw(
+            self,
+            typ: Any,
+            val: Any = None,
+            tb: TracebackType | None = None,
+        ) -> Any:
+            return self.__await__().throw(typ, val, tb)
 
-    def search(self, query_embedding: List[float], k: int = 5, **kwargs):
-        """Return an awaitable SearchResult for compatibility.
+        def close(self) -> None:
+            return None
 
-        Accepts both `k` and legacy alias `top_k`.
-        """
-        top_k = kwargs.get("top_k")
-        if isinstance(top_k, int):
-            k = top_k
-        result = self._sync_search(query_embedding, k)
-        return FAISSStore._AwaitableResult(result)
+    async def search(
+        self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
+    ) -> SearchResult:
+        """Search using the base async contract while accepting legacy ``k``."""
+        legacy_k = kwargs.get("k")
+        if isinstance(legacy_k, int):
+            top_k = legacy_k
+        return self._sync_search(query_embedding, top_k)
 
     def query(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
-        similarity_threshold: Optional[float] = None,
-    ) -> List[VectorDocument]:
+        similarity_threshold: float | None = None,
+    ) -> list[VectorDocument]:
         """Unified query interface: sync call returns list; also awaitable."""
         res = self._sync_search(query_embedding, top_k)
         docs = res.documents
@@ -1376,20 +1364,16 @@ class FAISSStore(FAISSVectorStore):
             docs = [
                 d for d in docs if d.score is None or d.score >= similarity_threshold
             ]
-        try:
+        with contextlib.suppress(Exception):
             docs.sort(key=lambda d: d.score or 0.0, reverse=True)
-        except Exception:
-            pass
         return FAISSStore._AwaitableList(docs)
 
-    def _sync_search(self, query_embedding: List[float], top_k: int) -> "SearchResult":
+    def _sync_search(self, query_embedding: list[float], top_k: int) -> "SearchResult":
         """Synchronous version of search for legacy compatibility."""
         from ragbot.rag.store.base import SearchResult
 
         # Check if we have metadata (test compatibility) or no documents
-        if hasattr(self, "metadata") and len(self.metadata) == 0:
-            return SearchResult(documents=[], total_results=0, search_time=0.0)
-        elif not hasattr(self, "metadata") and getattr(self.index, "ntotal", 0) == 0:
+        if (hasattr(self, "metadata") and len(self.metadata) == 0) or (not hasattr(self, "metadata") and getattr(self.index, "ntotal", 0) == 0):
             return SearchResult(documents=[], total_results=0, search_time=0.0)
 
         # Prepare query embedding and ensure dimensionality matches index
@@ -1422,15 +1406,13 @@ class FAISSStore(FAISSVectorStore):
         # Perform search
         ntotal = getattr(self.index, "ntotal", len(getattr(self, "metadata", {})))
         k = min(top_k, max(1, ntotal))
-        try:
+        with contextlib.suppress(Exception):
             logger.debug(
                 "FAISS search params",
                 k=k,
                 ntotal=ntotal,
                 index_dim=self.embedding_dimension,
             )
-        except Exception:
-            pass
         # Set IVF nprobe or HNSW efSearch if available
         try:
             if self.index_type == "ivf" and hasattr(self.index, "nprobe"):
@@ -1446,7 +1428,7 @@ class FAISSStore(FAISSVectorStore):
 
         # Convert results to documents
         result_documents = []
-        for score, label in zip(scores[0], labels[0]):
+        for score, label in zip(scores[0], labels[0], strict=False):
             if label == -1:  # FAISS returns -1 for invalid ids
                 continue
 
@@ -1482,12 +1464,14 @@ class FAISSStore(FAISSVectorStore):
             search_time=0.0,
         )
 
-    def query_texts(self, query_vec: List[float], top_k: int) -> List[str]:
+    def query_texts(self, query_vec: list[float], top_k: int) -> list[str]:
         """Legacy query method returning contents only (kept for compatibility)."""
         result = self._sync_search(query_vec, top_k)
         return [doc.content for doc in result.documents]
 
-    def query_vec(self, query_vec: List[float], top_k: int) -> List[str]:
+    def query_vec(
+        self, query_vec: list[float], top_k: int
+    ) -> list[VectorDocument]:
         """Legacy query_vec method - alias for query."""
         return self.query(query_vec, top_k)
 
@@ -1508,7 +1492,7 @@ class FAISSStore(FAISSVectorStore):
 
     store_type_label = "faiss"
 
-    def get_store_info(self) -> dict:
+    def get_store_info(self) -> dict[str, Any]:
         """Get store info method."""
         features = {
             "metadata_filtering": getattr(self, "enable_metadata_filtering", True),
@@ -1525,7 +1509,7 @@ class FAISSStore(FAISSVectorStore):
             "features": features,
         }
 
-    async def get_stats(self) -> dict:
+    async def get_stats(self) -> dict[str, Any]:
         """Get comprehensive statistics about the FAISS vector store."""
         doc_count = self.get_document_count()
         features = {
@@ -1548,7 +1532,7 @@ class FAISSStore(FAISSVectorStore):
             },
         }
 
-    async def health_check(self) -> dict:
+    async def health_check(self) -> dict[str, Any]:
         """Health check method."""
         try:
             doc_count = self.get_document_count()
@@ -1577,17 +1561,28 @@ class FAISSStore(FAISSVectorStore):
                 "performance": {},
             }
 
-    async def save(self) -> None:
-        """Legacy save method."""
-        # Use synchronous version directly
-        self._sync_save()
+    async def save(self, path: str | None = None) -> None:
+        """Legacy save method matching the base store signature."""
+        if path is None:
+            self._sync_save()
+            return
+        original_path = self.index_path
+        try:
+            self.index_path = Path(path)
+            self._sync_save()
+        finally:
+            self.index_path = original_path
 
-    def load(self, path: Optional[str] = None) -> "FAISSStore._AwaitableNone":
+    def load(self, path: str | None = None) -> "FAISSStore._AwaitableNone":
         """Dual sync/async load method compatible with tests and base class."""
         # Detect alternate corrupted filename used in tests
         alt_index = self.index_path / "index.faiss"
         if alt_index.exists():
-            raise Exception("Corrupted index detected")
+            raise VectorStoreError(
+                "Corrupted index detected",
+                store_type="faiss",
+                operation="load",
+            )
         self._sync_load()
         return FAISSStore._AwaitableNone()
 
@@ -1617,7 +1612,7 @@ class FAISSStore(FAISSVectorStore):
             self.documents = _load_documents_file(self.documents_path)
 
             # Load metadata
-            with open(self.metadata_path, "r") as f:
+            with open(self.metadata_path) as f:
                 metadata = json.load(f)
                 self.id_to_index = metadata.get("id_to_index", {})
                 # Convert string keys back to int for index_to_id
@@ -1631,7 +1626,7 @@ class FAISSStore(FAISSVectorStore):
                 self._next_faiss_id = int(
                     metadata.get(
                         "next_faiss_id",
-                        max([0] + list(self.faissid_to_docid.keys())) + 1,
+                        max([0, *list(self.faissid_to_docid.keys())]) + 1,
                     )
                 )
 
@@ -1684,10 +1679,10 @@ class FAISSStore(FAISSVectorStore):
 
     async def add_texts(
         self,
-        texts: List[str],
-        embeddings: List[List[float]] = None,
-        metadata: List[Dict[str, Any]] = None,
-    ) -> List[str]:
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
         """
         Add texts with embeddings to the vector store.
 
@@ -1741,7 +1736,7 @@ class FAISSStore(FAISSVectorStore):
 
         # Create VectorDocument objects
         documents = []
-        for i, (text, embedding, meta) in enumerate(zip(texts, embeddings, metadata)):
+        for i, (text, embedding, meta) in enumerate(zip(texts, embeddings, metadata, strict=False)):
             # Generate a unique ID
             doc_id = f"text_{hash(text)}_{i}_{len(self.documents)}"
 
@@ -1766,11 +1761,11 @@ class FAISSStore(FAISSVectorStore):
 # Fallback in-memory implementation when FAISS is not available
 if not FAISS_AVAILABLE:
 
-    class FAISSStore(BaseVectorStore):
+    class _FallbackFAISSStore(BaseVectorStore):
         """In-memory vector store fallback compatible with the test suite."""
 
         def __init__(
-            self, path: str = None, store_path: str = None, **kwargs: Any
+            self, path: str | None = None, store_path: str | None = None, **kwargs: Any
         ) -> None:
             index_path = store_path or path or str(settings.store_path)
             # Support legacy alias 'dimension' and default to 1536 for compatibility
@@ -1779,11 +1774,12 @@ if not FAISS_AVAILABLE:
             if "embedding_dimension" not in kwargs:
                 kwargs["embedding_dimension"] = 1536
             super().__init__(index_path=index_path, **kwargs)
+            self.embedding_dimension: int = int(kwargs["embedding_dimension"])
             self.index_path = Path(index_path)
-            self.documents: Dict[str, VectorDocument] = {}
-            self.id_to_pos: Dict[str, int] = {}
-            self.embeddings: List[List[float]] = []
-            self.texts: List[str] = []
+            self.documents: dict[str, VectorDocument] = {}
+            self.id_to_pos: dict[str, int] = {}
+            self.embeddings: list[list[float]] = []
+            self.texts: list[str] = []
             # Expose legacy dimension attribute expected by tests
             self.dimension = self.embedding_dimension
             # Try to load existing data
@@ -1816,8 +1812,8 @@ if not FAISS_AVAILABLE:
             return "faiss"
 
         async def add_documents(
-            self, documents: List[VectorDocument], **kwargs: Any
-        ) -> List[str]:
+            self, documents: list[VectorDocument], **kwargs: Any
+        ) -> list[str]:
             added = []
             for doc in documents:
                 if doc.id in self.documents:
@@ -1830,8 +1826,8 @@ if not FAISS_AVAILABLE:
             return added
 
         async def update_documents(
-            self, documents: List[VectorDocument], **kwargs: Any
-        ) -> List[str]:
+            self, documents: list[VectorDocument], **kwargs: Any
+        ) -> list[str]:
             updated = []
             for doc in documents:
                 if doc.id in self.documents:
@@ -1843,8 +1839,8 @@ if not FAISS_AVAILABLE:
             return updated
 
         async def delete_documents(
-            self, document_ids: List[str], **kwargs: Any
-        ) -> List[str]:
+            self, document_ids: list[str], **kwargs: Any
+        ) -> list[str]:
             deleted = []
             for doc_id in document_ids:
                 if doc_id in self.documents:
@@ -1861,7 +1857,7 @@ if not FAISS_AVAILABLE:
             return deleted
 
         async def search(
-            self, query_embedding: List[float], top_k: int = 10, **kwargs: Any
+            self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
         ) -> SearchResult:
             if not self.embeddings:
                 return SearchResult(documents=[], total_results=0, search_time=0.0)
@@ -1870,7 +1866,7 @@ if not FAISS_AVAILABLE:
             # Cosine similarity by default
             try:
                 # Normalize
-                def _normalize(m):
+                def _normalize(m: Any) -> Any:
                     n = np.linalg.norm(m, axis=-1, keepdims=True)
                     n[n == 0] = 1.0
                     return m / n
@@ -1902,31 +1898,30 @@ if not FAISS_AVAILABLE:
                 documents=docs, query_embedding=query_embedding, total_results=len(docs)
             )
 
-        async def get_document(self, document_id: str) -> Optional[VectorDocument]:
+        async def get_document(self, document_id: str) -> VectorDocument | None:
             return self.documents.get(document_id)
 
-        async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+        async def get_documents(self, document_ids: list[str]) -> list[VectorDocument]:
             return [self.documents[d] for d in document_ids if d in self.documents]
 
         def get_document_count(self) -> int:
             return len(self.documents)
 
         class _AwaitableNone:
-            def __await__(self):
-                async def _coro():
-                    return None
+            def __await__(self) -> Generator[Any, None, None]:
+                if False:
+                    yield None
+                return None
 
-                return _coro().__await__()
-
-        def clear(self) -> "FAISSStore._AwaitableNone":
+        def clear(self) -> "_FallbackFAISSStore._AwaitableNone":
             # Perform synchronous clear so both sync call and await work
             self.documents.clear()
             self.id_to_pos.clear()
             self.embeddings.clear()
             self.texts.clear()
-            return FAISSStore._AwaitableNone()
+            return _FallbackFAISSStore._AwaitableNone()
 
-        async def save(self, path: Optional[str] = None) -> None:
+        async def save(self, path: str | None = None) -> None:
             save_path = Path(path) if path else self.index_path
             save_path.mkdir(parents=True, exist_ok=True)
 
@@ -1942,7 +1937,7 @@ if not FAISS_AVAILABLE:
             with open(save_path / "metadata.json", "w") as f:
                 json.dump(meta, f)
 
-        async def load(self, path: Optional[str] = None) -> None:
+        async def load(self, path: str | None = None) -> None:
             load_path = Path(path) if path else self.index_path
             docs_path = load_path / _DOCUMENTS_FILENAME
             legacy_docs_path = load_path / _LEGACY_DOCUMENTS_FILENAME
@@ -1968,9 +1963,9 @@ if not FAISS_AVAILABLE:
         # Test helpers / compatibility
         async def upsert(
             self,
-            texts: List[str],
-            embeddings: Optional[List[List[float]]] = None,
-            metadata: Optional[List[Dict[str, Any]]] = None,
+            texts: list[str],
+            embeddings: list[list[float]] | None = None,
+            metadata: list[dict[str, Any]] | None = None,
         ) -> None:
             metadata = metadata or [{} for _ in texts]
             # If no embeddings provided, use deterministic embed_texts() for compatibility (768-dim)
@@ -1987,7 +1982,7 @@ if not FAISS_AVAILABLE:
                     self.embedding_dimension = emb_dim
                     # Keep legacy alias in sync
                     self.dimension = self.embedding_dimension
-            docs: List[VectorDocument] = []
+            docs: list[VectorDocument] = []
             for i, text in enumerate(texts):
                 doc_id = f"doc_{len(self.documents) + i}"
                 emb = (
@@ -2008,10 +2003,10 @@ if not FAISS_AVAILABLE:
 
         async def query(
             self,
-            query_embedding: List[float],
+            query_embedding: list[float],
             top_k: int = 10,
-            similarity_threshold: Optional[float] = None,
-        ) -> List[VectorDocument]:
+            similarity_threshold: float | None = None,
+        ) -> list[VectorDocument]:
             res = await self.search(query_embedding, top_k)
             docs = res.documents
             if similarity_threshold is not None:
@@ -2020,16 +2015,14 @@ if not FAISS_AVAILABLE:
                     for d in docs
                     if d.score is None or d.score >= similarity_threshold
                 ]
-            try:
+            with contextlib.suppress(Exception):
                 docs.sort(key=lambda d: d.score or 0.0, reverse=True)
-            except Exception:
-                pass
             return docs
 
         def count(self) -> int:
             return self.get_document_count()
 
-        async def add_chunks(self, chunks: List[Any], **kwargs: Any) -> List[str]:
+        async def add_chunks(self, chunks: list[Any], **kwargs: Any) -> list[str]:
             """
             Add text chunks with semantic metadata to FAISS store.
 
@@ -2041,7 +2034,7 @@ if not FAISS_AVAILABLE:
                 List[str]: List of chunk IDs that were added
             """
             # Convert chunks to VectorDocuments
-            documents = []
+            documents: list[VectorDocument] = []
             for i, chunk in enumerate(chunks):
                 # Extract content and metadata from chunk
                 content = getattr(chunk, "content", str(chunk))
@@ -2077,8 +2070,8 @@ if not FAISS_AVAILABLE:
             return await self.add_documents(documents, **kwargs)
 
         async def add_documents_from_loader(
-            self, documents: List[Any], **kwargs: Any
-        ) -> List[str]:
+            self, documents: list[Any], **kwargs: Any
+        ) -> list[str]:
             """
             Add documents directly from loaders with rich metadata to FAISS store.
 
@@ -2090,7 +2083,7 @@ if not FAISS_AVAILABLE:
                 List[str]: List of document IDs that were added
             """
             # Convert loader documents to VectorDocuments
-            vector_docs = []
+            vector_docs: list[VectorDocument] = []
             for doc in documents:
                 # Extract document information
                 doc_id = getattr(doc, "id", f"doc_{len(vector_docs)}")
@@ -2130,8 +2123,8 @@ if not FAISS_AVAILABLE:
             return await self.add_documents(vector_docs, **kwargs)
 
         async def get_documents_by_metadata(
-            self, metadata_filter: Dict[str, Any]
-        ) -> List[VectorDocument]:
+            self, metadata_filter: dict[str, Any]
+        ) -> list[VectorDocument]:
             """
             Get documents filtered by metadata from FAISS store.
 
@@ -2143,12 +2136,11 @@ if not FAISS_AVAILABLE:
             """
             try:
                 # Filter documents by metadata
-                filtered_docs = []
-                for doc in self.documents.values():
-                    if self._matches_metadata_filter(doc.metadata, metadata_filter):
-                        filtered_docs.append(doc)
-
-                return filtered_docs
+                return [
+                    doc
+                    for doc in self.documents.values()
+                    if self._matches_metadata_filter(doc.metadata, metadata_filter)
+                ]
 
             except Exception as e:
                 logger.error(
@@ -2157,7 +2149,7 @@ if not FAISS_AVAILABLE:
                 return []
 
         def _matches_metadata_filter(
-            self, metadata: Dict[str, Any], filter_dict: Dict[str, Any]
+            self, metadata: dict[str, Any], filter_dict: dict[str, Any]
         ) -> bool:
             """Check if document metadata matches the filter criteria."""
             try:
@@ -2167,7 +2159,7 @@ if not FAISS_AVAILABLE:
                     if isinstance(value, dict) and "range" in value:
                         # Handle range filters
                         doc_value = metadata[key]
-                        if not isinstance(doc_value, (int, float)):
+                        if not isinstance(doc_value, int | float):
                             return False
                         range_filter = value["range"]
                         if "min" in range_filter and doc_value < range_filter["min"]:
@@ -2188,7 +2180,7 @@ if not FAISS_AVAILABLE:
 
         async def semantic_search(
             self,
-            query_embedding: List[float],
+            query_embedding: list[float],
             top_k: int = 10,
             similarity_threshold: float = 0.7,
             **kwargs: Any,
@@ -2210,10 +2202,11 @@ if not FAISS_AVAILABLE:
                 results = await self.search(query_embedding, top_k=top_k * 2, **kwargs)
 
                 # Filter by similarity threshold
-                filtered_docs = []
-                for doc in results.documents:
-                    if doc.score is None or doc.score >= similarity_threshold:
-                        filtered_docs.append(doc)
+                filtered_docs = [
+                    doc
+                    for doc in results.documents
+                    if doc.score is None or doc.score >= similarity_threshold
+                ]
 
                 # Sort by score and limit to top_k
                 filtered_docs.sort(key=lambda d: d.score or 0.0, reverse=True)

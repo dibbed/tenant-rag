@@ -3,8 +3,9 @@
 """
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 import psutil
 from loguru import logger
@@ -26,7 +27,7 @@ class PerformanceMetrics:
 class PerformanceMonitor:
     """نظارت بر عملکرد سیستم"""
 
-    def __init__(self, settings=None):
+    def __init__(self, settings: Any | None = None) -> None:
         """Initialize performance monitor"""
         self.settings = settings
 
@@ -51,18 +52,18 @@ class PerformanceMonitor:
         self.error_rate = Counter(f"rag_errors_total_{unique_suffix}", "Total errors")
 
         # Performance tracking
-        self.request_times = []
+        self.request_times: list[float] = []
         self.error_count = 0
         self.total_requests = 0
 
         # Background monitoring
-        self._monitoring_task = None
+        self._monitoring_task: asyncio.Task[None] | None = None
         self._start_monitoring()
 
-    def _start_monitoring(self):
+    def _start_monitoring(self) -> None:
         """شروع نظارت پس‌زمینه"""
 
-        async def monitor_loop():
+        async def monitor_loop() -> None:
             while True:
                 try:
                     await self._collect_system_metrics()
@@ -76,13 +77,13 @@ class PerformanceMonitor:
                     if hasattr(interval, "_mock_name"):
                         interval = 10
                     await asyncio.sleep(interval)
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(f"Error in performance monitoring loop: {e}")
                     await asyncio.sleep(10)
 
         self._monitoring_task = asyncio.create_task(monitor_loop())
 
-    async def _collect_system_metrics(self):
+    async def _collect_system_metrics(self) -> None:
         """جمع‌آوری متریک‌های سیستم"""
         try:
             # CPU usage
@@ -99,7 +100,7 @@ class PerformanceMonitor:
         except Exception as e:
             logger.error(f"Error collecting system metrics: {e}")
 
-    async def record_request(self, duration: float, success: bool = True):
+    async def record_request(self, duration: float, success: bool = True) -> None:
         """ثبت درخواست"""
         try:
             self.response_time.observe(duration)
@@ -119,7 +120,7 @@ class PerformanceMonitor:
         except Exception as e:
             logger.error(f"Error recording request: {e}")
 
-    async def get_performance_summary(self) -> Dict[str, Any]:
+    async def get_performance_summary(self) -> dict[str, Any]:
         """دریافت خلاصه عملکرد"""
         try:
             # اگر هنوز درخواستی ثبت نشده، یک نمونه فوری از وضعیت سیستم برگردان
@@ -150,7 +151,7 @@ class PerformanceMonitor:
             logger.error(f"Error getting performance summary: {e}")
             return {"error": str(e)}
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """بررسی سلامت سیستم"""
         try:
             summary = await self.get_performance_summary()
@@ -187,11 +188,9 @@ class PerformanceMonitor:
             logger.error(f"Error in performance health check: {e}")
             return {"status": "unhealthy", "error": str(e)}
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """خاموش کردن نظارت"""
         if self._monitoring_task:
             self._monitoring_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitoring_task
-            except asyncio.CancelledError:
-                pass

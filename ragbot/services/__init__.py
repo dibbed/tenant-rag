@@ -7,8 +7,8 @@ from .rag_service import RAGService
 
 __all__ = [
     "DocumentService",
-    "graceful_degradation",
     "IntegrationService",
-    "get_integration_service",
     "RAGService",
+    "get_integration_service",
+    "graceful_degradation",
 ]

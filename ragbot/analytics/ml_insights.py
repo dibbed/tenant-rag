@@ -6,23 +6,23 @@ import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
-from .user_behavior import UserBehaviorAnalyzer, UserProfile
 from .usage_patterns import UsagePatternsAnalyzer
+from .user_behavior import UserBehaviorAnalyzer, UserProfile
 
 
 @dataclass
 class QueryPatternAnalysis:
     """تحلیل الگوهای پرسش"""
 
-    most_common_queries: List[Tuple[str, int]]
-    query_complexity_distribution: Dict[str, int]
-    temporal_patterns: Dict[str, Any]
-    semantic_clusters: List[Dict[str, Any]]
-    query_evolution: List[Dict[str, Any]]
+    most_common_queries: list[tuple[str, int]]
+    query_complexity_distribution: dict[str, int]
+    temporal_patterns: dict[str, Any]
+    semantic_clusters: list[dict[str, Any]]
+    query_evolution: list[dict[str, Any]]
 
 
 @dataclass
@@ -32,7 +32,7 @@ class Topic:
     name: str
     frequency: int
     relevance_score: float
-    related_queries: List[str]
+    related_queries: list[str]
     user_engagement: float
 
 
@@ -63,10 +63,10 @@ class BehaviorPrediction:
     """پیش‌بینی رفتار"""
 
     user_id: str
-    predicted_actions: List[str]
-    confidence_scores: Dict[str, float]
+    predicted_actions: list[str]
+    confidence_scores: dict[str, float]
     time_horizon: int
-    factors: List[str]
+    factors: list[str]
 
 
 @dataclass
@@ -76,9 +76,9 @@ class AnomalyReport:
     anomaly_type: str
     severity: str
     detected_at: datetime
-    affected_metrics: List[str]
+    affected_metrics: list[str]
     description: str
-    recommended_actions: List[str]
+    recommended_actions: list[str]
 
 
 class MLInsightsEngine:
@@ -86,9 +86,9 @@ class MLInsightsEngine:
 
     def __init__(
         self,
-        user_behavior: UserBehaviorAnalyzer = None,
-        usage_patterns: UsagePatternsAnalyzer = None,
-    ):
+        user_behavior: UserBehaviorAnalyzer | None = None,
+        usage_patterns: UsagePatternsAnalyzer | None = None,
+    ) -> None:
         """Initialize ML insights engine"""
         self.user_behavior = user_behavior or UserBehaviorAnalyzer()
         self.usage_patterns = usage_patterns or UsagePatternsAnalyzer()
@@ -99,9 +99,9 @@ class MLInsightsEngine:
         self._anomaly_model = None
 
         # Data storage
-        self.query_history = []
-        self.topic_clusters = []
-        self.anomaly_history = []
+        self.query_history: list[dict[str, Any]] = []
+        self.topic_clusters: list[dict[str, Any]] = []
+        self.anomaly_history: list[AnomalyReport] = []
 
     async def analyze_query_patterns(self) -> QueryPatternAnalysis:
         """تحلیل الگوهای پرسش"""
@@ -158,15 +158,15 @@ class MLInsightsEngine:
             logger.error(f"Error analyzing query patterns: {e}")
             raise
 
-    async def identify_popular_topics(self) -> List[Topic]:
+    async def identify_popular_topics(self) -> list[Topic]:
         """شناسایی موضوعات محبوب"""
         try:
             logger.info("Identifying popular topics...")
 
             # جمع‌آوری موضوعات از پروفایل کاربران
-            topic_frequency = Counter()
-            topic_queries = defaultdict(list)
-            topic_engagement = defaultdict(list)
+            topic_frequency: Counter[str] = Counter()
+            topic_queries: defaultdict[str, list[str]] = defaultdict(list)
+            topic_engagement: defaultdict[str, list[float]] = defaultdict(list)
 
             for user_id, profile in self.user_behavior.user_profiles.items():
                 for topic in profile.favorite_topics:
@@ -215,7 +215,7 @@ class MLInsightsEngine:
             logger.error(f"Error identifying popular topics: {e}")
             raise
 
-    async def suggest_content_improvements(self) -> List[ContentSuggestion]:
+    async def suggest_content_improvements(self) -> list[ContentSuggestion]:
         """پیشنهاد بهبود محتوا"""
         try:
             logger.info("Generating content improvement suggestions...")
@@ -350,7 +350,7 @@ class MLInsightsEngine:
             logger.error(f"Error predicting user behavior: {e}")
             raise
 
-    async def detect_anomalies(self, metrics: Dict[str, Any]) -> AnomalyReport:
+    async def detect_anomalies(self, metrics: dict[str, Any]) -> AnomalyReport:
         """تشخیص ناهنجاری‌ها"""
         try:
             logger.info("Detecting anomalies in metrics...")
@@ -422,20 +422,20 @@ class MLInsightsEngine:
             return 0.5  # مقدار پیش‌فرض
 
     async def _analyze_temporal_patterns(
-        self, query_times: List[datetime]
-    ) -> Dict[str, Any]:
+        self, query_times: list[datetime]
+    ) -> dict[str, Any]:
         """تحلیل الگوهای زمانی"""
         try:
             if not query_times:
                 return {"error": "no_data"}
 
             # تحلیل ساعتی
-            hourly_counts = defaultdict(int)
+            hourly_counts: defaultdict[int, int] = defaultdict(int)
             for time in query_times:
                 hourly_counts[time.hour] += 1
 
             # تحلیل روزانه
-            daily_counts = defaultdict(int)
+            daily_counts: defaultdict[int, int] = defaultdict(int)
             for time in query_times:
                 daily_counts[time.weekday()] += 1
 
@@ -455,15 +455,15 @@ class MLInsightsEngine:
             return {"error": str(e)}
 
     async def _cluster_semantic_queries(
-        self, queries: List[str]
-    ) -> List[Dict[str, Any]]:
+        self, queries: list[str]
+    ) -> list[dict[str, Any]]:
         """خوشه‌بندی معنایی پرسش‌ها"""
         try:
             if not queries:
                 return []
 
             # خوشه‌بندی ساده بر اساس کلمات کلیدی
-            clusters = defaultdict(list)
+            clusters: defaultdict[str, list[str]] = defaultdict(list)
 
             for query in queries:
                 # استخراج کلمات کلیدی ساده
@@ -479,7 +479,7 @@ class MLInsightsEngine:
                     clusters[cluster_key].append(query)
 
             # تبدیل به لیست
-            cluster_list = []
+            cluster_list: list[dict[str, Any]] = []
             for key, cluster_queries in clusters.items():
                 if len(cluster_queries) > 1:  # فقط خوشه‌های با بیش از یک عضو
                     cluster_list.append(
@@ -501,8 +501,8 @@ class MLInsightsEngine:
             return []
 
     async def _analyze_query_evolution(
-        self, queries: List[str]
-    ) -> List[Dict[str, Any]]:
+        self, queries: list[str]
+    ) -> list[dict[str, Any]]:
         """تحلیل تکامل پرسش‌ها"""
         try:
             if not queries:
@@ -531,7 +531,7 @@ class MLInsightsEngine:
             logger.error(f"Error analyzing query evolution: {e}")
             return []
 
-    def _calculate_topic_relevance(self, topic: str, queries: List[str]) -> float:
+    def _calculate_topic_relevance(self, topic: str, queries: list[str]) -> float:
         """محاسبه امتیاز ارتباط موضوع"""
         try:
             if not queries:
@@ -547,47 +547,27 @@ class MLInsightsEngine:
         except Exception:
             return 0.0
 
-    async def _find_unanswered_queries(self) -> List[str]:
-        """یافتن پرسش‌های بدون پاسخ"""
-        try:
-            unanswered_queries = []
+    async def _find_unanswered_queries(self) -> list[str]:
+        """Estimate unanswered queries from low-satisfaction sessions.
 
-            # تحلیل پرسش‌های کاربران از user behavior analyzer
+        ``UserSession`` stores query text only, not per-query response metadata.
+        Session-level satisfaction is therefore the strongest signal available.
+        """
+        try:
+            unanswered_queries: list[str] = []
             for sessions in self.user_behavior.user_sessions.values():
                 for session in sessions:
-                    for query in session.queries:
-                        # بررسی پرسش‌هایی که پاسخ کوتاه یا نامناسب دریافت کرده‌اند
-                        if (
-                            hasattr(query, "response_length")
-                            and query.response_length < 50
-                        ):
-                            unanswered_queries.append(query.text)
+                    if session.satisfaction_score < 0.3:
+                        unanswered_queries.extend(session.queries)
 
-                        # بررسی پرسش‌هایی که رضایت کاربر پایین بوده
-                        if (
-                            hasattr(query, "satisfaction_score")
-                            and query.satisfaction_score < 0.3
-                        ):
-                            unanswered_queries.append(query.text)
-
-                        # بررسی پرسش‌هایی که هیچ اسناد مرتبطی نداشته‌اند
-                        if (
-                            hasattr(query, "retrieved_documents")
-                            and len(query.retrieved_documents) == 0
-                        ):
-                            unanswered_queries.append(query.text)
-
-            # حذف تکرارها و محدود کردن تعداد
-            unique_unanswered = list(set(unanswered_queries))[:10]
-
+            unique_unanswered = list(dict.fromkeys(unanswered_queries))[:10]
             logger.info(f"Found {len(unique_unanswered)} unanswered queries")
             return unique_unanswered
-
         except Exception as e:
             logger.error(f"Error finding unanswered queries: {e}")
             return []
 
-    async def _find_underutilized_topics(self) -> List[str]:
+    async def _find_underutilized_topics(self) -> list[str]:
         """یافتن موضوعات کم‌کاربرد"""
         try:
             # تحلیل موضوعات با فرکانس پایین
@@ -606,68 +586,37 @@ class MLInsightsEngine:
             logger.error(f"Error finding underutilized topics: {e}")
             return []
 
-    async def _find_low_quality_responses(self) -> List[Dict[str, Any]]:
-        """یافتن پاسخ‌های با کیفیت پایین"""
+    async def _find_low_quality_responses(self) -> list[dict[str, Any]]:
+        """Identify queries from sessions with low satisfaction."""
         try:
-            low_quality_responses = []
-
-            # تحلیل پاسخ‌ها از user behavior analyzer
+            low_quality_responses: list[dict[str, Any]] = []
             for user_id, sessions in self.user_behavior.user_sessions.items():
-                for session in sessions:
-                    for query in session.queries:
-                        # بررسی پاسخ‌هایی که رضایت کاربر پایین بوده
-                        if (
-                            hasattr(query, "satisfaction_score")
-                            and query.satisfaction_score < 0.4
-                        ):
-                            low_quality_responses.append(
-                                {
-                                    "id": f"resp_{user_id}_{session.session_id}_{query.query_id}",
-                                    "reason": self._analyze_response_quality_issue(
-                                        query
-                                    ),
-                                    "satisfaction_score": query.satisfaction_score,
-                                    "user_id": user_id,
-                                    "query_text": query.text,
-                                    "response_length": getattr(
-                                        query, "response_length", 0
-                                    ),
-                                    "timestamp": getattr(
-                                        query, "timestamp", datetime.now()
-                                    ),
-                                }
-                            )
+                for session_index, session in enumerate(sessions):
+                    if session.satisfaction_score >= 0.4:
+                        continue
+                    for query_index, query_text in enumerate(session.queries):
+                        low_quality_responses.append(
+                            {
+                                "id": f"resp_{user_id}_{session_index}_{query_index}",
+                                "reason": "رضایت پایین در سطح جلسه",
+                                "satisfaction_score": session.satisfaction_score,
+                                "user_id": user_id,
+                                "query_text": query_text,
+                                "response_length": 0,
+                                "timestamp": session.start_time,
+                            }
+                        )
 
-                        # بررسی پاسخ‌هایی که خیلی کوتاه هستند
-                        if (
-                            hasattr(query, "response_length")
-                            and query.response_length < 30
-                        ):
-                            low_quality_responses.append(
-                                {
-                                    "id": f"resp_{user_id}_{session.session_id}_{query.query_id}",
-                                    "reason": "پاسخ خیلی کوتاه و ناکافی",
-                                    "satisfaction_score": 0.2,
-                                    "user_id": user_id,
-                                    "query_text": query.text,
-                                    "response_length": query.response_length,
-                                    "timestamp": getattr(
-                                        query, "timestamp", datetime.now()
-                                    ),
-                                }
-                            )
-
-            # مرتب‌سازی بر اساس امتیاز رضایت (پایین‌ترین اول)
-            low_quality_responses.sort(key=lambda x: x["satisfaction_score"])
-
+            low_quality_responses.sort(
+                key=lambda item: float(item["satisfaction_score"])
+            )
             logger.info(f"Found {len(low_quality_responses)} low quality responses")
-            return low_quality_responses[:20]  # محدود کردن به 20 مورد
-
+            return low_quality_responses[:20]
         except Exception as e:
             logger.error(f"Error finding low quality responses: {e}")
             return []
 
-    def _analyze_response_quality_issue(self, query) -> str:
+    def _analyze_response_quality_issue(self, query: Any) -> str:
         """تحلیل مسائل کیفیت پاسخ"""
         try:
             issues = []
@@ -704,38 +653,26 @@ class MLInsightsEngine:
             logger.error(f"Error analyzing response quality issue: {e}")
             return "خطا در تحلیل کیفیت"
 
-    async def _analyze_current_embedding_performance(self) -> Dict[str, Any]:
+    async def _analyze_current_embedding_performance(self) -> dict[str, Any]:
         """تحلیل عملکرد فعلی embedding"""
         try:
             # جمع‌آوری آمار عملکرد از user behavior analyzer
             total_queries = 0
-            total_response_time = 0
-            total_satisfaction = 0
+            total_response_time = 0.0
+            total_satisfaction = 0.0
             total_retrieved_docs = 0
-            accuracy_scores = []
+            accuracy_scores: list[float] = []
 
             for sessions in self.user_behavior.user_sessions.values():
                 for session in sessions:
-                    for query in session.queries:
-                        total_queries += 1
-
-                        # زمان پاسخ
-                        response_time = getattr(query, "response_time", 0)
-                        total_response_time += response_time
-
-                        # رضایت کاربر
-                        satisfaction = getattr(query, "satisfaction_score", 0.5)
-                        total_satisfaction += satisfaction
-
-                        # تعداد اسناد بازیابی شده
-                        retrieved_docs = getattr(query, "retrieved_documents", [])
-                        total_retrieved_docs += len(retrieved_docs)
-
-                        # محاسبه دقت بر اساس رضایت و تعداد اسناد
-                        accuracy = satisfaction * (
-                            len(retrieved_docs) / 5.0
-                        )  # نرمال‌سازی
-                        accuracy_scores.append(min(accuracy, 1.0))
+                    query_count = len(session.queries)
+                    total_queries += query_count
+                    if query_count:
+                        total_satisfaction += session.satisfaction_score * query_count
+                        accuracy_scores.extend(
+                            [max(0.0, min(session.satisfaction_score, 1.0))]
+                            * query_count
+                        )
 
             if total_queries == 0:
                 return {
@@ -789,7 +726,7 @@ class MLInsightsEngine:
             }
 
     async def _recommend_embedding_strategy(
-        self, current_performance: Dict[str, Any]
+        self, current_performance: dict[str, Any]
     ) -> str:
         """پیشنهاد استراتژی embedding"""
         try:
@@ -834,7 +771,7 @@ class MLInsightsEngine:
             return "default_strategy"
 
     async def _calculate_embedding_improvement(
-        self, current: Dict[str, Any], recommended: str
+        self, current: dict[str, Any], recommended: str
     ) -> float:
         """محاسبه بهبود مورد انتظار"""
         try:
@@ -842,11 +779,11 @@ class MLInsightsEngine:
             base_improvement = 0.05  # بهبود پایه 5%
 
             # تحلیل نقاط ضعف فعلی
-            current_accuracy = current.get("accuracy", 0.5)
-            current_speed = current.get("speed", 0.5)
-            current_satisfaction = current.get("avg_satisfaction", 0.5)
+            current_accuracy = float(current.get("accuracy", 0.5))
+            current_speed = float(current.get("speed", 0.5))
+            current_satisfaction = float(current.get("avg_satisfaction", 0.5))
 
-            improvement_factors = []
+            improvement_factors: list[float] = []
 
             if recommended == "improved_accuracy_strategy":
                 # بهبود دقت - اگر دقت فعلی پایین است
@@ -948,7 +885,7 @@ class MLInsightsEngine:
             logger.error(f"Error assessing embedding risk: {e}")
             return "medium"
 
-    async def _analyze_user_historical_patterns(self, user_id: str) -> Dict[str, Any]:
+    async def _analyze_user_historical_patterns(self, user_id: str) -> dict[str, Any]:
         """تحلیل الگوهای تاریخی کاربر"""
         try:
             sessions = self.user_behavior.user_sessions.get(user_id, [])
@@ -981,7 +918,7 @@ class MLInsightsEngine:
             logger.error(f"Error analyzing user historical patterns: {e}")
             return {"error": str(e)}
 
-    async def _predict_future_actions(self, patterns: Dict[str, Any]) -> List[str]:
+    async def _predict_future_actions(self, patterns: dict[str, Any]) -> list[str]:
         """پیش‌بینی اقدامات آینده"""
         try:
             if "error" in patterns:
@@ -1006,8 +943,8 @@ class MLInsightsEngine:
             return ["unknown"]
 
     async def _calculate_prediction_confidence(
-        self, profile: UserProfile, patterns: Dict[str, Any]
-    ) -> Dict[str, float]:
+        self, profile: UserProfile, patterns: dict[str, Any]
+    ) -> dict[str, float]:
         """محاسبه امتیازهای اطمینان پیش‌بینی"""
         try:
             confidence_scores = {}
@@ -1027,8 +964,8 @@ class MLInsightsEngine:
             return {"unknown": 0.5}
 
     async def _identify_behavioral_factors(
-        self, profile: UserProfile, patterns: Dict[str, Any]
-    ) -> List[str]:
+        self, profile: UserProfile, patterns: dict[str, Any]
+    ) -> list[str]:
         """شناسایی عوامل رفتاری"""
         try:
             factors = []
@@ -1053,18 +990,18 @@ class MLInsightsEngine:
 
     async def _check_metric_anomaly(
         self, metric_name: str, metric_value: Any
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """بررسی ناهنجاری در متریک"""
         try:
             # جمع‌آوری داده‌های تاریخی برای مقایسه
-            historical_values = []
+            historical_values: list[float] = []
 
             # جمع‌آوری مقادیر تاریخی از user behavior analyzer
             for sessions in self.user_behavior.user_sessions.values():
                 for session in sessions:
-                    for query in session.queries:
-                        if hasattr(query, metric_name):
-                            historical_values.append(getattr(query, metric_name))
+                    value = getattr(session, metric_name, None)
+                    if isinstance(value, int | float):
+                        historical_values.append(float(value))
 
             if not historical_values:
                 return None
@@ -1076,7 +1013,7 @@ class MLInsightsEngine:
             )
 
             # تشخیص ناهنجاری بر اساس انحراف معیار
-            if isinstance(metric_value, (int, float)):
+            if isinstance(metric_value, int | float):
                 # ناهنجاری شدید (بیش از 3 انحراف معیار)
                 if abs(metric_value - mean_value) > 3 * std_value:
                     severity = "critical"
@@ -1130,7 +1067,7 @@ class MLInsightsEngine:
             logger.error(f"Error checking metric anomaly: {e}")
             return None
 
-    def _get_anomaly_actions(self, anomaly_type: str, metric_name: str) -> List[str]:
+    def _get_anomaly_actions(self, anomaly_type: str, metric_name: str) -> list[str]:
         """تعیین اقدامات پیشنهادی برای ناهنجاری"""
         try:
             base_actions = [

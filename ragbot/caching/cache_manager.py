@@ -1,10 +1,12 @@
 """Utilities for orchestrating multi-level caching in the RAG Telegram bot."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from ragbot.caching.base import CacheKey
 from ragbot.caching.cache_metrics import CacheMetricsCollector
@@ -12,6 +14,9 @@ from ragbot.caching.memory_cache import MemoryCache
 from ragbot.caching.redis_cache import RedisCache
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
+
+if TYPE_CHECKING:
+    from ragbot.caching.semantic_cache import SemanticCache
 
 
 @dataclass
@@ -41,28 +46,30 @@ class CacheManager:
     answers, plus bookkeeping utilities for trimming and statistics.
     """
 
-    def __init__(self, config: Optional[CacheConfig] = None):
+    _instance_created: ClassVar[bool] = False
+
+    def __init__(self, config: CacheConfig | None = None) -> None:
         """Initialise the cache manager.
 
         Args:
             config: Optional cache configuration; defaults are used when ``None``.
         """
         self.config = config or CacheConfig()
-        self._l1_cache: Optional[MemoryCache] = None
-        self._l2_cache: Optional[RedisCache] = None
-        self._semantic_cache: Optional[Any] = None
-        self._cache_metrics: Optional[CacheMetricsCollector] = None
+        self._l1_cache: MemoryCache | None = None
+        self._l2_cache: RedisCache | None = None
+        self._semantic_cache: SemanticCache | None = None
+        self._cache_metrics: CacheMetricsCollector | None = None
         self._initialized = False
         cache_settings = settings.semantic_cache
         self.query_cache_enabled = cache_settings.enable_query_cache
         self.query_cache_ttl = cache_settings.ttl_seconds
         self.query_cache_max_size = cache_settings.max_size
         self._query_cache_prefix = "qc::"
-        self._query_cache_index: List[str] = []
+        self._query_cache_index: list[str] = []
         self._query_cache_lock: asyncio.Lock = asyncio.Lock()
 
-        # Only log initialization if this is the first instance
-        if not hasattr(CacheManager, '_instance_created'):
+        # Only log initialization if this is the first instance.
+        if not CacheManager._instance_created:
             logger.info("CacheManager initialized")
             CacheManager._instance_created = True
 
@@ -90,7 +97,7 @@ class CacheManager:
                         logger.warning("Redis connection failed, disabling L2 cache")
                         self._l2_cache = None
                 except Exception as e:
-                    logger.warning(f"Failed to initialize Redis cache: {str(e)}")
+                    logger.warning(f"Failed to initialize Redis cache: {e!s}")
                     self._l2_cache = None
 
             # Initialize L3 cache (Semantic)
@@ -109,7 +116,7 @@ class CacheManager:
                     )
                     logger.info("L3 cache (semantic) initialized")
                 except Exception as e:
-                    logger.warning(f"Failed to initialize semantic cache: {str(e)}")
+                    logger.warning(f"Failed to initialize semantic cache: {e!s}")
                     self._semantic_cache = None
 
             # Initialize cache metrics
@@ -121,10 +128,10 @@ class CacheManager:
             logger.info("CacheManager initialization completed")
 
         except Exception as e:
-            logger.error(f"Failed to initialize CacheManager: {str(e)}")
+            logger.error(f"Failed to initialize CacheManager: {e!s}")
             raise
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """
         Get a value from the cache (checks L1 then L2).
 
@@ -154,7 +161,7 @@ class CacheManager:
 
         return None
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """
         Set a value in the cache (sets in both L1 and L2).
 
@@ -201,14 +208,12 @@ class CacheManager:
         success = False
 
         # Delete from L1 cache
-        if self._l1_cache:
-            if await self._l1_cache.delete(key):
-                success = True
+        if self._l1_cache and await self._l1_cache.delete(key):
+            success = True
 
         # Delete from L2 cache
-        if self._l2_cache:
-            if await self._l2_cache.delete(key):
-                success = True
+        if self._l2_cache and await self._l2_cache.delete(key):
+            success = True
 
         return success
 
@@ -217,8 +222,8 @@ class CacheManager:
         question: str,
         language: str,
         provider: str,
-        top_k: Optional[int] = None,
-        store_type: Optional[str] = None,
+        top_k: int | None = None,
+        store_type: str | None = None,
     ) -> str:
         """Build a deterministic cache key for exact query caching.
 
@@ -236,11 +241,11 @@ class CacheManager:
         normalized_question = question.strip().lower()
         hasher = hashlib.sha256()
         hasher.update(normalized_question.encode("utf-8"))
-        hasher.update(f"|lang={language}|provider={provider}".encode("utf-8"))
+        hasher.update(f"|lang={language}|provider={provider}".encode())
         if top_k is not None:
-            hasher.update(f"|top_k={top_k}".encode("utf-8"))
+            hasher.update(f"|top_k={top_k}".encode())
         if store_type:
-            hasher.update(f"|store={store_type}".encode("utf-8"))
+            hasher.update(f"|store={store_type}".encode())
         digest = hasher.hexdigest()
         return f"{self._query_cache_prefix}{digest}"
 
@@ -250,9 +255,9 @@ class CacheManager:
         language: str,
         provider: str,
         *,
-        top_k: Optional[int] = None,
-        store_type: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        top_k: int | None = None,
+        store_type: str | None = None,
+    ) -> dict[str, Any] | None:
         """Fetch a cached query result when query caching is enabled.
 
         Args:
@@ -280,11 +285,11 @@ class CacheManager:
         question: str,
         language: str,
         provider: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         *,
-        top_k: Optional[int] = None,
-        store_type: Optional[str] = None,
-        ttl: Optional[int] = None,
+        top_k: int | None = None,
+        store_type: str | None = None,
+        ttl: int | None = None,
     ) -> None:
         """Persist a query result snapshot for future reuse.
 
@@ -321,7 +326,7 @@ class CacheManager:
             if cache_key not in self._query_cache_index:
                 self._query_cache_index.append(cache_key)
 
-    async def trim_caches(self, aggressive: bool = False) -> Dict[str, int]:
+    async def trim_caches(self, aggressive: bool = False) -> dict[str, int]:
         """Trim in-memory and Redis caches to reclaim memory.
 
         Args:
@@ -367,21 +372,19 @@ class CacheManager:
         success = True
 
         # Clear L1 cache
-        if self._l1_cache:
-            if not await self._l1_cache.clear():
-                success = False
+        if self._l1_cache and not await self._l1_cache.clear():
+            success = False
 
         # Clear L2 cache
-        if self._l2_cache:
-            if not await self._l2_cache.clear():
-                success = False
+        if self._l2_cache and not await self._l2_cache.clear():
+            success = False
 
         return success
 
     # Specialized caching methods
 
     async def cache_embedding(
-        self, text: str, model: str, embedding: List[float]
+        self, text: str, model: str, embedding: list[float]
     ) -> bool:
         """
         Cache an embedding with optimized TTL.
@@ -399,7 +402,7 @@ class CacheManager:
 
     async def get_cached_embedding(
         self, text: str, model: str
-    ) -> Optional[List[float]]:
+    ) -> list[float] | None:
         """
         Get a cached embedding.
 
@@ -414,7 +417,7 @@ class CacheManager:
         return await self.get(key)
 
     async def cache_document_chunks(
-        self, source: str, chunks: List[str], chunk_size: int, overlap: int
+        self, source: str, chunks: list[str], chunk_size: int, overlap: int
     ) -> bool:
         """
         Cache document chunks.
@@ -441,7 +444,7 @@ class CacheManager:
 
     async def get_cached_document_chunks(
         self, source: str, chunk_size: int, overlap: int
-    ) -> Optional[List[str]]:
+    ) -> list[str] | None:
         """
         Get cached document chunks.
 
@@ -457,13 +460,17 @@ class CacheManager:
         cache_data = await self.get(key)
 
         if cache_data and isinstance(cache_data, dict):
-            return cache_data.get("chunks")
+            chunks = cache_data.get("chunks")
+            if isinstance(chunks, list) and all(
+                isinstance(chunk, str) for chunk in chunks
+            ):
+                return chunks
 
         return None
 
     # Semantic cache methods
 
-    async def get_semantic_answer(self, query: str) -> Optional[Dict[str, Any]]:
+    async def get_semantic_answer(self, query: str) -> dict[str, Any] | None:
         """
         Get a semantically similar answer from the cache.
 
@@ -501,15 +508,15 @@ class CacheManager:
                 return None
 
         except Exception as e:
-            logger.error(f"Error getting semantic answer: {str(e)}")
+            logger.error(f"Error getting semantic answer: {e!s}")
             return None
 
     async def cache_semantic_answer(
         self,
         query: str,
         answer: str,
-        context: List[str],
-        metadata: Dict[str, Any],
+        context: list[str],
+        metadata: dict[str, Any],
         confidence_score: float = 1.0,
     ) -> bool:
         """
@@ -547,10 +554,10 @@ class CacheManager:
             return True
 
         except Exception as e:
-            logger.error(f"Error caching semantic answer: {str(e)}")
+            logger.error(f"Error caching semantic answer: {e!s}")
             return False
 
-    async def get_semantic_cache_stats(self) -> Dict[str, Any]:
+    async def get_semantic_cache_stats(self) -> dict[str, Any]:
         """
         Get semantic cache statistics.
 
@@ -574,7 +581,7 @@ class CacheManager:
             return stats
 
         except Exception as e:
-            logger.error(f"Error getting semantic cache stats: {str(e)}")
+            logger.error(f"Error getting semantic cache stats: {e!s}")
             return {"error": str(e)}
 
     async def clear_semantic_cache(self) -> bool:
@@ -600,7 +607,7 @@ class CacheManager:
             return True
 
         except Exception as e:
-            logger.error(f"Error clearing semantic cache: {str(e)}")
+            logger.error(f"Error clearing semantic cache: {e!s}")
             return False
 
     async def invalidate_pattern(self, pattern: str) -> int:
@@ -627,18 +634,18 @@ class CacheManager:
                     await redis.delete(*keys)
                     invalidated += len(keys)
             except Exception as e:
-                logger.error(f"Error invalidating Redis pattern {pattern}: {str(e)}")
+                logger.error(f"Error invalidating Redis pattern {pattern}: {e!s}")
 
         # For memory cache, we need to iterate (less efficient)
         if self._l1_cache:
             try:
                 import fnmatch
 
-                keys_to_delete = []
-
-                for key in self._l1_cache._cache.keys():
-                    if fnmatch.fnmatch(key, pattern):
-                        keys_to_delete.append(key)
+                keys_to_delete = [
+                    key
+                    for key in self._l1_cache._cache
+                    if fnmatch.fnmatch(key, pattern)
+                ]
 
                 for key in keys_to_delete:
                     await self._l1_cache.delete(key)
@@ -646,7 +653,7 @@ class CacheManager:
 
             except Exception as e:
                 logger.error(
-                    f"Error invalidating memory cache pattern {pattern}: {str(e)}"
+                    f"Error invalidating memory cache pattern {pattern}: {e!s}"
                 )
 
         logger.info(
@@ -654,7 +661,7 @@ class CacheManager:
         )
         return invalidated
 
-    async def get_cache_stats(self) -> Dict[str, Any]:
+    async def get_cache_stats(self) -> dict[str, Any]:
         """
         Get comprehensive cache statistics.
 
@@ -664,7 +671,7 @@ class CacheManager:
         if not self._initialized:
             await self.initialize()
 
-        stats = {
+        stats: dict[str, Any] = {
             "config": {
                 "l1_enabled": self.config.l1_enabled,
                 "l2_enabled": self.config.l2_enabled,
@@ -685,7 +692,7 @@ class CacheManager:
 
         return stats
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on all cache backends.
 
@@ -695,7 +702,7 @@ class CacheManager:
         if not self._initialized:
             await self.initialize()
 
-        health = {"overall_status": "healthy", "checks": {}}
+        health: dict[str, Any] = {"overall_status": "healthy", "checks": {}}
 
         # Check L1 cache
         if self._l1_cache:
@@ -714,7 +721,7 @@ class CacheManager:
                     health["overall_status"] = "degraded"
 
             except Exception as e:
-                health["checks"]["l1_cache"] = f"error: {str(e)}"
+                health["checks"]["l1_cache"] = f"error: {e!s}"
                 health["overall_status"] = "degraded"
 
         # Check L2 cache
@@ -727,7 +734,7 @@ class CacheManager:
                     health["overall_status"] = "degraded"
 
             except Exception as e:
-                health["checks"]["l2_cache"] = f"error: {str(e)}"
+                health["checks"]["l2_cache"] = f"error: {e!s}"
                 health["overall_status"] = "degraded"
 
         return health
@@ -754,7 +761,7 @@ class CacheManager:
             logger.info("CacheManager closed")
 
         except Exception as e:
-            logger.error(f"Error closing CacheManager: {str(e)}")
+            logger.error(f"Error closing CacheManager: {e!s}")
 
 
 # Global cache manager instance

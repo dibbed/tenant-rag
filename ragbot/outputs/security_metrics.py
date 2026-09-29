@@ -4,8 +4,6 @@ Prometheus-like counters for security events. Kept lightweight to avoid hard dep
 
 from __future__ import annotations
 
-from typing import Dict
-
 
 class SecurityMetrics:
     """متریک‌های امنیتی"""
@@ -28,7 +26,7 @@ class SecurityMetrics:
     async def record_security_event(self) -> None:
         self.security_events_total += 1
 
-    async def snapshot(self) -> Dict[str, int]:
+    async def snapshot(self) -> dict[str, int]:
         return {
             "filtered_messages_total": self.filtered_messages_total,
             "blocked_users_total": self.blocked_users_total,

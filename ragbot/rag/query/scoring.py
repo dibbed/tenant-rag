@@ -5,13 +5,15 @@ This module provides advanced scoring algorithms for ranking search results,
 including weighted scoring, time decay, popularity-based scoring, and hybrid approaches.
 """
 
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass
-from enum import Enum
+import contextlib
+import logging
 import math
 import time
-from datetime import datetime, timedelta
-import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,25 +35,25 @@ class ScoredDocument:
 
     document_id: str
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     base_score: float
     final_score: float
-    scoring_components: Dict[str, float]
+    scoring_components: dict[str, float]
     timestamp: datetime
 
 
 class CustomScorer:
     """الگوریتم‌های امتیازدهی سفارشی"""
 
-    def __init__(self, vector_store):
+    def __init__(self, vector_store: Any) -> None:
         """Initialize custom scorer"""
         self.vector_store = vector_store
-        self.scoring_cache = {}
+        self.scoring_cache: dict[str, Any] = {}
         self.cache_ttl = 600  # 10 minutes
 
     async def weighted_scoring(
-        self, documents: List[Any], weights: Dict[str, float]
-    ) -> List[ScoredDocument]:
+        self, documents: list[Any], weights: dict[str, float]
+    ) -> list[ScoredDocument]:
         """امتیازدهی وزنی بر اساس فاکتورهای مختلف"""
         scored_docs = []
 
@@ -95,8 +97,8 @@ class CustomScorer:
         return scored_docs
 
     async def time_decay_scoring(
-        self, documents: List[Any], decay_factor: float = 0.1
-    ) -> List[ScoredDocument]:
+        self, documents: list[Any], decay_factor: float = 0.1
+    ) -> list[ScoredDocument]:
         """امتیازدهی با کاهش تدریجی بر اساس زمان"""
         scored_docs = []
         current_time = datetime.now()
@@ -134,9 +136,9 @@ class CustomScorer:
 
     async def popularity_scoring(
         self,
-        documents: List[Any],
-        popularity_weights: Optional[Dict[str, float]] = None,
-    ) -> List[ScoredDocument]:
+        documents: list[Any],
+        popularity_weights: dict[str, float] | None = None,
+    ) -> list[ScoredDocument]:
         """امتیازدهی بر اساس محبوبیت"""
         if popularity_weights is None:
             popularity_weights = {
@@ -186,8 +188,8 @@ class CustomScorer:
         return scored_docs
 
     async def semantic_boost_scoring(
-        self, documents: List[Any], boost_factors: Optional[Dict[str, float]] = None
-    ) -> List[ScoredDocument]:
+        self, documents: list[Any], boost_factors: dict[str, float] | None = None
+    ) -> list[ScoredDocument]:
         """امتیازدهی با تقویت معنایی"""
         if boost_factors is None:
             boost_factors = {
@@ -231,8 +233,8 @@ class CustomScorer:
         return scored_docs
 
     async def hybrid_scoring(
-        self, documents: List[Any], strategy_weights: Optional[Dict[str, float]] = None
-    ) -> List[ScoredDocument]:
+        self, documents: list[Any], strategy_weights: dict[str, float] | None = None
+    ) -> list[ScoredDocument]:
         """امتیازدهی ترکیبی با چندین استراتژی"""
         if strategy_weights is None:
             strategy_weights = {
@@ -300,8 +302,8 @@ class CustomScorer:
         return hybrid_docs
 
     async def custom_scoring(
-        self, documents: List[Any], scoring_function: Callable[[Any], float]
-    ) -> List[ScoredDocument]:
+        self, documents: list[Any], scoring_function: Callable[[Any], float]
+    ) -> list[ScoredDocument]:
         """امتیازدهی سفارشی با تابع کاربر"""
         scored_docs = []
 
@@ -337,19 +339,19 @@ class CustomScorer:
         else:
             return max(0.5, 1.0 - (content_length - 2000) / 10000.0)
 
-    def _calculate_metadata_score(self, metadata: Dict[str, Any]) -> float:
+    def _calculate_metadata_score(self, metadata: dict[str, Any]) -> float:
         """محاسبه امتیاز کیفیت metadata"""
         if not metadata:
             return 0.0
 
         important_fields = ["title", "author", "category", "tags", "created_at"]
         score = sum(
-            1.0 for field in important_fields if field in metadata and metadata[field]
+            1.0 for field in important_fields if metadata.get(field)
         )
 
         return min(score / len(important_fields), 1.0)
 
-    def _calculate_recency_score(self, metadata: Dict[str, Any]) -> float:
+    def _calculate_recency_score(self, metadata: dict[str, Any]) -> float:
         """محاسبه امتیاز تازگی"""
         doc_time = self._extract_document_time(metadata)
         if not doc_time:
@@ -369,32 +371,28 @@ class CustomScorer:
         else:
             return 0.2
 
-    def _extract_document_time(self, metadata: Dict[str, Any]) -> Optional[datetime]:
+    def _extract_document_time(self, metadata: dict[str, Any]) -> datetime | None:
         """استخراج زمان سند از metadata"""
         time_fields = ["created_at", "updated_at", "published_at", "date"]
 
         for field in time_fields:
-            if field in metadata:
-                try:
-                    time_value = metadata[field]
-                    if isinstance(time_value, str):
-                        for fmt in [
-                            "%Y-%m-%d",
-                            "%Y-%m-%d %H:%M:%S",
-                            "%Y-%m-%dT%H:%M:%S",
-                        ]:
-                            try:
-                                return datetime.strptime(time_value, fmt)
-                            except ValueError:
-                                continue
-                    elif isinstance(time_value, datetime):
-                        return time_value
-                except Exception:
-                    continue
+            if field not in metadata:
+                continue
+            time_value = metadata[field]
+            if isinstance(time_value, str):
+                for fmt in [
+                    "%Y-%m-%d",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%dT%H:%M:%S",
+                ]:
+                    with contextlib.suppress(ValueError):
+                        return datetime.strptime(time_value, fmt)
+            elif isinstance(time_value, datetime):
+                return time_value
 
         return None
 
-    async def get_scoring_statistics(self) -> Dict[str, Any]:
+    async def get_scoring_statistics(self) -> dict[str, Any]:
         """دریافت آمار امتیازدهی"""
         return {
             "cached_scores": len(self.scoring_cache),
@@ -402,13 +400,13 @@ class CustomScorer:
             "available_strategies": [strategy.value for strategy in ScoringStrategy],
         }
 
-    async def clear_scoring_cache(self):
+    async def clear_scoring_cache(self) -> None:
         """پاک کردن cache امتیازات"""
         self.scoring_cache.clear()
 
     async def benchmark_scoring_strategies(
-        self, documents: List[Any], sample_size: int = 100
-    ) -> Dict[str, Dict[str, float]]:
+        self, documents: list[Any], sample_size: int = 100
+    ) -> dict[str, dict[str, float]]:
         """مقایسه عملکرد استراتژی‌های مختلف امتیازدهی"""
         if len(documents) > sample_size:
             import random

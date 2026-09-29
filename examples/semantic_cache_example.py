@@ -152,7 +152,7 @@ async def cache_metrics_example():
         "Fourth question",  # Miss + eviction
     ]
 
-    for i, query in enumerate(queries):
+    for _i, query in enumerate(queries):
         # بررسی کش
         result = await cache.get_similar_answer(query)
 
@@ -206,7 +206,7 @@ async def performance_comparison():
     print("تست بدون کش...")
     start_time = time.time()
 
-    for i in range(100):
+    for _ in range(100):
         # شبیه‌سازی پردازش سنگین
         await asyncio.sleep(0.01)  # 10ms تأخیر
 

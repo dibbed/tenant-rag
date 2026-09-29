@@ -7,8 +7,9 @@ system performance, user activity, and error rates.
 
 import time
 from collections import defaultdict
-from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
+from typing import Any
 
 import numpy as np
 
@@ -41,9 +42,9 @@ class MetricsManager:
     def __init__(self) -> None:
         """Initialize metrics manager."""
         self.enabled = PROMETHEUS_AVAILABLE and settings.monitoring.enable_metrics
-        self._metrics: Dict[str, Any] = {}
-        self._in_memory_metrics: Dict[str, Any] = defaultdict(int)
-        self._vector_store_metrics: Dict[str, Dict[str, Dict[str, Any]]] = defaultdict(
+        self._metrics: dict[str, Any] = {}
+        self._in_memory_metrics: dict[str, Any] = defaultdict(int)
+        self._vector_store_metrics: dict[str, dict[str, dict[str, Any]]] = defaultdict(
             lambda: defaultdict(
                 lambda: {
                     "count": 0,
@@ -79,17 +80,15 @@ class MetricsManager:
         # Get list of collectors to remove
         collectors_to_remove = []
         for collector in list(REGISTRY._collector_to_names.keys()):
-            names = REGISTRY._collector_to_names.get(collector, set())
+            names = set(REGISTRY._collector_to_names.get(collector, set()))
             if any(name.startswith("ragbot_") for name in names):
                 collectors_to_remove.append(collector)
 
         # Remove ragbot metrics
         for collector in collectors_to_remove:
-            try:
+            # A collector may already have been removed by another test instance.
+            with suppress(KeyError):
                 REGISTRY.unregister(collector)
-            except KeyError:
-                # Already removed
-                pass
 
     def _setup_prometheus_metrics(self) -> None:
         """Setup Prometheus metrics collectors."""
@@ -536,8 +535,8 @@ class MetricsManager:
         self,
         document_type: str,
         status: str = "success",
-        duration: Optional[float] = None,
-        chunk_count: Optional[int] = None,
+        duration: float | None = None,
+        chunk_count: int | None = None,
     ) -> None:
         """
         Record document processing metrics.
@@ -576,9 +575,9 @@ class MetricsManager:
         self,
         language: str,
         status: str = "success",
-        total_duration: Optional[float] = None,
-        retrieval_duration: Optional[float] = None,
-        llm_duration: Optional[float] = None,
+        total_duration: float | None = None,
+        retrieval_duration: float | None = None,
+        llm_duration: float | None = None,
     ) -> None:
         """
         Record query processing metrics.
@@ -645,7 +644,7 @@ class MetricsManager:
 
         logger.log_structured("warning", "rate_limit_hit", user_id=user_id)
 
-    def update_vector_store_size(self, size: int, store_type: Optional[str] = None) -> None:
+    def update_vector_store_size(self, size: int, store_type: str | None = None) -> None:
         """Update vector store size metric."""
         key = "vector_store_size" if store_type is None else f"vector_store_size::{store_type}"
         if self.enabled and store_type is None and "vector_store_size" in self._metrics:
@@ -660,8 +659,8 @@ class MetricsManager:
         *,
         document_count: int = 0,
         success: bool = True,
-        error: Optional[str] = None,
-        duration: Optional[float] = None,
+        error: str | None = None,
+        duration: float | None = None,
     ) -> None:
         data = self._vector_store_metrics[store_type][operation]
         data["count"] += 1
@@ -674,19 +673,17 @@ class MetricsManager:
         else:
             data["last_success"] = time.time()
         if duration is not None:
-            try:
+            with suppress(TypeError, ValueError):
                 data["durations"].append(float(duration))
-            except (TypeError, ValueError):
-                pass
             if len(data["durations"]) > 1000:
                 data["durations"] = data["durations"][-1000:]
         data["last_updated"] = time.time()
 
-    def get_vector_store_metrics(self, store_type: Optional[str] = None) -> Dict[str, Any]:
+    def get_vector_store_metrics(self, store_type: str | None = None) -> dict[str, Any]:
         """Return aggregated vector store metrics."""
 
-        def _summarize(st: str) -> Dict[str, Any]:
-            operations: Dict[str, Any] = {}
+        def _summarize(st: str) -> dict[str, Any]:
+            operations: dict[str, Any] = {}
             for op, stats in self._vector_store_metrics.get(st, {}).items():
                 count = stats.get("count", 0)
                 documents = stats.get("documents", 0)
@@ -724,7 +721,7 @@ class MetricsManager:
 
         if store_type:
             return _summarize(store_type)
-        return {st: _summarize(st) for st in self._vector_store_metrics.keys()}
+        return {st: _summarize(st) for st in self._vector_store_metrics}
 
     def update_memory_usage(self, bytes_used: int) -> None:
         """Update memory usage metric."""
@@ -734,7 +731,9 @@ class MetricsManager:
         self._in_memory_metrics["memory_usage"] = bytes_used
 
     @contextmanager
-    def time_operation(self, operation_name: str, **labels: str):
+    def time_operation(
+        self, operation_name: str, **labels: str
+    ) -> Iterator[None]:
         """
         Context manager for timing operations.
 
@@ -757,7 +756,7 @@ class MetricsManager:
 
             logger.log_performance(operation_name, duration, **labels)
 
-    def get_metrics_summary(self) -> Dict[str, Any]:
+    def get_metrics_summary(self) -> dict[str, Any]:
         """Get summary of collected metrics."""
         if self.enabled:
             # In a real implementation, you'd collect current values from Prometheus
@@ -771,7 +770,7 @@ class MetricsManager:
                 "metrics": dict(self._in_memory_metrics),
             }
 
-    def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> dict[str, Any]:
         """Perform health check and return status."""
         return {
             "metrics_enabled": self.enabled,
@@ -789,13 +788,13 @@ class RetrievalEvaluator:
     including Recall@K, MRR, NDCG, and query expansion effectiveness.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize retrieval evaluator."""
-        self.ground_truth_cache: Dict[str, List[str]] = {}
-        self.evaluation_history: List[Dict[str, Any]] = []
+        self.ground_truth_cache: dict[str, list[str]] = {}
+        self.evaluation_history: list[dict[str, Any]] = []
 
     def calculate_recall_at_k(
-        self, retrieved_docs: List[str], relevant_docs: List[str], k: int
+        self, retrieved_docs: list[str], relevant_docs: list[str], k: int
     ) -> float:
         """
         Calculate Recall@K metric.
@@ -827,7 +826,7 @@ class RetrievalEvaluator:
         return recall
 
     def calculate_mrr(
-        self, retrieved_docs: List[str], relevant_docs: List[str]
+        self, retrieved_docs: list[str], relevant_docs: list[str]
     ) -> float:
         """
         Calculate Mean Reciprocal Rank.
@@ -855,7 +854,7 @@ class RetrievalEvaluator:
         return 0.0
 
     def calculate_ndcg_at_k(
-        self, retrieved_docs: List[str], relevant_docs: List[str], k: int
+        self, retrieved_docs: list[str], relevant_docs: list[str], k: int
     ) -> float:
         """
         Calculate NDCG@K metric.
@@ -899,10 +898,10 @@ class RetrievalEvaluator:
         self,
         original_query: str,
         expanded_query: str,
-        original_results: List[str],
-        expanded_results: List[str],
-        relevant_docs: List[str],
-    ) -> Dict[str, float]:
+        original_results: list[str],
+        expanded_results: list[str],
+        relevant_docs: list[str],
+    ) -> dict[str, float]:
         """
         Evaluate query expansion effectiveness.
 
@@ -970,7 +969,7 @@ class RetrievalEvaluator:
         return evaluation
 
     def record_evaluation_metrics(
-        self, metrics_manager: "MetricsManager", evaluation: Dict[str, float]
+        self, metrics_manager: "MetricsManager", evaluation: dict[str, float]
     ) -> None:
         """
         Record evaluation metrics to Prometheus.
@@ -1015,7 +1014,7 @@ class RetrievalEvaluator:
             evaluation.get("mrr_improvement", 0.0)
         )
 
-    def get_evaluation_summary(self) -> Dict[str, Any]:
+    def get_evaluation_summary(self) -> dict[str, Any]:
         """Get summary of evaluation history."""
         if not self.evaluation_history:
             return {"total_evaluations": 0}
@@ -1060,10 +1059,10 @@ class RerankerEvaluator:
     including latency, quality scores, timeout rates, and throughput analysis.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize reranker evaluator."""
-        self.performance_history: List[Dict[str, Any]] = []
-        self.model_performance: Dict[str, List[Dict[str, Any]]] = {}
+        self.performance_history: list[dict[str, Any]] = []
+        self.model_performance: dict[str, list[dict[str, Any]]] = {}
         self.cache_stats = {"hits": 0, "misses": 0}
 
     def record_reranking_performance(
@@ -1071,7 +1070,7 @@ class RerankerEvaluator:
         model_name: str,
         latency: float,
         batch_size: int,
-        quality_scores: List[float],
+        quality_scores: list[float],
         cache_hit: bool = False,
         timeout: bool = False,
         fallback: bool = False,
@@ -1145,7 +1144,7 @@ class RerankerEvaluator:
         total = self.cache_stats["hits"] + self.cache_stats["misses"]
         return self.cache_stats["hits"] / total if total > 0 else 0.0
 
-    def calculate_average_throughput(self, model_name: Optional[str] = None) -> float:
+    def calculate_average_throughput(self, model_name: str | None = None) -> float:
         """
         Calculate average throughput.
 
@@ -1163,10 +1162,12 @@ class RerankerEvaluator:
         if not performances:
             return 0.0
 
-        throughputs = [p["throughput"] for p in performances if p["throughput"] > 0]
-        return np.mean(throughputs) if throughputs else 0.0
+        throughputs = [
+            float(p["throughput"]) for p in performances if p["throughput"] > 0
+        ]
+        return float(np.mean(throughputs)) if throughputs else 0.0
 
-    def calculate_average_latency(self, model_name: Optional[str] = None) -> float:
+    def calculate_average_latency(self, model_name: str | None = None) -> float:
         """
         Calculate average latency.
 
@@ -1184,10 +1185,10 @@ class RerankerEvaluator:
         if not performances:
             return 0.0
 
-        latencies = [p["latency"] for p in performances]
-        return np.mean(latencies)
+        latencies = [float(p["latency"]) for p in performances]
+        return float(np.mean(latencies))
 
-    def calculate_average_quality(self, model_name: Optional[str] = None) -> float:
+    def calculate_average_quality(self, model_name: str | None = None) -> float:
         """
         Calculate average quality score.
 
@@ -1205,10 +1206,10 @@ class RerankerEvaluator:
         if not performances:
             return 0.0
 
-        qualities = [p["avg_quality"] for p in performances]
-        return np.mean(qualities)
+        qualities = [float(p["avg_quality"]) for p in performances]
+        return float(np.mean(qualities))
 
-    def calculate_timeout_rate(self, model_name: Optional[str] = None) -> float:
+    def calculate_timeout_rate(self, model_name: str | None = None) -> float:
         """
         Calculate timeout rate.
 
@@ -1229,7 +1230,7 @@ class RerankerEvaluator:
         timeouts = sum(1 for p in performances if p["timeout"])
         return timeouts / len(performances)
 
-    def calculate_fallback_rate(self, model_name: Optional[str] = None) -> float:
+    def calculate_fallback_rate(self, model_name: str | None = None) -> float:
         """
         Calculate fallback rate.
 
@@ -1251,7 +1252,7 @@ class RerankerEvaluator:
         return fallbacks / len(performances)
 
     def record_evaluation_metrics(
-        self, metrics_manager: "MetricsManager", performance_data: Dict[str, Any]
+        self, metrics_manager: "MetricsManager", performance_data: dict[str, Any]
     ) -> None:
         """
         Record evaluation metrics to Prometheus.
@@ -1299,7 +1300,7 @@ class RerankerEvaluator:
         throughput = batch_size / latency if latency > 0 else 0.0
         metrics_manager._metrics["reranker_throughput"].set(throughput)
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get comprehensive performance summary."""
         if not self.performance_history:
             return {
@@ -1351,7 +1352,7 @@ class CacheAnalytics:
     including hit rates, deduplication ratios, memory usage, and efficiency metrics.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize cache analytics."""
         self.cache_stats = {
             "hits": 0,
@@ -1362,11 +1363,11 @@ class CacheAnalytics:
             "embedding_generations": 0,
             "similarity_computations": 0,
         }
-        self.cache_history: List[Dict[str, Any]] = []
-        self.access_patterns: Dict[str, int] = {}
-        self.confidence_scores: List[float] = []
-        self.similarity_scores: List[float] = []
-        self.memory_usage_history: List[Dict[str, Any]] = []
+        self.cache_history: list[dict[str, Any]] = []
+        self.access_patterns: dict[str, int] = {}
+        self.confidence_scores: list[float] = []
+        self.similarity_scores: list[float] = []
+        self.memory_usage_history: list[dict[str, Any]] = []
 
     def record_cache_hit(
         self, query: str, similarity_score: float, confidence_score: float
@@ -1540,11 +1541,15 @@ class CacheAnalytics:
 
     def calculate_average_confidence_score(self) -> float:
         """Calculate average confidence score."""
-        return np.mean(self.confidence_scores) if self.confidence_scores else 0.0
+        return (
+            float(np.mean(self.confidence_scores)) if self.confidence_scores else 0.0
+        )
 
     def calculate_average_similarity_score(self) -> float:
         """Calculate average similarity score."""
-        return np.mean(self.similarity_scores) if self.similarity_scores else 0.0
+        return (
+            float(np.mean(self.similarity_scores)) if self.similarity_scores else 0.0
+        )
 
     def calculate_deduplication_ratio(self) -> float:
         """
@@ -1572,7 +1577,7 @@ class CacheAnalytics:
         return max(0.0, min(1.0, efficiency))
 
     def record_evaluation_metrics(
-        self, metrics_manager: "MetricsManager", cache_data: Dict[str, Any]
+        self, metrics_manager: "MetricsManager", cache_data: dict[str, Any]
     ) -> None:
         """
         Record evaluation metrics to Prometheus.
@@ -1639,7 +1644,7 @@ class CacheAnalytics:
                 similarity_time
             )
 
-    def get_analytics_summary(self) -> Dict[str, Any]:
+    def get_analytics_summary(self) -> dict[str, Any]:
         """Get comprehensive cache analytics summary."""
         return {
             "cache_stats": self.cache_stats.copy(),
@@ -1673,20 +1678,20 @@ class QualityEvaluator:
     confidence scores, user satisfaction, and content assessment.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize quality evaluator."""
-        self.quality_history: List[Dict[str, Any]] = []
-        self.confidence_scores: List[float] = []
-        self.user_feedback: List[Dict[str, Any]] = []
-        self.response_metrics: Dict[str, List[float]] = {
+        self.quality_history: list[dict[str, Any]] = []
+        self.confidence_scores: list[float] = []
+        self.user_feedback: list[dict[str, Any]] = []
+        self.response_metrics: dict[str, list[float]] = {
             "accuracy": [],
             "relevance": [],
             "completeness": [],
             "coherence": [],
             "factual_accuracy": [],
         }
-        self.model_performance: Dict[str, List[Dict[str, Any]]] = {}
-        self.quality_stats = {
+        self.model_performance: dict[str, list[dict[str, Any]]] = {}
+        self.quality_stats: dict[str, int | float] = {
             "total_responses": 0,
             "high_quality_responses": 0,
             "low_confidence_responses": 0,
@@ -1701,9 +1706,9 @@ class QualityEvaluator:
         response: str,
         confidence_score: float,
         model_name: str,
-        context_used: List[str],
-        quality_scores: Dict[str, float],
-        user_satisfaction: Optional[int] = None,
+        context_used: list[str],
+        quality_scores: dict[str, float],
+        user_satisfaction: int | None = None,
     ) -> None:
         """
         Record response quality metrics.
@@ -1798,7 +1803,7 @@ class QualityEvaluator:
         query: str,
         response: str,
         satisfaction_score: int,
-        feedback_text: Optional[str] = None,
+        feedback_text: str | None = None,
     ) -> None:
         """
         Record user feedback and satisfaction.
@@ -1827,48 +1832,52 @@ class QualityEvaluator:
         )
 
     def _is_high_quality(
-        self, confidence_score: float, quality_scores: Dict[str, float]
+        self, confidence_score: float, quality_scores: dict[str, float]
     ) -> bool:
         """Determine if response is high quality."""
         # High quality if confidence > 0.8 and average quality > 0.7
-        avg_quality = np.mean(list(quality_scores.values())) if quality_scores else 0.0
+        avg_quality = (
+            float(np.mean(list(quality_scores.values()))) if quality_scores else 0.0
+        )
         return confidence_score > 0.8 and avg_quality > 0.7
 
     def _update_averages(self) -> None:
         """Update average statistics."""
         if self.confidence_scores:
-            self.quality_stats["average_confidence"] = np.mean(self.confidence_scores)
+            self.quality_stats["average_confidence"] = float(
+                np.mean(self.confidence_scores)
+            )
 
-        all_quality_scores = []
+        all_quality_scores: list[float] = []
         for scores in self.response_metrics.values():
             all_quality_scores.extend(scores)
 
         if all_quality_scores:
-            self.quality_stats["average_quality"] = np.mean(all_quality_scores)
+            self.quality_stats["average_quality"] = float(np.mean(all_quality_scores))
 
-    def calculate_confidence_distribution(self) -> Dict[str, float]:
+    def calculate_confidence_distribution(self) -> dict[str, float]:
         """Calculate confidence score distribution."""
         if not self.confidence_scores:
             return {"mean": 0.0, "std": 0.0, "min": 0.0, "max": 0.0, "median": 0.0}
 
         return {
-            "mean": np.mean(self.confidence_scores),
-            "std": np.std(self.confidence_scores),
-            "min": np.min(self.confidence_scores),
-            "max": np.max(self.confidence_scores),
-            "median": np.median(self.confidence_scores),
+            "mean": float(np.mean(self.confidence_scores)),
+            "std": float(np.std(self.confidence_scores)),
+            "min": float(np.min(self.confidence_scores)),
+            "max": float(np.max(self.confidence_scores)),
+            "median": float(np.median(self.confidence_scores)),
         }
 
-    def calculate_quality_metrics(self) -> Dict[str, float]:
+    def calculate_quality_metrics(self) -> dict[str, float]:
         """Calculate overall quality metrics."""
-        metrics = {}
+        metrics: dict[str, float] = {}
 
         for metric_name, scores in self.response_metrics.items():
             if scores:
-                metrics[f"{metric_name}_mean"] = np.mean(scores)
-                metrics[f"{metric_name}_std"] = np.std(scores)
-                metrics[f"{metric_name}_min"] = np.min(scores)
-                metrics[f"{metric_name}_max"] = np.max(scores)
+                metrics[f"{metric_name}_mean"] = float(np.mean(scores))
+                metrics[f"{metric_name}_std"] = float(np.std(scores))
+                metrics[f"{metric_name}_min"] = float(np.min(scores))
+                metrics[f"{metric_name}_max"] = float(np.max(scores))
             else:
                 metrics[f"{metric_name}_mean"] = 0.0
                 metrics[f"{metric_name}_std"] = 0.0
@@ -1877,7 +1886,7 @@ class QualityEvaluator:
 
         return metrics
 
-    def calculate_user_satisfaction_metrics(self) -> Dict[str, Any]:
+    def calculate_user_satisfaction_metrics(self) -> dict[str, Any]:
         """Calculate user satisfaction metrics."""
         if not self.user_feedback:
             return {
@@ -1902,24 +1911,27 @@ class QualityEvaluator:
             else self.user_feedback,
         }
 
-    def calculate_model_performance(self) -> Dict[str, Dict[str, float]]:
+    def calculate_model_performance(self) -> dict[str, dict[str, float]]:
         """Calculate performance metrics by model."""
-        model_metrics = {}
+        model_metrics: dict[str, dict[str, float]] = {}
 
         for model_name, performances in self.model_performance.items():
             if not performances:
                 continue
 
-            confidences = [p["confidence_score"] for p in performances]
-            qualities = []
-            for p in performances:
-                if p["quality_scores"]:
-                    qualities.append(np.mean(list(p["quality_scores"].values())))
+            confidences = [float(p["confidence_score"]) for p in performances]
+            qualities: list[float] = [
+                float(np.mean(list(p["quality_scores"].values())))
+                for p in performances
+                if p["quality_scores"]
+            ]
 
             model_metrics[model_name] = {
                 "total_responses": len(performances),
-                "average_confidence": np.mean(confidences) if confidences else 0.0,
-                "average_quality": np.mean(qualities) if qualities else 0.0,
+                "average_confidence": (
+                    float(np.mean(confidences)) if confidences else 0.0
+                ),
+                "average_quality": float(np.mean(qualities)) if qualities else 0.0,
                 "high_quality_rate": sum(
                     1 for p in performances if p["is_high_quality"]
                 )
@@ -1933,7 +1945,7 @@ class QualityEvaluator:
         return model_metrics
 
     def record_evaluation_metrics(
-        self, metrics_manager: "MetricsManager", quality_data: Dict[str, Any]
+        self, metrics_manager: "MetricsManager", quality_data: dict[str, Any]
     ) -> None:
         """
         Record evaluation metrics to Prometheus.
@@ -1997,7 +2009,7 @@ class QualityEvaluator:
         if quality_data.get("is_low_confidence", False):
             metrics_manager._metrics["low_confidence_responses"].inc()
 
-    def get_quality_summary(self) -> Dict[str, Any]:
+    def get_quality_summary(self) -> dict[str, Any]:
         """Get comprehensive quality evaluation summary."""
         return {
             "quality_stats": self.quality_stats.copy(),
@@ -2012,7 +2024,7 @@ class QualityEvaluator:
             "quality_trends": self._calculate_quality_trends(),
         }
 
-    def _calculate_quality_trends(self) -> Dict[str, List[float]]:
+    def _calculate_quality_trends(self) -> dict[str, list[float]]:
         """Calculate quality trends over time."""
         if len(self.quality_history) < 10:
             return {"confidence": [], "quality": []}
@@ -2020,12 +2032,16 @@ class QualityEvaluator:
         # Group by time windows (last 10 responses)
         recent_responses = self.quality_history[-10:]
 
-        confidence_trend = [r["confidence_score"] for r in recent_responses]
-        quality_trend = []
+        confidence_trend: list[float] = [
+            float(r["confidence_score"]) for r in recent_responses
+        ]
+        quality_trend: list[float] = []
 
         for r in recent_responses:
             if r["quality_scores"]:
-                quality_trend.append(np.mean(list(r["quality_scores"].values())))
+                quality_trend.append(
+                    float(np.mean(list(r["quality_scores"].values())))
+                )
             else:
                 quality_trend.append(0.0)
 
@@ -2040,20 +2056,20 @@ class SystemPerformanceMonitor:
     performance metrics, and bottleneck detection.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize system performance monitor."""
-        self.cpu_history: List[float] = []
-        self.memory_history: List[float] = []
-        self.disk_history: List[float] = []
-        self.network_history: List[float] = []
-        self.response_time_history: List[float] = []
+        self.cpu_history: list[float] = []
+        self.memory_history: list[float] = []
+        self.disk_history: list[float] = []
+        self.network_history: list[float] = []
+        self.response_time_history: list[float] = []
         self.error_count = 0
         self.request_count = 0
         self.concurrent_users = 0
         self.queue_length = 0
 
         # Performance thresholds
-        self.thresholds = {
+        self.thresholds: dict[str, float] = {
             "cpu_warning": 70.0,
             "cpu_critical": 90.0,
             "memory_warning": 80.0,
@@ -2115,55 +2131,55 @@ class SystemPerformanceMonitor:
         """Update queue length."""
         self.queue_length = length
 
-    def get_cpu_metrics(self) -> Dict[str, float]:
+    def get_cpu_metrics(self) -> dict[str, float]:
         """Get CPU usage metrics."""
         if not self.cpu_history:
             return {"current": 0.0, "average": 0.0, "max": 0.0, "min": 0.0}
 
         return {
             "current": self.cpu_history[-1] if self.cpu_history else 0.0,
-            "average": np.mean(self.cpu_history),
-            "max": np.max(self.cpu_history),
-            "min": np.min(self.cpu_history),
+            "average": float(np.mean(self.cpu_history)),
+            "max": float(np.max(self.cpu_history)),
+            "min": float(np.min(self.cpu_history)),
         }
 
-    def get_memory_metrics(self) -> Dict[str, float]:
+    def get_memory_metrics(self) -> dict[str, float]:
         """Get memory usage metrics."""
         if not self.memory_history:
             return {"current": 0.0, "average": 0.0, "max": 0.0, "min": 0.0}
 
         return {
             "current": self.memory_history[-1] if self.memory_history else 0.0,
-            "average": np.mean(self.memory_history),
-            "max": np.max(self.memory_history),
-            "min": np.min(self.memory_history),
+            "average": float(np.mean(self.memory_history)),
+            "max": float(np.max(self.memory_history)),
+            "min": float(np.min(self.memory_history)),
         }
 
-    def get_disk_metrics(self) -> Dict[str, float]:
+    def get_disk_metrics(self) -> dict[str, float]:
         """Get disk usage metrics."""
         if not self.disk_history:
             return {"current": 0.0, "average": 0.0, "max": 0.0, "min": 0.0}
 
         return {
             "current": self.disk_history[-1] if self.disk_history else 0.0,
-            "average": np.mean(self.disk_history),
-            "max": np.max(self.disk_history),
-            "min": np.min(self.disk_history),
+            "average": float(np.mean(self.disk_history)),
+            "max": float(np.max(self.disk_history)),
+            "min": float(np.min(self.disk_history)),
         }
 
-    def get_network_metrics(self) -> Dict[str, float]:
+    def get_network_metrics(self) -> dict[str, float]:
         """Get network latency metrics."""
         if not self.network_history:
             return {"current": 0.0, "average": 0.0, "max": 0.0, "min": 0.0}
 
         return {
             "current": self.network_history[-1] if self.network_history else 0.0,
-            "average": np.mean(self.network_history),
-            "max": np.max(self.network_history),
-            "min": np.min(self.network_history),
+            "average": float(np.mean(self.network_history)),
+            "max": float(np.max(self.network_history)),
+            "min": float(np.min(self.network_history)),
         }
 
-    def get_response_time_metrics(self) -> Dict[str, float]:
+    def get_response_time_metrics(self) -> dict[str, float]:
         """Get response time metrics."""
         if not self.response_time_history:
             return {"current": 0.0, "average": 0.0, "max": 0.0, "min": 0.0}
@@ -2172,9 +2188,9 @@ class SystemPerformanceMonitor:
             "current": self.response_time_history[-1]
             if self.response_time_history
             else 0.0,
-            "average": np.mean(self.response_time_history),
-            "max": np.max(self.response_time_history),
-            "min": np.min(self.response_time_history),
+            "average": float(np.mean(self.response_time_history)),
+            "max": float(np.max(self.response_time_history)),
+            "min": float(np.min(self.response_time_history)),
         }
 
     def get_error_rate(self) -> float:
@@ -2189,12 +2205,12 @@ class SystemPerformanceMonitor:
             return 0.0
 
         # Simple calculation: average requests per second based on response time
-        avg_response_time = np.mean(self.response_time_history)
+        avg_response_time = float(np.mean(self.response_time_history))
         if avg_response_time == 0:
             return 0.0
         return 1.0 / avg_response_time
 
-    def detect_bottlenecks(self) -> List[str]:
+    def detect_bottlenecks(self) -> list[str]:
         """Detect performance bottlenecks."""
         bottlenecks = []
 
@@ -2242,7 +2258,7 @@ class SystemPerformanceMonitor:
 
         return bottlenecks
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get comprehensive performance summary."""
         return {
             "cpu_metrics": self.get_cpu_metrics(),
@@ -2260,7 +2276,7 @@ class SystemPerformanceMonitor:
         }
 
     def record_evaluation_metrics(
-        self, metrics_manager: "MetricsManager", performance_data: Dict[str, Any]
+        self, metrics_manager: "MetricsManager", performance_data: dict[str, Any]
     ) -> None:
         """
         Record performance metrics to Prometheus.

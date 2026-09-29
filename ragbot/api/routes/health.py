@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, Response, status
 
 from ragbot.api.dependencies import get_integration_service_dep
 from ragbot.api.schemas.health import HealthResponse
 from ragbot.outputs.logger import logger
-from ragbot.services.integration_service import IntegrationService
+
+if TYPE_CHECKING:
+    from ragbot.services.integration_service import IntegrationService
 
 router = APIRouter(tags=["Health"])
 
@@ -35,7 +39,7 @@ async def get_health(
             status="unhealthy",
             timestamp=time.time(),
             components={},
-            issues=[f"Health check exception: {str(exc)}"],
+            issues=[f"Health check exception: {exc!s}"],
         )
 
     system_status = health_data.get("status", "unknown")

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,7 +49,7 @@ class InMemoryStore:
 
     def __init__(self, label: str) -> None:
         self.label = label
-        self.docs: List[VectorDocument] = []
+        self.docs: list[VectorDocument] = []
         self.add_calls = 0
         self.clear_calls = 0
 
@@ -95,8 +95,8 @@ class HealthyFactory:
     """Stand-in for VectorStoreFactory.create_store: one store per partition."""
 
     def __init__(self) -> None:
-        self.stores: Dict[str, InMemoryStore] = {}
-        self.calls: List[Dict[str, Any]] = []
+        self.stores: dict[str, InMemoryStore] = {}
+        self.calls: list[dict[str, Any]] = []
 
     def __call__(self, store_type: str, allow_fallback: bool = True, **kwargs: Any):
         self.calls.append({"store_type": store_type, "allow_fallback": allow_fallback})
@@ -107,6 +107,7 @@ class HealthyFactory:
 
 
 def broken_factory(store_type: str, allow_fallback: bool = True, **kwargs: Any):
+    del store_type, allow_fallback, kwargs
     raise RuntimeError("tenant index file is corrupted")
 
 
@@ -319,7 +320,7 @@ def fallback_spy(monkeypatch):
     return spy
 
 
-def _register(monkeypatch, name: str, module_path: str, dependencies: List[str]) -> None:
+def _register(monkeypatch, name: str, module_path: str, dependencies: list[str]) -> None:
     monkeypatch.setitem(
         VectorStoreFactory._store_registry,
         name,

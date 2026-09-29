@@ -7,7 +7,7 @@ by external monitoring systems, load balancers, and orchestration platforms.
 
 import asyncio
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 try:
     from fastapi import FastAPI
@@ -30,7 +30,7 @@ class HealthEndpoints:
     by external systems for monitoring, alerting, and load balancing decisions.
     """
 
-    def __init__(self, app: Optional[Any] = None) -> None:
+    def __init__(self, app: Any | None = None) -> None:
         """
         Initialize health endpoints.
 
@@ -151,7 +151,7 @@ class HealthEndpoints:
             failed_components = []
 
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     ready = False
                     failed_components.append(f"check_{i}_exception")
                 elif result.status == HealthStatus.UNHEALTHY:
@@ -211,7 +211,7 @@ class HealthEndpoints:
             )
 
     async def component_health_check(
-        self, component: Optional[str] = None
+        self, component: str | None = None
     ) -> JSONResponse:
         """
         Check health of specific component(s).
@@ -370,7 +370,7 @@ class HealthEndpoints:
             )
 
 
-def create_health_app() -> Optional[Any]:
+def create_health_app() -> Any | None:
     """
     Create a standalone FastAPI app for health endpoints.
 

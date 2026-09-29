@@ -7,14 +7,15 @@ from remote sources.
 """
 
 import asyncio
-import json
 import hashlib
-from typing import Dict, List, Optional
-from pathlib import Path
-import requests
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+import requests
 
 from ragbot.outputs.logger import logger
+
 from .base_plugin import PluginType
 from .plugin_validator import PluginValidator
 
@@ -31,11 +32,11 @@ class MarketplacePlugin:
     plugin_type: PluginType
     downloads: int
     rating: float
-    tags: List[str]
-    dependencies: List[str]
+    tags: list[str]
+    dependencies: list[str]
     download_url: str
-    github_url: Optional[str] = None
-    website: Optional[str] = None
+    github_url: str | None = None
+    website: str | None = None
     license: str = "MIT"
     verified: bool = False
 
@@ -69,15 +70,15 @@ class PluginMarketplace:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.validator = PluginValidator()
-        self.downloaded_plugins: Dict[str, str] = {}  # plugin_id -> local_path
+        self.downloaded_plugins: dict[str, str] = {}  # plugin_id -> local_path
 
     async def search_plugins(
         self,
         query: str = "",
-        plugin_type: Optional[PluginType] = None,
+        plugin_type: PluginType | None = None,
         limit: int = 20,
         sort_by: str = "downloads",
-    ) -> List[MarketplacePlugin]:
+    ) -> list[MarketplacePlugin]:
         """
         Search for plugins in the marketplace
 
@@ -133,7 +134,7 @@ class PluginMarketplace:
                     )
                     plugins.append(marketplace_plugin)
 
-                except (KeyError, ValueError) as e:
+                except (KeyError, ValueError) as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.warning(f"Skipping invalid plugin data: {e}")
 
             # Cache results
@@ -146,7 +147,7 @@ class PluginMarketplace:
             # Fallback to cached results if available
             return await self._get_cached_search_results(query)
 
-    async def get_plugin_details(self, plugin_id: str) -> Optional[MarketplacePlugin]:
+    async def get_plugin_details(self, plugin_id: str) -> MarketplacePlugin | None:
         """
         Get detailed information about a plugin
 
@@ -192,7 +193,7 @@ class PluginMarketplace:
 
     async def install_plugin(
         self, plugin: MarketplacePlugin, install_dir: str = "plugins"
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Install a plugin from the marketplace
 
@@ -273,7 +274,7 @@ class PluginMarketplace:
 
     async def list_installed_plugins(
         self, install_dir: str = "plugins"
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         List plugins installed from marketplace
 
@@ -341,7 +342,7 @@ class PluginMarketplace:
             logger.error(f"Integrity check failed for plugin {plugin_id}: {e}")
             return False
 
-    async def _download_plugin(self, plugin: MarketplacePlugin) -> Optional[Path]:
+    async def _download_plugin(self, plugin: MarketplacePlugin) -> Path | None:
         """
         Download plugin from marketplace
 
@@ -374,7 +375,7 @@ class PluginMarketplace:
             return None
 
     async def _cache_search_results(
-        self, query: str, results: List[MarketplacePlugin]
+        self, query: str, results: list[MarketplacePlugin]
     ) -> None:
         """Cache search results locally"""
         try:
@@ -407,7 +408,7 @@ class PluginMarketplace:
         except Exception as e:
             logger.warning(f"Failed to cache search results: {e}")
 
-    async def _get_cached_search_results(self, query: str) -> List[MarketplacePlugin]:
+    async def _get_cached_search_results(self, query: str) -> list[MarketplacePlugin]:
         """Get cached search results"""
         try:
             cache_file = (
@@ -418,7 +419,7 @@ class PluginMarketplace:
             if not cache_file.exists():
                 return []
 
-            with open(cache_file, "r") as f:
+            with open(cache_file) as f:
                 cache_data = json.load(f)
 
             # Check cache age (1 hour expiry)

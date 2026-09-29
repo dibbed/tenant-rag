@@ -2,19 +2,17 @@
 تحلیل پیش‌بینانه و پیش‌بینی سیستم
 """
 
-import asyncio
-import json
 import statistics
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from loguru import logger
 
-from .user_behavior import UserBehaviorAnalyzer, UserProfile
 from .usage_patterns import UsagePatternsAnalyzer
+from .user_behavior import UserBehaviorAnalyzer
 
 
 @dataclass
@@ -24,9 +22,9 @@ class LoadPrediction:
     time_horizon_hours: int
     predicted_load: float
     confidence: float
-    peak_times: List[int]
-    low_times: List[int]
-    factors: List[str]
+    peak_times: list[int]
+    low_times: list[int]
+    factors: list[str]
 
 
 @dataclass
@@ -86,17 +84,17 @@ class PredictiveAnalyzer:
 
     def __init__(
         self,
-        user_behavior: UserBehaviorAnalyzer = None,
-        usage_patterns: UsagePatternsAnalyzer = None,
-    ):
+        user_behavior: UserBehaviorAnalyzer | None = None,
+        usage_patterns: UsagePatternsAnalyzer | None = None,
+    ) -> None:
         """Initialize predictive analyzer"""
         self.user_behavior = user_behavior or UserBehaviorAnalyzer()
         self.usage_patterns = usage_patterns or UsagePatternsAnalyzer()
 
         # Historical data storage
-        self.metrics_history = []
-        self.load_history = []
-        self.storage_history = []
+        self.metrics_history: list[SystemMetrics] = []
+        self.load_history: list[float] = []
+        self.storage_history: list[float] = []
 
         # Prediction models cache
         self._load_model = None
@@ -209,7 +207,7 @@ class PredictiveAnalyzer:
             logger.error(f"Error predicting storage needs: {e}")
             raise
 
-    async def detect_anomalies(self, metrics: List[SystemMetrics]) -> List[Anomaly]:
+    async def detect_anomalies(self, metrics: list[SystemMetrics]) -> list[Anomaly]:
         """تشخیص ناهنجاری‌ها"""
         try:
             logger.info("Detecting anomalies in system metrics...")
@@ -253,7 +251,7 @@ class PredictiveAnalyzer:
             logger.error(f"Error detecting anomalies: {e}")
             raise
 
-    async def recommend_optimizations(self) -> List[Recommendation]:
+    async def recommend_optimizations(self) -> list[Recommendation]:
         """توصیه بهینه‌سازی‌ها"""
         try:
             logger.info("Generating optimization recommendations...")
@@ -298,7 +296,7 @@ class PredictiveAnalyzer:
             raise
 
     # Helper methods
-    async def _collect_historical_load_data(self) -> List[Dict[str, Any]]:
+    async def _collect_historical_load_data(self) -> list[dict[str, Any]]:
         """جمع‌آوری داده‌های تاریخی بار"""
         try:
             # شبیه‌سازی داده‌های تاریخی
@@ -337,8 +335,8 @@ class PredictiveAnalyzer:
             return []
 
     async def _analyze_hourly_load_patterns(
-        self, historical_data: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, historical_data: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """تحلیل الگوهای ساعتی بار"""
         try:
             if not historical_data:
@@ -374,7 +372,7 @@ class PredictiveAnalyzer:
             return {"error": str(e)}
 
     async def _calculate_future_load(
-        self, patterns: Dict[str, Any], time_horizon: int
+        self, patterns: dict[str, Any], time_horizon: int
     ) -> float:
         """محاسبه بار آینده"""
         try:
@@ -388,7 +386,9 @@ class PredictiveAnalyzer:
                 return 0.5
 
             # محاسبه میانگین کلی
-            overall_average = statistics.mean(hourly_averages.values())
+            overall_average = statistics.mean(
+                float(value) for value in hourly_averages.values()
+            )
 
             # اضافه کردن فاکتور روند
             trend_factor = 1.0
@@ -397,15 +397,15 @@ class PredictiveAnalyzer:
 
             predicted_load = overall_average * trend_factor
 
-            return min(predicted_load, 1.0)
+            return float(min(predicted_load, 1.0))
 
         except Exception as e:
             logger.error(f"Error calculating future load: {e}")
             return 0.5
 
     async def _identify_peak_low_times(
-        self, patterns: Dict[str, Any]
-    ) -> Tuple[List[int], List[int]]:
+        self, patterns: dict[str, Any]
+    ) -> tuple[list[int], list[int]]:
         """شناسایی زمان‌های پیک و کم"""
         try:
             if "error" in patterns:
@@ -432,7 +432,7 @@ class PredictiveAnalyzer:
             return [9, 10, 11], [0, 1, 2]
 
     async def _calculate_load_prediction_confidence(
-        self, historical_data: List[Dict[str, Any]]
+        self, historical_data: list[dict[str, Any]]
     ) -> float:
         """محاسبه اطمینان پیش‌بینی بار"""
         try:
@@ -449,7 +449,7 @@ class PredictiveAnalyzer:
             logger.error(f"Error calculating load prediction confidence: {e}")
             return 0.3
 
-    async def _identify_load_factors(self, patterns: Dict[str, Any]) -> List[str]:
+    async def _identify_load_factors(self, patterns: dict[str, Any]) -> list[str]:
         """شناسایی عوامل تاثیرگذار بر بار"""
         try:
             factors = []
@@ -497,7 +497,7 @@ class PredictiveAnalyzer:
             logger.error(f"Error getting current storage usage: {e}")
             return 0.0
 
-    async def _analyze_storage_growth(self) -> Dict[str, Any]:
+    async def _analyze_storage_growth(self) -> dict[str, Any]:
         """تحلیل روند رشد ذخیره‌سازی"""
         try:
             # شبیه‌سازی تحلیل رشد
@@ -521,7 +521,7 @@ class PredictiveAnalyzer:
             days = 30
             future_usage = current * (1 + growth_rate) ** (days / 30)
 
-            return future_usage
+            return float(future_usage)
 
         except Exception as e:
             logger.error(f"Error calculating future storage usage: {e}")
@@ -577,20 +577,20 @@ class PredictiveAnalyzer:
             return "monitor_and_plan"
 
     async def _calculate_storage_prediction_confidence(
-        self, historical_growth: Dict[str, Any]
+        self, historical_growth: dict[str, Any]
     ) -> float:
         """محاسبه اطمینان پیش‌بینی ذخیره‌سازی"""
         try:
-            data_points = historical_growth.get("data_points", 0)
+            data_points = float(historical_growth.get("data_points", 0))
             confidence = min(data_points / 30, 1.0)  # حداکثر 30 نقطه داده
 
-            return max(confidence, 0.4)  # حداقل 40% اطمینان
+            return float(max(confidence, 0.4))  # حداقل 40% اطمینان
 
         except Exception as e:
             logger.error(f"Error calculating storage prediction confidence: {e}")
             return 0.4
 
-    async def _check_cpu_anomaly(self, metric: SystemMetrics) -> Optional[Anomaly]:
+    async def _check_cpu_anomaly(self, metric: SystemMetrics) -> Anomaly | None:
         """بررسی ناهنجاری CPU"""
         try:
             if metric.cpu_usage > 90:
@@ -620,7 +620,7 @@ class PredictiveAnalyzer:
             logger.error(f"Error checking CPU anomaly: {e}")
             return None
 
-    async def _check_memory_anomaly(self, metric: SystemMetrics) -> Optional[Anomaly]:
+    async def _check_memory_anomaly(self, metric: SystemMetrics) -> Anomaly | None:
         """بررسی ناهنجاری Memory"""
         try:
             if metric.memory_usage > 95:
@@ -652,7 +652,7 @@ class PredictiveAnalyzer:
 
     async def _check_response_time_anomaly(
         self, metric: SystemMetrics
-    ) -> Optional[Anomaly]:
+    ) -> Anomaly | None:
         """بررسی ناهنجاری Response Time"""
         try:
             if metric.response_time > 5.0:  # بیش از 5 ثانیه
@@ -684,7 +684,7 @@ class PredictiveAnalyzer:
 
     async def _check_error_rate_anomaly(
         self, metric: SystemMetrics
-    ) -> Optional[Anomaly]:
+    ) -> Anomaly | None:
         """بررسی ناهنجاری Error Rate"""
         try:
             if metric.error_rate > 0.1:  # بیش از 10%
@@ -714,7 +714,7 @@ class PredictiveAnalyzer:
             logger.error(f"Error checking error rate anomaly: {e}")
             return None
 
-    async def _analyze_system_performance(self) -> Dict[str, Any]:
+    async def _analyze_system_performance(self) -> dict[str, Any]:
         """تحلیل عملکرد سیستم"""
         try:
             # شبیه‌سازی تحلیل عملکرد
@@ -733,8 +733,8 @@ class PredictiveAnalyzer:
             return {}
 
     async def _generate_cpu_recommendations(
-        self, performance: Dict[str, Any]
-    ) -> List[Recommendation]:
+        self, performance: dict[str, Any]
+    ) -> list[Recommendation]:
         """تولید توصیه‌های CPU"""
         try:
             recommendations = []
@@ -773,8 +773,8 @@ class PredictiveAnalyzer:
             return []
 
     async def _generate_memory_recommendations(
-        self, performance: Dict[str, Any]
-    ) -> List[Recommendation]:
+        self, performance: dict[str, Any]
+    ) -> list[Recommendation]:
         """تولید توصیه‌های Memory"""
         try:
             recommendations = []
@@ -813,8 +813,8 @@ class PredictiveAnalyzer:
             return []
 
     async def _generate_storage_recommendations(
-        self, performance: Dict[str, Any]
-    ) -> List[Recommendation]:
+        self, performance: dict[str, Any]
+    ) -> list[Recommendation]:
         """تولید توصیه‌های Storage"""
         try:
             recommendations = []
@@ -853,8 +853,8 @@ class PredictiveAnalyzer:
             return []
 
     async def _generate_query_recommendations(
-        self, performance: Dict[str, Any]
-    ) -> List[Recommendation]:
+        self, performance: dict[str, Any]
+    ) -> list[Recommendation]:
         """تولید توصیه‌های Query Optimization"""
         try:
             recommendations = []

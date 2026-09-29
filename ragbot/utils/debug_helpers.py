@@ -3,7 +3,8 @@ Debug helpers for troubleshooting pydantic and other errors.
 """
 
 import traceback
-from typing import Any, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from ragbot.outputs.logger import logger
 
@@ -31,8 +32,8 @@ def log_pydantic_error(error: Exception, context: str = "", **kwargs: Any) -> No
 
 
 def inspect_pydantic_model(
-    model_class: Any, instance: Optional[Any] = None
-) -> Dict[str, Any]:
+    model_class: Any, instance: Any | None = None
+) -> dict[str, Any]:
     """
     Inspect a pydantic model for potential field naming issues.
 
@@ -43,7 +44,7 @@ def inspect_pydantic_model(
     Returns:
         Dict containing inspection results
     """
-    inspection = {
+    inspection: dict[str, Any] = {
         "model_name": getattr(model_class, "__name__", "Unknown"),
         "model_module": getattr(model_class, "__module__", "Unknown"),
         "fields": {},
@@ -96,7 +97,7 @@ def inspect_pydantic_model(
 
 
 def log_model_inspection(
-    model_class: Any, instance: Optional[Any] = None, context: str = ""
+    model_class: Any, instance: Any | None = None, context: str = ""
 ) -> None:
     """
     Log detailed inspection of a pydantic model.
@@ -133,7 +134,10 @@ def log_model_inspection(
 
 
 def safe_pydantic_operation(
-    operation_name: str, operation_func, *args, **kwargs
+    operation_name: str,
+    operation_func: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
 ) -> Any:
     """
     Safely execute a pydantic operation with detailed error logging.
@@ -163,14 +167,14 @@ def safe_pydantic_operation(
         return None
 
 
-def check_pydantic_compatibility() -> Dict[str, Any]:
+def check_pydantic_compatibility() -> dict[str, Any]:
     """
     Check pydantic version and compatibility.
 
     Returns:
         Dict containing compatibility information
     """
-    compatibility_info = {
+    compatibility_info: dict[str, Any] = {
         "pydantic_version": "Unknown",
         "pydantic_v2": False,
         "issues": [],

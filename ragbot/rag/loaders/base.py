@@ -18,8 +18,7 @@ Notes:
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class Document:
@@ -34,27 +33,29 @@ class Document:
     """
 
     text: str
-    metadata: Dict[str, Any]
-    source: Optional[str]
-    document_type: Optional[str]
+    metadata: dict[str, Any]
+    source: str | None
+    document_type: str | None
 
     def __init__(
         self,
-        text: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        source: Optional[str] = None,
-        document_type: Optional[str] = None,
+        text: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        source: str | None = None,
+        document_type: str | None = None,
         *,
-        content: Optional[str] = None,
+        content: str | None = None,
     ) -> None:
         """Initialize Document supporting both text and legacy content kwargs."""
-        self.text = text if text is not None else content
+        resolved_text = text if text is not None else content
+        if not isinstance(resolved_text, str):
+            raise ValueError("Document text must be a string")
+
+        self.text = resolved_text
         self.metadata = metadata if metadata is not None else {}
         self.source = source
         self.document_type = document_type
 
-        if not isinstance(self.text, str):
-            raise ValueError("Document text must be a string")
         if not isinstance(self.metadata, dict):
             raise ValueError("Document metadata must be a dictionary")
 
@@ -130,7 +131,7 @@ class BaseLoader(ABC):
         """
         return text
 
-    def _postprocess_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def _postprocess_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """
         Optional postprocessing hook for metadata normalization.
 
@@ -154,7 +155,7 @@ class BaseLoader(ABC):
         """
         return []
 
-    def get_loader_info(self) -> Dict[str, Any]:
+    def get_loader_info(self) -> dict[str, Any]:
         """
         Get information about this loader.
 
@@ -176,7 +177,7 @@ class BaseLoader(ABC):
             },
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the loader.
 

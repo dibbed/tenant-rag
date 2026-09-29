@@ -7,32 +7,35 @@ Extracts text from .docx files into a normalized Document object.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import unicodedata
 import zipfile
 from collections import Counter
 from pathlib import Path
 from statistics import median
-from typing import Any, Dict, Optional
-
-try:
-    import docx as _docx  # python-docx
-
-    DocxDocument = _docx.Document  # alias for test monkeypatching
-    DOCX_AVAILABLE = True
-except Exception:
-    _docx = None
-    DocxDocument = None  # type: ignore[assignment]
-    DOCX_AVAILABLE = False
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.rag.exceptions import DocumentProcessingError
 from ragbot.rag.loaders.base import BaseLoader, Document
 
+_docx: Any
+DocxDocument: Any
+try:
+    import docx as _docx_module  # python-docx
+
+    _docx = _docx_module
+    DocxDocument = _docx_module.Document  # alias for test monkeypatching
+    DOCX_AVAILABLE = True
+except Exception:
+    _docx = None
+    DocxDocument = None
+    DOCX_AVAILABLE = False
 
 # -------- Heading inference helpers (style_id → outlineLvl → dynamic font) --------
-def _style_id_heading_level(para) -> Optional[int]:
+def _style_id_heading_level(para: Any) -> int | None:
     try:
         st = getattr(para, "style", None)
         for attr in ("style_id", "name"):
@@ -48,7 +51,7 @@ def _style_id_heading_level(para) -> Optional[int]:
     return None
 
 
-def _outline_level_from_ooxml(para) -> Optional[int]:
+def _outline_level_from_ooxml(para: Any) -> int | None:
     try:
         ppr = getattr(para._p, "pPr", None)
         outlineLvl = getattr(ppr, "outlineLvl", None)
@@ -61,7 +64,7 @@ def _outline_level_from_ooxml(para) -> Optional[int]:
     return None
 
 
-def _para_max_font_pt(para) -> float:
+def _para_max_font_pt(para: Any) -> float:
     max_pt = 0.0
     try:
         for run in getattr(para, "runs", []) or []:
@@ -82,14 +85,14 @@ def _estimate_body_font_size(font_pts: list[float]) -> float:
         med = float(median(non_zero))
     except Exception:
         counts = Counter(round(v, 1) for v in non_zero)
-        med = float(max(counts, key=counts.get))
+        med = float(max(counts, key=lambda value: counts[value]))
     if med >= 14.0 and (len(non_zero) < len(font_pts) or len(non_zero) < 3):
         return 12.0
     return med
 
 
-def _layout_signals(para) -> Dict[str, bool]:
-    sig: Dict[str, bool] = {
+def _layout_signals(para: Any) -> dict[str, bool]:
+    sig: dict[str, bool] = {
         "keep_next": False,
         "page_break_before": False,
         "spacing_before_large": False,
@@ -123,7 +126,7 @@ def _layout_signals(para) -> Dict[str, bool]:
     return sig
 
 
-def _score_heading_like(delta_pt: float, sig: Dict[str, bool]) -> tuple[bool, int]:
+def _score_heading_like(delta_pt: float, sig: dict[str, bool]) -> tuple[bool, int]:
     is_heading = False
     lvl = 0
     hard = delta_pt >= 8.0
@@ -160,10 +163,10 @@ def _score_heading_like(delta_pt: float, sig: Dict[str, bool]) -> tuple[bool, in
     return True, 4
 
 
-def _auto_infer_heading_levels(doc) -> list[Optional[int]]:
+def _auto_infer_heading_levels(doc: Any) -> list[int | None]:
     paras = list(getattr(doc, "paragraphs", []) or [])
     n = len(paras)
-    levels: list[Optional[int]] = [None] * n
+    levels: list[int | None] = [None] * n
     for i, para in enumerate(paras):
         lvl = _style_id_heading_level(para)
         if lvl is None:
@@ -226,7 +229,7 @@ class DOCXLoader(BaseLoader):
 
         # Size check (perform early so tests expecting size error see it first)
         max_bytes = settings.security.max_file_size_mb * 1024 * 1024
-        size: Optional[int] = None
+        size: int | None = None
         try:
             size = path.stat().st_size
         except Exception as stat_err:
@@ -276,7 +279,7 @@ class DOCXLoader(BaseLoader):
             p: Path,
         ) -> tuple[
             str,
-            Dict[
+            dict[
                 str,
                 Any,
             ],
@@ -319,7 +322,7 @@ class DOCXLoader(BaseLoader):
             page_ranges: list[dict[str, int]] = [{"page": current_page, "start": 0}]
             cumulative_len = 0
 
-            def _para_has_page_break(_para) -> bool:
+            def _para_has_page_break(_para: Any) -> bool:
                 try:
                     # Paragraph property pageBreakBefore
                     ppr = getattr(_para._p, "pPr", None)
@@ -342,7 +345,7 @@ class DOCXLoader(BaseLoader):
                 return False
 
             # Pre-compute heading levels when enabled
-            para_heading_levels: list[Optional[int]] = []
+            para_heading_levels: list[int | None] = []
             try:
                 if settings.multi_format.docx_enable_structural_extraction:
                     para_heading_levels = _auto_infer_heading_levels(doc)
@@ -353,7 +356,7 @@ class DOCXLoader(BaseLoader):
             for idx, para in enumerate(doc.paragraphs):
                 raw = para.text or ""
                 text = raw.strip()
-                level: Optional[int] = None
+                level: int | None = None
 
                 # heading detection from pre-computed levels or fallback to style.name
                 try:
@@ -457,11 +460,7 @@ class DOCXLoader(BaseLoader):
                                 for e in elems:
                                     rid = e.get(rel_key_attr)
                                     if rid and rels:
-                                        rel = (
-                                            rels.get(rid)
-                                            if isinstance(rels, dict)
-                                            else rels.get(rid)
-                                        )
+                                        rel = rels.get(rid)
                                         if rel is not None:
                                             target = getattr(
                                                 rel, "target_ref", None
@@ -598,7 +597,7 @@ class DOCXLoader(BaseLoader):
             except Exception:
                 ranges = []
 
-            counters: Dict[str, Any] = {
+            counters: dict[str, Any] = {
                 "paragraphs_count": paragraphs_count,
                 "tables_count": tables_count,
                 "table_cells_count": table_cells_count,
@@ -616,7 +615,7 @@ class DOCXLoader(BaseLoader):
             # include hyperlink list (capped) and count
             if hyperlinks:
                 max_urls = int(settings.multi_format.docx_hyperlinks_max)
-                counters["hyperlinks"] = list(sorted(hyperlinks))[:max_urls]
+                counters["hyperlinks"] = sorted(hyperlinks)[:max_urls]
                 counters["hyperlinks_count"] = len(hyperlinks)
             else:
                 counters["hyperlinks"] = []
@@ -654,7 +653,7 @@ class DOCXLoader(BaseLoader):
             estimated_tokens = len(content.split())
             # Optional token estimation with tiktoken if available
             try:
-                import tiktoken  # type: ignore
+                import tiktoken
 
                 try:
                     enc = tiktoken.get_encoding("cl100k_base")
@@ -670,7 +669,7 @@ class DOCXLoader(BaseLoader):
             created = counters.get("core_created")
             modified = counters.get("core_modified")
 
-            metadata: Dict[str, Any] = {
+            metadata: dict[str, Any] = {
                 "file_name": path.name,
                 "file_ext": path.suffix.lower(),
                 "source_path": str(path),
@@ -690,7 +689,7 @@ class DOCXLoader(BaseLoader):
             }
             if settings.multi_format.docx_detect_language:
                 try:
-                    from langdetect import detect  # type: ignore
+                    from langdetect import detect
 
                     votes = []
                     for chunk in [
@@ -698,11 +697,9 @@ class DOCXLoader(BaseLoader):
                         content[len(content) // 2 : len(content) // 2 + 2000],
                         content[-2000:],
                     ]:
-                        try:
+                        with contextlib.suppress(Exception):
                             if chunk.strip():
                                 votes.append(detect(chunk))
-                        except Exception:
-                            continue
                     lang = None
                     if votes:
                         # majority vote

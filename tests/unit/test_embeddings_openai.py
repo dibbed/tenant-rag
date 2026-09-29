@@ -6,13 +6,12 @@ including API mocking, error handling, and edge cases.
 """
 
 import asyncio
-from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ragbot.rag.embeddings.openai_embedder import OpenAIEmbedder
 from ragbot.rag import EmbeddingError
+from ragbot.rag.embeddings.openai_embedder import OpenAIEmbedder
 
 
 class TestOpenAIEmbeddings:
@@ -215,7 +214,7 @@ class TestOpenAIEmbeddings:
 
             # This should succeed but return empty list due to empty data
             embeddings = await embedder.embed_texts(["Test text"])
-            assert embeddings == [None]  # Placeholder from empty response data
+            assert embeddings == []
 
     @pytest.mark.asyncio
     async def test_batch_size_handling(self, embedder: OpenAIEmbedder) -> None:

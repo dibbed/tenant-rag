@@ -67,7 +67,7 @@ The Security Regression Suite (section 5) is `tests/security` together with the 
 ```powershell
 $env:CUDA_VISIBLE_DEVICES = ""; $env:TORCH_DEVICE = "cpu"; .\venv\Scripts\pytest.exe -o addopts='' -q
 ```
-*Current result* (Verification Pipeline, Python 3.10, 3.11 and 3.12): **1005 passed, 11 skipped, 0 failed**.
+*Current result* (Verification Pipeline, Python 3.10, 3.11 and 3.12): **1046 passed, 4 skipped, 0 failed**.
 
 ### Run Security & Multi-Tenant Authorization Tests
 ```powershell
@@ -110,7 +110,7 @@ CI runs the Verification Pipeline (`.github/workflows/ci.yml`) on every pull req
 make verify            # every check; the container check needs Docker
 make verify-tests      # full test suite
 make verify-security   # Security Regression Suite
-make verify-static     # Ruff, MyPy and Bandit (report-only)
+make verify-static     # Ruff, MyPy and Bandit (Blocking)
 make verify-deps       # Dependency Vulnerability Check
 make verify-container  # Container Build Check
 ```

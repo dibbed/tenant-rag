@@ -5,13 +5,12 @@ This module provides query optimization capabilities including query analysis,
 execution planning, performance hints, and optimization strategies.
 """
 
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass
-from enum import Enum
-import time
-import statistics
-from datetime import datetime
 import logging
+import statistics
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +27,24 @@ class OptimizationStrategy(Enum):
     EARLY_TERMINATION = "early_termination"
 
 
+class QueryAnalysis(TypedDict):
+    query_length: int
+    has_filters: bool
+    filter_complexity: int
+    estimated_result_size: int
+    query_type: str
+    performance_hints: list[str]
+    complexity_score: float
+
+
 @dataclass
 class QueryPlan:
     """طرح اجرای پرسش"""
 
-    steps: List[str]
+    steps: list[str]
     estimated_cost: float
     execution_time: float
-    optimization_applied: List[OptimizationStrategy]
+    optimization_applied: list[OptimizationStrategy]
     estimated_result_size: int
 
 
@@ -46,24 +55,27 @@ class OptimizationResult:
     original_plan: QueryPlan
     optimized_plan: QueryPlan
     improvement_percentage: float
-    recommendations: List[str]
-    performance_metrics: Dict[str, Any]
+    recommendations: list[str]
+    performance_metrics: dict[str, Any]
 
 
 class QueryOptimizer:
     """موتور بهینه‌سازی پرسش‌ها"""
 
-    def __init__(self, vector_store):
+    def __init__(self, vector_store: Any) -> None:
         """Initialize query optimizer"""
         self.vector_store = vector_store
-        self.query_history = []
-        self.performance_metrics = {}
+        self.query_history: list[dict[str, Any]] = []
+        self.performance_metrics: dict[str, Any] = {}
         self.optimization_rules = self._load_optimization_rules()
-        self.cache = {}
+        self.cache: dict[str, Any] = {}
         self.cache_ttl = 300  # 5 minutes
 
     async def optimize_query(
-        self, query: str, filters: Optional[Dict] = None, context: Optional[Dict] = None
+        self,
+        query: str,
+        filters: dict[str, Any] | None = None,
+        context: dict[str, Any] | None = None
     ) -> OptimizationResult:
         """
         بهینه‌سازی پرسش بر اساس الگوهای موجود
@@ -112,10 +124,10 @@ class QueryOptimizer:
         )
 
     async def _analyze_query(
-        self, query: str, filters: Optional[Dict]
-    ) -> Dict[str, Any]:
+        self, query: str, filters: dict[str, Any] | None
+    ) -> QueryAnalysis:
         """تحلیل پرسش برای شناسایی الگوها"""
-        analysis = {
+        analysis: QueryAnalysis = {
             "query_length": len(query.split()),
             "has_filters": bool(filters),
             "filter_complexity": self._calculate_filter_complexity(filters),
@@ -140,7 +152,7 @@ class QueryOptimizer:
 
         return analysis
 
-    async def _create_execution_plan(self, analysis: Dict[str, Any]) -> QueryPlan:
+    async def _create_execution_plan(self, analysis: QueryAnalysis) -> QueryPlan:
         """ایجاد طرح اجرای پرسش"""
         steps = []
 
@@ -167,11 +179,11 @@ class QueryOptimizer:
         )
 
     async def _apply_optimizations(
-        self, plan: QueryPlan, analysis: Dict[str, Any]
+        self, plan: QueryPlan, analysis: QueryAnalysis
     ) -> QueryPlan:
         """اعمال بهینه‌سازی‌ها"""
         optimized_steps = plan.steps.copy()
-        applied_optimizations = []
+        applied_optimizations: list[OptimizationStrategy] = []
 
         # بهینه‌سازی فیلترها
         if "complex_filters" in analysis["performance_hints"]:
@@ -209,23 +221,25 @@ class QueryOptimizer:
             estimated_result_size=analysis["estimated_result_size"],
         )
 
-    def _calculate_filter_complexity(self, filters: Optional[Dict]) -> int:
+    def _calculate_filter_complexity(
+        self, filters: dict[str, Any] | None
+    ) -> int:
         """محاسبه پیچیدگی فیلترها"""
         if not filters:
             return 0
 
         complexity = 0
-        for key, value in filters.items():
-            if isinstance(value, dict):
-                complexity += len(value)
-            elif isinstance(value, list):
+        for value in filters.values():
+            if isinstance(value, dict | list):
                 complexity += len(value)
             else:
                 complexity += 1
 
         return complexity
 
-    async def _estimate_result_size(self, query: str, filters: Optional[Dict]) -> int:
+    async def _estimate_result_size(
+        self, query: str, filters: dict[str, Any] | None
+    ) -> int:
         """تخمین اندازه نتیجه"""
         # تخمین ساده بر اساس طول پرسش
         base_size = len(query.split()) * 100
@@ -250,7 +264,7 @@ class QueryOptimizer:
         else:
             return "general"
 
-    def _calculate_complexity_score(self, analysis: Dict[str, Any]) -> float:
+    def _calculate_complexity_score(self, analysis: QueryAnalysis) -> float:
         """محاسبه امتیاز پیچیدگی"""
         score = 0.0
 
@@ -266,7 +280,9 @@ class QueryOptimizer:
         return min(score, 1.0)
 
     def _estimate_execution_cost(
-        self, analysis: Dict[str, Any], optimizations: List[OptimizationStrategy] = None
+        self,
+        analysis: QueryAnalysis,
+        optimizations: list[OptimizationStrategy] | None = None
     ) -> float:
         """تخمین هزینه اجرا"""
         base_cost = 1.0
@@ -292,7 +308,7 @@ class QueryOptimizer:
 
         return base_cost
 
-    def _optimize_filter_order(self, steps: List[str]) -> List[str]:
+    def _optimize_filter_order(self, steps: list[str]) -> list[str]:
         """بهینه‌سازی ترتیب فیلترها"""
         # جابجایی فیلترهای ساده به ابتدا
         optimized_steps = []
@@ -306,7 +322,7 @@ class QueryOptimizer:
 
         return optimized_steps
 
-    def _add_parallel_execution(self, steps: List[str]) -> List[str]:
+    def _add_parallel_execution(self, steps: list[str]) -> list[str]:
         """اضافه کردن اجرای موازی"""
         optimized_steps = []
 
@@ -332,8 +348,8 @@ class QueryOptimizer:
         return max(0.0, improvement)
 
     async def _generate_recommendations(
-        self, analysis: Dict[str, Any], plan: QueryPlan
-    ) -> List[str]:
+        self, analysis: QueryAnalysis, plan: QueryPlan
+    ) -> list[str]:
         """تولید توصیه‌های بهینه‌سازی"""
         recommendations = []
 
@@ -372,7 +388,7 @@ class QueryOptimizer:
 
     async def _calculate_performance_metrics(
         self, original: QueryPlan, optimized: QueryPlan
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """محاسبه متریک‌های عملکرد"""
         return {
             "cost_reduction": original.estimated_cost - optimized.estimated_cost,
@@ -390,10 +406,10 @@ class QueryOptimizer:
     async def _record_query_history(
         self,
         query: str,
-        analysis: Dict[str, Any],
+        analysis: QueryAnalysis,
         original: QueryPlan,
         optimized: QueryPlan,
-    ):
+    ) -> None:
         """ثبت در تاریخچه پرسش‌ها"""
         history_entry = {
             "query": query,
@@ -420,7 +436,7 @@ class QueryOptimizer:
         if len(self.query_history) > 1000:
             self.query_history = self.query_history[-1000:]
 
-    def _load_optimization_rules(self) -> Dict[str, Any]:
+    def _load_optimization_rules(self) -> dict[str, Any]:
         """بارگذاری قوانین بهینه‌سازی"""
         return {
             "max_query_length": 50,
@@ -432,7 +448,7 @@ class QueryOptimizer:
             "index_hint_threshold": 0.8,
         }
 
-    async def get_optimization_statistics(self) -> Dict[str, Any]:
+    async def get_optimization_statistics(self) -> dict[str, Any]:
         """دریافت آمار بهینه‌سازی"""
         if not self.query_history:
             return {
@@ -448,7 +464,7 @@ class QueryOptimizer:
         avg_improvement = statistics.mean(improvements) if improvements else 0.0
 
         # محاسبه رایج‌ترین بهینه‌سازی‌ها
-        optimization_counts = {}
+        optimization_counts: dict[str, int] = {}
         for entry in self.query_history:
             for opt in entry["optimized_plan"]["optimizations_applied"]:
                 optimization_counts[opt] = optimization_counts.get(opt, 0) + 1
@@ -468,20 +484,20 @@ class QueryOptimizer:
             },
         }
 
-    async def clear_optimization_cache(self):
+    async def clear_optimization_cache(self) -> None:
         """پاک کردن cache بهینه‌سازی"""
         self.cache.clear()
 
-    async def benchmark_optimization(self, sample_queries: List[str]) -> Dict[str, Any]:
+    async def benchmark_optimization(self, sample_queries: list[str]) -> dict[str, Any]:
         """مقایسه عملکرد قبل و بعد از بهینه‌سازی"""
-        results = {
+        results: dict[str, Any] = {
             "queries_tested": len(sample_queries),
             "avg_improvement": 0.0,
             "optimization_effectiveness": {},
             "performance_gains": [],
         }
 
-        improvements = []
+        improvements: list[float] = []
 
         for query in sample_queries:
             try:
@@ -495,8 +511,8 @@ class QueryOptimizer:
                         results["optimization_effectiveness"][opt_name] = 0
                     results["optimization_effectiveness"][opt_name] += 1
 
-            except Exception as e:
-                logger.error(f"Error optimizing query '{query}': {str(e)}")
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
+                logger.error(f"Error optimizing query '{query}': {e!s}")
                 continue
 
         if improvements:

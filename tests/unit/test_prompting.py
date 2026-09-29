@@ -5,7 +5,6 @@ This module tests the prompt generation and templating functionality
 used in the RAG question-answering pipeline.
 """
 
-from typing import List
 
 import pytest
 
@@ -16,7 +15,7 @@ class TestPrompting:
     """Comprehensive test suite for prompt generation functionality."""
 
     @pytest.fixture
-    def sample_context(self) -> List[str]:
+    def sample_context(self) -> list[str]:
         """Create sample context for testing."""
         return [
             "Machine learning is a subset of artificial intelligence.",
@@ -25,7 +24,7 @@ class TestPrompting:
             "Python is a popular programming language for AI development.",
         ]
 
-    def test_build_prompt_includes_sources(self, sample_context: List[str]) -> None:
+    def test_build_prompt_includes_sources(self, sample_context: list[str]) -> None:
         """Test that build_prompt includes sources in the output."""
         question = "What is machine learning?"
         prompt = PromptBuilder().build_qa_prompt(sample_context, question, "en")
@@ -35,7 +34,7 @@ class TestPrompting:
         assert question in prompt
         assert "machine learning" in prompt.lower()
 
-    def test_build_prompt_english_language(self, sample_context: List[str]) -> None:
+    def test_build_prompt_english_language(self, sample_context: list[str]) -> None:
         """Test prompt building for English language."""
         question = "What is FAISS?"
         prompt = PromptBuilder().build_qa_prompt(sample_context, question, "en")
@@ -46,7 +45,7 @@ class TestPrompting:
         # Should contain English instructions
         assert any(word in prompt.lower() for word in ["answer", "based", "context"])
 
-    def test_build_prompt_persian_language(self, sample_context: List[str]) -> None:
+    def test_build_prompt_persian_language(self, sample_context: list[str]) -> None:
         """Test prompt building for Persian language."""
         question = "یادگیری ماشین چیست؟"
         prompt = PromptBuilder().build_qa_prompt(sample_context, question, "fa")
@@ -84,17 +83,17 @@ class TestPrompting:
         # Should handle empty context gracefully
         assert len(prompt) > len(question)
 
-    def test_build_prompt_empty_question(self, sample_context: List[str]) -> None:
+    def test_build_prompt_empty_question(self, sample_context: list[str]) -> None:
         """Test handling of empty question."""
         with pytest.raises(ValueError, match="empty"):
             PromptBuilder().build_qa_prompt(sample_context, "", "en")
 
-    def test_build_prompt_none_question(self, sample_context: List[str]) -> None:
+    def test_build_prompt_none_question(self, sample_context: list[str]) -> None:
         """Test handling of None question."""
         with pytest.raises(ValueError):
             PromptBuilder().build_qa_prompt(sample_context, None, "en")
 
-    def test_build_prompt_invalid_language(self, sample_context: List[str]) -> None:
+    def test_build_prompt_invalid_language(self, sample_context: list[str]) -> None:
         """Test handling of invalid language codes."""
         question = "Test question"
 
@@ -139,7 +138,7 @@ class TestPrompting:
         assert "{" in prompt
 
     def test_build_prompt_formatting_consistency(
-        self, sample_context: List[str]
+        self, sample_context: list[str]
     ) -> None:
         """Test that prompt formatting is consistent."""
         question = "Test question for formatting"
@@ -170,7 +169,7 @@ class TestPrompting:
 
     @pytest.mark.parametrize("language", ["en", "fa", "ar"])
     def test_build_prompt_language_variants(
-        self, sample_context: List[str], language: str
+        self, sample_context: list[str], language: str
     ) -> None:
         """Test prompt building with different language variants."""
         question_map = {
@@ -211,7 +210,7 @@ class TestPrompting:
         with pytest.raises(ValueError):
             PromptTemplate(template="")
 
-    def test_build_prompt_with_metadata(self, sample_context: List[str]) -> None:
+    def test_build_prompt_with_metadata(self, sample_context: list[str]) -> None:
         """Test prompt building with additional metadata."""
         question = "What is machine learning?"
         metadata = {
@@ -235,9 +234,9 @@ class TestPrompting:
     def test_build_prompt_truncation_handling(self) -> None:
         """Test prompt building with context that needs truncation."""
         # Create very large context
-        huge_context = []
-        for i in range(100):
-            huge_context.append(f"Very long document paragraph {i}. " * 200)
+        huge_context = [
+            f"Very long document paragraph {i}. " * 200 for i in range(100)
+        ]
 
         question = "What is mentioned in the documents?"
         prompt = PromptBuilder().build_qa_prompt(huge_context, question, "en")
@@ -262,7 +261,7 @@ class TestPrompting:
         assert question in prompt
         # Should handle potentially malicious content safely
 
-    def test_build_prompt_performance(self, sample_context: List[str]) -> None:
+    def test_build_prompt_performance(self, sample_context: list[str]) -> None:
         """Test prompt building performance."""
         import time
 
@@ -277,7 +276,7 @@ class TestPrompting:
         assert end_time - start_time < 1.0  # Less than 1 second for 100 prompts
         assert isinstance(prompt, str)  # Last prompt should be valid
 
-    def test_prompt_structure_validation(self, sample_context: List[str]) -> None:
+    def test_prompt_structure_validation(self, sample_context: list[str]) -> None:
         """Test that generated prompts have proper structure."""
         question = "Structure validation test"
         prompt = PromptBuilder().build_qa_prompt(sample_context, question, "en")
@@ -301,7 +300,7 @@ class TestPrompting:
         ]
         assert any(indicator in prompt_lower for indicator in structure_indicators)
 
-    def test_prompt_language_consistency(self, sample_context: List[str]) -> None:
+    def test_prompt_language_consistency(self, sample_context: list[str]) -> None:
         """Test language consistency in prompts."""
         question = "Language consistency test"
 
@@ -328,14 +327,10 @@ class TestPrompting:
         ]
 
         for context, question, lang in problematic_inputs:
-            try:
-                if context is None or question is None:
-                    with pytest.raises((ValueError, TypeError)):
-                        PromptBuilder().build_qa_prompt(context, question, lang)
-                else:
-                    # Should handle None language gracefully
-                    prompt2 = PromptBuilder().build_qa_prompt(context, question, lang)
-                    assert isinstance(prompt2, str)
-            except Exception as e:
-                # Should raise appropriate exceptions for invalid inputs
-                assert isinstance(e, (ValueError, TypeError))
+            if context is None or question is None:
+                with pytest.raises((ValueError, TypeError)):
+                    PromptBuilder().build_qa_prompt(context, question, lang)
+            else:
+                # Should handle None language gracefully
+                prompt2 = PromptBuilder().build_qa_prompt(context, question, lang)
+                assert isinstance(prompt2, str)

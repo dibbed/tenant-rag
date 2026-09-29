@@ -1,5 +1,6 @@
-from ragbot.rag.loaders.base import Document, BaseLoader
 import pytest
+
+from ragbot.rag.loaders.base import BaseLoader, Document
 
 
 def test_document_validation_and_loader_info():
@@ -15,8 +16,8 @@ def test_document_validation_and_loader_info():
         def validate_source(self, source: str) -> bool:  # pragma: no cover
             return True
 
-    l = L()
-    info = l.get_loader_info()
+    loader = L()
+    info = loader.get_loader_info()
     assert info["name"] == "L"
     assert info["supported_extensions"] == []
 

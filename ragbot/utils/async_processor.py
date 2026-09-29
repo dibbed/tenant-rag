@@ -3,8 +3,9 @@
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Awaitable, Callable, List
+from typing import Any
 
 from loguru import logger
 
@@ -12,14 +13,14 @@ from loguru import logger
 class AsyncProcessor:
     """پردازش ناهمزمان"""
 
-    def __init__(self, max_workers: int = 4):
+    def __init__(self, max_workers: int = 4) -> None:
         """Initialize async processor"""
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
 
     async def process_documents_async(
-        self, documents: List[Any], process_func: Callable[[Any], Awaitable[Any]]
-    ) -> List[Any]:
+        self, documents: list[Any], process_func: Callable[[Any], Awaitable[Any]]
+    ) -> list[Any]:
         """پردازش ناهمزمان اسناد"""
         try:
             # ایجاد تسک‌ها
@@ -43,10 +44,10 @@ class AsyncProcessor:
 
     async def batch_process(
         self,
-        items: List[Any],
-        process_func: Callable[[List[Any]], Awaitable[List[Any]]],
+        items: list[Any],
+        process_func: Callable[[list[Any]], Awaitable[list[Any]]],
         batch_size: int = 10,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """پردازش دسته‌ای"""
         try:
             results = []
@@ -65,13 +66,13 @@ class AsyncProcessor:
             return []
 
     async def parallel_execute(
-        self, tasks: List[Awaitable[Any]], max_concurrent: int = 5
-    ) -> List[Any]:
+        self, tasks: list[Awaitable[Any]], max_concurrent: int = 5
+    ) -> list[Any]:
         """اجرای موازی با محدودیت"""
         try:
             semaphore = asyncio.Semaphore(max_concurrent)
 
-            async def limited_task(task):
+            async def limited_task(task: Awaitable[Any]) -> Any:
                 async with semaphore:
                     return await task
 
@@ -83,7 +84,9 @@ class AsyncProcessor:
             logger.error(f"Error in parallel execution: {e}")
             return []
 
-    def run_in_thread(self, func: Callable, *args, **kwargs) -> Awaitable[Any]:
+    def run_in_thread(
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Awaitable[Any]:
         """اجرای تابع در thread جداگانه"""
         try:
             loop = asyncio.get_event_loop()
@@ -92,7 +95,7 @@ class AsyncProcessor:
             logger.error(f"Error running function in thread: {e}")
             raise
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """خاموش کردن executor"""
         try:
             self.executor.shutdown(wait=True)

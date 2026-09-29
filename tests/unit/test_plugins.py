@@ -1,25 +1,24 @@
 """Unit tests for RAGBot plugin architecture, lifecycle, and hook execution."""
 
+from typing import Any
+
 import pytest
-from typing import Dict, Any, Optional
 
 from ragbot.plugins.base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
-    PluginMetadata,
     PluginResult,
     PluginStatus,
     PluginType,
-    HookType,
 )
 from ragbot.plugins.plugin_manager import PluginManager
-from ragbot.plugins.plugin_registry import PluginRegistry
 
 
 class MockRAGPlugin(BasePlugin):
     """A mock plugin implementing RAG query and ingest hooks."""
 
-    def __init__(self, plugin_id: str = "mock_rag_plugin", config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str = "mock_rag_plugin", config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
         self.pre_query_called = 0
         self.post_query_called = 0
@@ -70,7 +69,7 @@ class MockRAGPlugin(BasePlugin):
 class FailingHookPlugin(BasePlugin):
     """A mock plugin whose hook raises an exception to test failure isolation."""
 
-    def __init__(self, plugin_id: str = "failing_plugin", config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str = "failing_plugin", config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
 
     @property
@@ -182,4 +181,27 @@ async def test_hook_failure_isolation(tmp_path):
     assert successes[0].data["annotated_query"] == "enhanced_safe test"
 
     assert len(failures) == 1
-    assert "Deliberate hook failure" in failures[0].error_message or "Hook execution error" in failures[0].error_message
+    assert (
+        "Deliberate hook failure" in failures[0].error_message
+        or "Hook execution error" in failures[0].error_message
+    )
+
+
+@pytest.mark.asyncio
+async def test_hook_list_results_are_flattened():
+    """Hooks returning multiple PluginResult values are normalized into one flat list."""
+    plugin = MockRAGPlugin("multi_result_plugin")
+
+    async def multi_result_hook(context: PluginContext) -> list[PluginResult]:
+        del context
+        return [
+            PluginResult(success=True, data={"index": 1}),
+            PluginResult(success=True, data={"index": 2}),
+        ]
+
+    plugin.register_hook(HookType.ON_ERROR, multi_result_hook)
+    results = await plugin.execute_hook(
+        HookType.ON_ERROR, PluginContext(plugin_id=plugin.plugin_id)
+    )
+
+    assert [result.data["index"] for result in results] == [1, 2]

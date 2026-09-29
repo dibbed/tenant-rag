@@ -5,6 +5,7 @@ This module provides the DocumentService class for document management,
 validation, preprocessing, and metadata tracking.
 """
 
+import contextlib
 import hashlib
 import mimetypes
 import os
@@ -12,13 +13,17 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, TypedDict
 from urllib.parse import urlparse
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
+from ragbot.rag.chunkers.base import BaseChunker
+from ragbot.rag.embeddings.base import BaseEmbedder
 from ragbot.rag.exceptions import DocumentProcessingError
 from ragbot.rag.loaders.advanced_loaders import AdvancedDocumentLoader
+from ragbot.rag.loaders.base import BaseLoader
+from ragbot.rag.store.base import BaseVectorStore
 
 
 @dataclass
@@ -30,9 +35,9 @@ class ProcessingStats:
     processing_time: float
     validation_time: float
     loader_type: str
-    file_type: Optional[str] = None
-    encoding: Optional[str] = None
-    language_detected: Optional[str] = None
+    file_type: str | None = None
+    encoding: str | None = None
+    language_detected: str | None = None
 
 
 @dataclass
@@ -40,13 +45,20 @@ class ProcessedDocument:
     """Enhanced document with processing metadata."""
 
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     source: str
     document_type: str
     processing_stats: ProcessingStats
     document_id: str
     created_at: datetime
-    file_hash: Optional[str] = None
+    file_hash: str | None = None
+
+
+class SecurityCheck(TypedDict):
+    """Security validation state for a document source."""
+
+    passed: bool
+    issues: list[str]
 
 
 @dataclass
@@ -54,10 +66,10 @@ class ValidationResult:
     """Result of document validation."""
 
     is_valid: bool
-    errors: List[str]
-    warnings: List[str]
-    file_info: Dict[str, Any]
-    security_check: Dict[str, Any]
+    errors: list[str]
+    warnings: list[str]
+    file_info: dict[str, Any]
+    security_check: SecurityCheck
 
 
 class DocumentService:
@@ -69,7 +81,12 @@ class DocumentService:
     """
 
     def __init__(
-        self, loaders=None, chunker=None, embedder=None, vector_store=None, cache=None
+        self,
+        loaders: dict[str, BaseLoader] | AdvancedDocumentLoader | None = None,
+        chunker: BaseChunker | None = None,
+        embedder: BaseEmbedder | None = None,
+        vector_store: BaseVectorStore | None = None,
+        cache: object | None = None,
     ) -> None:
         """Initialize the document service."""
         # Store components for potential use
@@ -139,10 +156,10 @@ class DocumentService:
         Returns:
             ValidationResult: Validation result with errors and warnings
         """
-        errors = []
-        warnings = []
-        file_info = {}
-        security_check = {"passed": True, "issues": []}
+        errors: list[str] = []
+        warnings: list[str] = []
+        file_info: dict[str, Any] = {}
+        security_check: SecurityCheck = {"passed": True, "issues": []}
         t0 = time.time()
 
         try:
@@ -203,15 +220,13 @@ class DocumentService:
                         warnings.append(
                             f"MIME/extension mismatch: mime={mime_type}, ext={file_ext}"
                         )
-                        try:
+                        with contextlib.suppress(Exception):
                             logger.warning(
                                 "MIME/extension mismatch",
                                 mime=mime_type,
                                 ext=file_ext,
                                 path=abs_path,
                             )
-                        except Exception:
-                            pass
 
                 file_info = {
                     "size": file_size,
@@ -238,7 +253,7 @@ class DocumentService:
                 # URL validation
                 parsed_url = urlparse(source)
 
-                if not parsed_url.scheme in ["http", "https"]:
+                if parsed_url.scheme not in ["http", "https"]:
                     errors.append(f"Invalid URL scheme: {parsed_url.scheme}")
 
                 if not parsed_url.netloc:
@@ -295,7 +310,7 @@ class DocumentService:
             )
 
         except Exception as e:
-            errors.append(f"Validation error: {str(e)}")
+            errors.append(f"Validation error: {e!s}")
             return ValidationResult(
                 is_valid=False,
                 errors=errors,
@@ -392,10 +407,10 @@ class DocumentService:
             return processed_doc
 
         except Exception as e:
-            logger.error(f"Failed to load document {file_path}: {str(e)}")
-            raise DocumentProcessingError(f"Document loading failed: {str(e)}") from e
+            logger.error(f"Failed to load document {file_path}: {e!s}")
+            raise DocumentProcessingError(f"Document loading failed: {e!s}") from e
 
-    async def get_supported_formats(self) -> Dict[str, str]:
+    async def get_supported_formats(self) -> dict[str, str]:
         """
         Get list of supported file formats.
 
@@ -431,7 +446,7 @@ class DocumentService:
         """
         return hashlib.sha256(content.encode()).hexdigest()
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the document service.
 

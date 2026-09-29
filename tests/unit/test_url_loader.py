@@ -6,13 +6,12 @@ different content types, error handling, and network conditions.
 """
 
 import asyncio
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from aioresponses import aioresponses
 
-from ragbot.rag import URLLoader, Document, DocumentProcessingError
+from ragbot.rag import Document, DocumentProcessingError, URLLoader
 
 
 class TestURLLoader:
@@ -270,6 +269,7 @@ class TestURLLoader:
         with aioresponses() as m:
 
             def callback(url, **kwargs):
+                del url
                 headers = kwargs.get("headers", {})
                 assert "User-Agent" in headers
                 return aioresponses.CallbackResult(status=200, body=test_content)

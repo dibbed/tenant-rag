@@ -1,10 +1,11 @@
 """Multi-tenant data models and schemas."""
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Any
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
-from dataclasses import dataclass
 
 
 class TenantStatus(str, Enum):
@@ -67,7 +68,7 @@ class TenantConfig(BaseModel):
     # شناسایی
     tenant_id: str = Field(..., description="شناسه یکتای tenant")
     name: str = Field(..., description="نام tenant")
-    domain: Optional[str] = Field(None, description="دامنه tenant")
+    domain: str | None = Field(default=None, description="دامنه tenant")
 
     # وضعیت و سطح
     status: TenantStatus = Field(
@@ -99,14 +100,14 @@ class TenantConfig(BaseModel):
     updated_at: datetime = Field(
         default_factory=datetime.now, description="تاریخ به‌روزرسانی"
     )
-    expires_at: Optional[datetime] = Field(None, description="تاریخ انقضا")
+    expires_at: datetime | None = Field(default=None, description="تاریخ انقضا")
 
     # اطلاعات تماس
-    contact_email: Optional[str] = Field(None, description="ایمیل تماس")
-    contact_phone: Optional[str] = Field(None, description="تلفن تماس")
+    contact_email: str | None = Field(default=None, description="ایمیل تماس")
+    contact_phone: str | None = Field(default=None, description="تلفن تماس")
 
     # تنظیمات سفارشی
-    custom_settings: Dict[str, Any] = Field(
+    custom_settings: dict[str, Any] = Field(
         default_factory=dict, description="تنظیمات سفارشی"
     )
 
@@ -120,14 +121,14 @@ class TenantUser(BaseModel):
     tenant_id: str = Field(..., description="شناسه tenant")
     username: str = Field(..., description="نام کاربری")
     email: str = Field(..., description="ایمیل")
-    password_hash: Optional[str] = Field(None, description="هش رمز عبور")
+    password_hash: str | None = Field(default=None, description="هش رمز عبور")
     role: str = Field(default="user", description="نقش کاربر")
-    permissions: List[str] = Field(default_factory=list, description="مجوزها")
+    permissions: list[str] = Field(default_factory=list, description="مجوزها")
     is_active: bool = Field(default=True, description="فعال")
     created_at: datetime = Field(
         default_factory=datetime.now, description="تاریخ ایجاد"
     )
-    last_login: Optional[datetime] = Field(None, description="آخرین ورود")
+    last_login: datetime | None = Field(default=None, description="آخرین ورود")
 
 
 class TenantUsage(BaseModel):
@@ -168,12 +169,12 @@ class TenantBilling(BaseModel):
 
     # وضعیت پرداخت
     status: str = Field(default="pending", description="وضعیت پرداخت")
-    paid_at: Optional[datetime] = Field(None, description="تاریخ پرداخت")
+    paid_at: datetime | None = Field(default=None, description="تاریخ پرداخت")
     due_date: datetime = Field(..., description="تاریخ سررسید")
 
     # جزئیات
     invoice_number: str = Field(..., description="شماره فاکتور")
-    payment_method: Optional[str] = Field(None, description="روش پرداخت")
+    payment_method: str | None = Field(default=None, description="روش پرداخت")
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -186,9 +187,9 @@ class TenantPolicy(BaseModel):
     policy_name: str = Field(..., description="نام سیاست")
 
     # تنظیمات سیاست
-    rules: Dict[str, Any] = Field(default_factory=dict, description="قوانین")
-    conditions: List[str] = Field(default_factory=list, description="شرایط")
-    actions: List[str] = Field(default_factory=list, description="اقدامات")
+    rules: dict[str, Any] = Field(default_factory=dict, description="قوانین")
+    conditions: list[str] = Field(default_factory=list, description="شرایط")
+    actions: list[str] = Field(default_factory=list, description="اقدامات")
 
     # وضعیت
     is_active: bool = Field(default=True, description="فعال")
@@ -209,18 +210,18 @@ class TenantAuditLog(BaseModel):
     """لاگ audit tenant"""
 
     tenant_id: str = Field(..., description="شناسه tenant")
-    user_id: Optional[str] = Field(None, description="شناسه کاربر")
+    user_id: str | None = Field(default=None, description="شناسه کاربر")
     action: str = Field(..., description="عمل انجام شده")
     resource: str = Field(..., description="منبع")
 
     # جزئیات
-    details: Dict[str, Any] = Field(default_factory=dict, description="جزئیات")
-    ip_address: Optional[str] = Field(None, description="آدرس IP")
-    user_agent: Optional[str] = Field(None, description="User Agent")
+    details: dict[str, Any] = Field(default_factory=dict, description="جزئیات")
+    ip_address: str | None = Field(default=None, description="آدرس IP")
+    user_agent: str | None = Field(default=None, description="User Agent")
 
     # نتیجه
     success: bool = Field(default=True, description="موفقیت")
-    error_message: Optional[str] = Field(None, description="پیام خطا")
+    error_message: str | None = Field(default=None, description="پیام خطا")
 
     # زمان
     timestamp: datetime = Field(default_factory=datetime.now, description="زمان")
@@ -342,12 +343,12 @@ class TenantApiKey(BaseModel):
     name: str = Field(..., description="Descriptive name or label for the key")
     key_hash: str = Field(..., description="Cryptographic SHA-256 hash of the secret key")
     key_prefix: str = Field(..., description="Public prefix for key identification")
-    permissions: List[str] = Field(default_factory=list, description="Explicit permissions")
+    permissions: list[str] = Field(default_factory=list, description="Explicit permissions")
     created_at: datetime = Field(
         default_factory=datetime.now, description="Creation timestamp"
     )
-    expires_at: Optional[datetime] = Field(None, description="Expiration timestamp")
-    last_used_at: Optional[datetime] = Field(None, description="Last used timestamp")
+    expires_at: datetime | None = Field(default=None, description="Expiration timestamp")
+    last_used_at: datetime | None = Field(default=None, description="Last used timestamp")
     is_active: bool = Field(default=True, description="Active status")
 
     model_config = ConfigDict(use_enum_values=True)
@@ -361,9 +362,9 @@ class AuthenticatedPrincipal(BaseModel):
         ..., description="Credential type: 'api_key' or 'user_session'"
     )
     tenant_id: str = Field(..., description="Tenant ID to which this principal belongs")
-    username: Optional[str] = Field(None, description="Username if authenticated as user")
+    username: str | None = Field(default=None, description="Username if authenticated as user")
     role: str = Field(default="user", description="Assigned role in tenant")
-    permissions: List[str] = Field(
+    permissions: list[str] = Field(
         default_factory=list, description="Granted permissions"
     )
     is_super_admin: bool = Field(

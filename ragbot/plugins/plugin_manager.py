@@ -6,19 +6,20 @@ including loading, lifecycle management, hook execution, and integration
 with the main RAG Bot system.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any
 
-from ragbot.outputs.logger import logger
 from ragbot.configs.settings import settings
+from ragbot.outputs.logger import logger
+
 from .base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
     PluginResult,
     PluginStatus,
-    HookType,
 )
-from .plugin_registry import PluginRegistry
 from .plugin_loader import PluginLoader
+from .plugin_registry import PluginRegistry
 
 
 class PluginManager:
@@ -33,7 +34,7 @@ class PluginManager:
     - Error handling and monitoring
     """
 
-    def __init__(self, plugin_directory: Optional[str] = None):
+    def __init__(self, plugin_directory: str | None = None):
         """
         Initialize plugin manager
 
@@ -43,8 +44,8 @@ class PluginManager:
         self.plugin_directory = plugin_directory or str(settings.plugin_directory)
         self.registry = PluginRegistry()
         self.loader = PluginLoader(self.plugin_directory, self.registry)
-        self.active_plugins: Dict[str, BasePlugin] = {}
-        self.hook_registry: Dict[HookType, List[BasePlugin]] = {}
+        self.active_plugins: dict[str, BasePlugin] = {}
+        self.hook_registry: dict[HookType, list[BasePlugin]] = {}
 
         # Initialize hook registry
         for hook_type in HookType:
@@ -79,9 +80,9 @@ class PluginManager:
     async def load_plugin(
         self,
         plugin_path: str,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
         auto_start: bool = True,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Load a plugin into the system
 
@@ -147,7 +148,7 @@ class PluginManager:
             logger.error(f"Error unloading plugin {plugin_id}: {e}")
             return False
 
-    async def reload_plugin(self, plugin_id: str) -> Optional[BasePlugin]:
+    async def reload_plugin(self, plugin_id: str) -> BasePlugin | None:
         """
         Reload a plugin without service interruption
 
@@ -160,7 +161,7 @@ class PluginManager:
         try:
             # Get current plugin config
             current_plugin = await self.registry.get_plugin(plugin_id)
-            config = current_plugin.config if current_plugin else {}
+            _config = current_plugin.config if current_plugin else {}
 
             # Stop current plugin
             if plugin_id in self.active_plugins:
@@ -181,7 +182,7 @@ class PluginManager:
             return None
 
     async def start_plugin(
-        self, plugin_id: str, context: Optional[PluginContext] = None
+        self, plugin_id: str, context: PluginContext | None = None
     ) -> bool:
         """
         Start a plugin
@@ -279,7 +280,7 @@ class PluginManager:
 
     async def execute_plugin(
         self, plugin_id: str, context: PluginContext
-    ) -> Optional[PluginResult]:
+    ) -> PluginResult | None:
         """
         Execute a plugin
 
@@ -313,7 +314,7 @@ class PluginManager:
 
     async def execute_hooks(
         self, hook_type: HookType, context: PluginContext
-    ) -> List[PluginResult]:
+    ) -> list[PluginResult]:
         """
         Execute all registered hooks of a given type
 
@@ -335,12 +336,12 @@ class PluginManager:
                     plugin_results = await plugin.execute_hook(hook_type, context)
                     results.extend(plugin_results)
 
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(
                         f"Hook execution failed for plugin {plugin.plugin_id}: {e}"
                     )
                     error_result = PluginResult(
-                        success=False, error_message=f"Hook execution error: {str(e)}"
+                        success=False, error_message=f"Hook execution error: {e!s}"
                     )
                     results.append(error_result)
 
@@ -350,8 +351,8 @@ class PluginManager:
         return results
 
     async def load_plugins_from_directory(
-        self, directory: Optional[str] = None
-    ) -> List[str]:
+        self, directory: str | None = None
+    ) -> list[str]:
         """
         Load all plugins from a directory
 
@@ -385,8 +386,8 @@ class PluginManager:
             return []
 
     async def list_plugins(
-        self, status_filter: Optional[PluginStatus] = None
-    ) -> Dict[str, Any]:
+        self, status_filter: PluginStatus | None = None
+    ) -> dict[str, Any]:
         """
         List all plugins with optional status filter
 
@@ -403,7 +404,7 @@ class PluginManager:
             logger.error(f"Error listing plugins: {e}")
             return {}
 
-    async def get_plugin_status(self, plugin_id: str) -> Optional[PluginStatus]:
+    async def get_plugin_status(self, plugin_id: str) -> PluginStatus | None:
         """
         Get status of a specific plugin
 
@@ -421,7 +422,7 @@ class PluginManager:
             logger.error(f"Error getting plugin status for {plugin_id}: {e}")
             return None
 
-    def get_active_plugins_status(self) -> Dict[str, str]:
+    def get_active_plugins_status(self) -> dict[str, str]:
         """
         Get status of all active plugins
 
@@ -440,7 +441,7 @@ class PluginManager:
         Args:
             plugin: Plugin to register
         """
-        for hook_type, hooks in plugin.hooks.items():
+        for hook_type in plugin.hooks:
             if plugin not in self.hook_registry[hook_type]:
                 self.hook_registry[hook_type].append(plugin)
 

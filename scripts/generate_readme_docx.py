@@ -36,7 +36,7 @@ def main() -> int:
 
     try:
         import pypandoc  # type: ignore
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print("[ERROR] pypandoc is not installed. Run: pip install pypandoc")
         print(f"Details: {exc}")
         return 1
@@ -54,7 +54,7 @@ def main() -> int:
         print("Download and install from: https://pandoc.org/installing.html")
         print(f"Details: {exc}")
         return 1
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[ERROR] Failed to convert. Details: {exc}")
         return 1
 

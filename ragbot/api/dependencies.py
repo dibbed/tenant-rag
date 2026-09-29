@@ -1,5 +1,5 @@
 import inspect
-from typing import Optional
+
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from ragbot.api.access_mode import ANONYMOUS_DISABLED_DETAIL, anonymous_access_allowed
@@ -13,7 +13,7 @@ from ragbot.multi_tenant.authorization import (
     is_system_admin,
 )
 from ragbot.multi_tenant.models import AuthenticatedPrincipal, TenantStatus
-from ragbot.multi_tenant.tenant_auth import TenantAuth, UserRole
+from ragbot.multi_tenant.tenant_auth import TenantAuth
 from ragbot.outputs.logger import logger
 from ragbot.services.integration_service import (
     IntegrationService,
@@ -28,7 +28,8 @@ async def get_integration_service_dep(request: Request) -> IntegrationService:
         hasattr(request.app.state, "integration_service")
         and request.app.state.integration_service is not None
     ):
-        return request.app.state.integration_service
+        service: IntegrationService = request.app.state.integration_service
+        return service
     return await get_integration_service()
 
 
@@ -53,7 +54,7 @@ def _multi_tenant_enabled() -> bool:
 async def get_current_principal(
     request: Request,
     rag_service: RAGService = Depends(get_rag_service_dep),
-) -> Optional[AuthenticatedPrincipal]:
+) -> AuthenticatedPrincipal | None:
     """
     Extract and authenticate the calling principal from request headers.
 
@@ -96,17 +97,13 @@ async def get_current_principal(
         )
 
     # Resolve TenantAuth
-    tenant_auth = getattr(rag_service, "tenant_auth", None)
+    tenant_auth: TenantAuth | None = getattr(rag_service, "tenant_auth", None)
     if tenant_auth is None:
         tenant_mgr = getattr(rag_service, "tenant_manager", None)
         tenant_auth = TenantAuth(tenant_mgr)
 
-    # Authenticate credential (TenantAuth may expose an async or sync adapter).
-    auth_res = tenant_auth.authenticate_principal(credential)
-    if inspect.isawaitable(auth_res):
-        auth_ok, principal, error_msg = await auth_res
-    else:
-        auth_ok, principal, error_msg = auth_res
+    # Authenticate credential.
+    auth_ok, principal, error_msg = await tenant_auth.authenticate_principal(credential)
 
     if not auth_ok or principal is None:
         # Security (C3): legacy SHA-256 keys get an explicit migration message.
@@ -145,10 +142,10 @@ async def enforce_rate_limit(
 
 async def get_authorized_tenant_context(
     request: Request,
-    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
-    principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
+    x_tenant_id: str | None = Header(None, alias="X-Tenant-ID"),
+    principal: AuthenticatedPrincipal | None = Depends(get_current_principal),
     rag_service: RAGService = Depends(get_rag_service_dep),
-) -> Optional[str]:
+) -> str | None:
     """
     Retrieve and authorize tenant context.
 
@@ -161,6 +158,7 @@ async def get_authorized_tenant_context(
       - If X-Tenant-ID is omitted, defaults to principal.tenant_id.
       - Verifies target tenant exists and is active.
     """
+    del request
     if not _multi_tenant_enabled():
         return None
 
@@ -253,8 +251,8 @@ get_tenant_context = get_authorized_tenant_context
 
 
 async def verify_reset_authorization(
-    principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
-    tenant_id: Optional[str] = Depends(get_authorized_tenant_context),
+    principal: AuthenticatedPrincipal | None = Depends(get_current_principal),
+    tenant_id: str | None = Depends(get_authorized_tenant_context),
 ) -> None:
     """Verify the principal may reset the target tenant store.
 
@@ -291,9 +289,9 @@ async def verify_reset_authorization(
 
 
 async def require_tenant_admin(
-    principal: Optional[AuthenticatedPrincipal] = Depends(get_current_principal),
-    tenant_id: Optional[str] = Depends(get_authorized_tenant_context),
-) -> Optional[AuthenticatedPrincipal]:
+    principal: AuthenticatedPrincipal | None = Depends(get_current_principal),
+    tenant_id: str | None = Depends(get_authorized_tenant_context),
+) -> AuthenticatedPrincipal | None:
     """Require tenant management rights on the target tenant.
 
     Security (C4): use this dependency for every tenant management route.

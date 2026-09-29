@@ -7,12 +7,15 @@ This embedder produces embeddings fully offline once the model is cached.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from ragbot.configs.settings import settings
-from ragbot.rag.embeddings.base import BaseEmbedder
 from ragbot.outputs.logger import logger
+from ragbot.rag.embeddings.base import BaseEmbedder
 from ragbot.rag.exceptions import EmbeddingError
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 class STEmbedder(BaseEmbedder):
@@ -21,14 +24,14 @@ class STEmbedder(BaseEmbedder):
     def __init__(
         self,
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-        device: Optional[str] = None,
+        device: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.model_name = model_name
         self.device = device or "auto"
-        self._model = None  # Lazy-load to avoid import on cold path
-        self._cache = {}  # Simple cache for embeddings
+        self._model: SentenceTransformer | None = None
+        self._cache: dict[str, list[float]] = {}
 
         logger.info(
             "STEmbedder initialized",
@@ -56,11 +59,15 @@ class STEmbedder(BaseEmbedder):
                 cache_folder=cache_dir,  # Cache models locally (configurable)
             )
 
-    async def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    async def embed_texts(
+        self, texts: list[str], **kwargs: Any
+    ) -> list[list[float]]:
         import asyncio
         import hashlib
 
         self._load()
+        model = self._model
+        assert model is not None
 
         # Check cache first
         cached_results = []
@@ -78,8 +85,8 @@ class STEmbedder(BaseEmbedder):
         # Generate embeddings for uncached texts
         if uncached_texts:
 
-            def _encode() -> List[List[float]]:
-                vectors = self._model.encode(
+            def _encode() -> list[list[float]]:
+                vectors = model.encode(
                     uncached_texts,
                     normalize_embeddings=False,
                     show_progress_bar=False,
@@ -91,7 +98,7 @@ class STEmbedder(BaseEmbedder):
             new_embeddings = await asyncio.to_thread(_encode)
 
             # Cache new embeddings
-            for i, (text, embedding) in enumerate(zip(uncached_texts, new_embeddings)):
+            for i, (text, embedding) in enumerate(zip(uncached_texts, new_embeddings, strict=False)):
                 text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
                 self._cache[text_hash] = embedding
                 cached_results.append((uncached_indices[i], embedding))
@@ -100,14 +107,16 @@ class STEmbedder(BaseEmbedder):
         cached_results.sort(key=lambda x: x[0])
         return [result[1] for result in cached_results]
 
-    async def embed_single(self, text: str) -> List[float]:
-        res = await self.embed_texts([text])
+    async def embed_single(self, text: str, **kwargs: Any) -> list[float]:
+        res = await self.embed_texts([text], **kwargs)
         return res[0] if res else []
 
-    def embed_texts_sync(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    def embed_texts_sync(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """Synchronous embedding generation."""
         try:
             self._load()
+            model = self._model
+            assert model is not None
 
             # Check cache first
             cached_results = []
@@ -124,7 +133,7 @@ class STEmbedder(BaseEmbedder):
 
             # Generate embeddings for uncached texts
             if uncached_texts:
-                vectors = self._model.encode(
+                vectors = model.encode(
                     uncached_texts,
                     normalize_embeddings=False,
                     show_progress_bar=False,
@@ -135,7 +144,7 @@ class STEmbedder(BaseEmbedder):
 
                 # Cache new embeddings
                 for i, (text, embedding) in enumerate(
-                    zip(uncached_texts, new_embeddings)
+                    zip(uncached_texts, new_embeddings, strict=False)
                 ):
                     text_hash = hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
                     self._cache[text_hash] = embedding
@@ -150,16 +159,22 @@ class STEmbedder(BaseEmbedder):
                 f"Failed to generate embeddings: {e}",
                 provider="sentence_transformers",
                 model=self.model_name,
-            )
+            ) from e
 
     def get_embedding_dimension(self) -> int:
         """Get embedding dimension for the model."""
         try:
             self._load()
-            # Get dimension from model
-            return self._model.get_sentence_embedding_dimension()
+            model = self._model
+            assert model is not None
+            dimension = model.get_sentence_embedding_dimension()
+            if dimension is not None:
+                return int(dimension)
         except Exception:
-            # Fallback dimensions for common models
+            pass
+
+        # Fallback dimensions for common models
+        try:
             dimension_map = {
                 "all-MiniLM-L6-v2": 384,
                 "all-MiniLM-L12-v2": 384,
@@ -167,3 +182,5 @@ class STEmbedder(BaseEmbedder):
                 "paraphrase-multilingual-MiniLM-L12-v2": 384,
             }
             return dimension_map.get(self.model_name.split("/")[-1], 384)
+        except Exception:
+            return 384

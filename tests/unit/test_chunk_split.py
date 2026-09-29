@@ -7,7 +7,7 @@ different languages, token limits, and edge cases.
 
 import pytest
 
-from ragbot.rag import TokenChunker, Document
+from ragbot.rag import Document, TokenChunker
 from ragbot.rag.chunkers.adaptive_chunker import AdaptiveChunker
 from ragbot.rag.chunkers.base import TextChunk
 from ragbot.rag.chunkers.chunk_optimizer import ChunkOptimizer
@@ -311,7 +311,7 @@ class TestTokenChunker:
     async def test_chunk_document_error_handling(self, chunker: TokenChunker) -> None:
         """Test error handling in document chunking."""
         # Test with None content
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="Document text must be a string"):
             doc = Document(content=None, metadata={})
             await chunker.chunk_document(doc)
 

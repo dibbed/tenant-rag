@@ -11,7 +11,7 @@ import ast
 import operator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
@@ -30,7 +30,7 @@ class NotificationChannel:
     """Notification channel config."""
 
     type: str  # email, slack, discord, webhook
-    config: Dict[str, Any]
+    config: dict[str, Any]
     enabled: bool = True
 
 
@@ -38,11 +38,11 @@ class AlertManager:
     """Manage alert rules and dispatch notifications."""
 
     def __init__(self) -> None:
-        self.alert_rules: Dict[str, AlertRule] = {}
-        self.notification_channels: Dict[str, NotificationChannel] = {}
-        self.alert_history: list[Dict[str, Any]] = []
+        self.alert_rules: dict[str, AlertRule] = {}
+        self.notification_channels: dict[str, NotificationChannel] = {}
+        self.alert_history: list[dict[str, Any]] = []
 
-        self.default_rules: Dict[str, AlertRule] = {
+        self.default_rules: dict[str, AlertRule] = {
             "high_cpu": AlertRule(
                 "High CPU Usage", "cpu_usage > threshold", 80.0, "warning"
             ),
@@ -74,7 +74,7 @@ class AlertManager:
     ) -> None:
         self.notification_channels[channel_id] = channel
 
-    async def evaluate_metrics(self, metrics: Dict[str, Any]) -> None:
+    async def evaluate_metrics(self, metrics: dict[str, Any]) -> None:
         triggered: list[tuple[str, AlertRule]] = []
         for rule_id, rule in self.alert_rules.items():
             if not rule.enabled:
@@ -85,7 +85,7 @@ class AlertManager:
             await self._send_alert(rule_id, rule, metrics)
 
     async def _evaluate_condition(
-        self, condition: str, threshold: float, metrics: Dict[str, Any]
+        self, condition: str, threshold: float, metrics: dict[str, Any]
     ) -> bool:
         """Evaluate a constrained alert expression without executing Python code.
 
@@ -113,7 +113,7 @@ class AlertManager:
             if isinstance(node, ast.Expression):
                 return resolve(node.body)
             if isinstance(node, ast.Constant) and isinstance(
-                node.value, (int, float, bool)
+                node.value, int | float | bool
             ):
                 return node.value
             if isinstance(node, ast.Name):
@@ -122,7 +122,7 @@ class AlertManager:
                 if node.id not in metrics:
                     raise ValueError(f"Unknown alert metric: {node.id}")
                 value = metrics[node.id]
-                if not isinstance(value, (int, float, bool)):
+                if not isinstance(value, int | float | bool):
                     raise ValueError(f"Alert metric {node.id!r} is not numeric")
                 return value
             if isinstance(node, ast.UnaryOp):
@@ -138,19 +138,13 @@ class AlertManager:
                 return binary_ops[type(node.op)](resolve(node.left), resolve(node.right))
             if isinstance(node, ast.BoolOp):
                 if isinstance(node.op, ast.And):
-                    for value in node.values:
-                        if not bool(resolve(value)):
-                            return False
-                    return True
+                    return all(bool(resolve(value)) for value in node.values)
                 if isinstance(node.op, ast.Or):
-                    for value in node.values:
-                        if bool(resolve(value)):
-                            return True
-                    return False
+                    return any(bool(resolve(value)) for value in node.values)
                 raise ValueError("Unsupported boolean operator")
             if isinstance(node, ast.Compare):
                 left = resolve(node.left)
-                for op_node, comparator in zip(node.ops, node.comparators):
+                for op_node, comparator in zip(node.ops, node.comparators, strict=False):
                     operation = compare_ops.get(type(op_node))
                     if operation is None:
                         raise ValueError("Unsupported comparison operator")
@@ -170,7 +164,7 @@ class AlertManager:
             return False
 
     async def _send_alert(
-        self, rule_id: str, rule: AlertRule, metrics: Dict[str, Any]
+        self, rule_id: str, rule: AlertRule, metrics: dict[str, Any]
     ) -> None:
         data = {
             "rule_id": rule_id,
@@ -181,12 +175,12 @@ class AlertManager:
             "message": f"{rule.name}: {rule.condition.replace('threshold', str(rule.threshold))}",
         }
         self.alert_history.append(data)
-        for _, channel in self.notification_channels.items():
+        for channel in self.notification_channels.values():
             if channel.enabled:
                 await self._send_to_channel(channel, data)
 
     async def _send_to_channel(
-        self, channel: NotificationChannel, alert_data: Dict[str, Any]
+        self, channel: NotificationChannel, alert_data: dict[str, Any]
     ) -> None:
         try:
             if channel.type == "email":
@@ -201,21 +195,21 @@ class AlertManager:
             print(f"❌ Error sending alert to {channel.type}: {exc}")
 
     async def _send_email(
-        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+        self, config: dict[str, Any], alert_data: dict[str, Any]
     ) -> None:
         return None
 
     async def _send_slack(
-        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+        self, config: dict[str, Any], alert_data: dict[str, Any]
     ) -> None:
         return None
 
     async def _send_discord(
-        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+        self, config: dict[str, Any], alert_data: dict[str, Any]
     ) -> None:
         return None
 
     async def _send_webhook(
-        self, config: Dict[str, Any], alert_data: Dict[str, Any]
+        self, config: dict[str, Any], alert_data: dict[str, Any]
     ) -> None:
         return None

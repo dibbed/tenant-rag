@@ -5,14 +5,13 @@ This module provides advanced filtering capabilities for vector store queries,
 including range filters, regex patterns, composite filters, and geographic filtering.
 """
 
-from typing import Dict, List, Any, Optional, Union
-from dataclasses import dataclass
-from enum import Enum
-import re
-import math
-import time
-from datetime import datetime, timedelta
 import logging
+import math
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +48,9 @@ class FilterCondition:
 class CompositeFilter:
     """فیلتر ترکیبی"""
 
-    conditions: List[FilterCondition]
+    conditions: list[FilterCondition]
     logic: str = "AND"  # AND, OR, NOT
-    sub_filters: Optional[List["CompositeFilter"]] = None
+    sub_filters: list["CompositeFilter"] | None = None
 
 
 @dataclass
@@ -67,14 +66,14 @@ class GeoFilter:
 class AdvancedFilter:
     """سیستم فیلترینگ پیشرفته"""
 
-    def __init__(self, vector_store):
+    def __init__(self, vector_store: Any) -> None:
         """Initialize filter system"""
         self.vector_store = vector_store
-        self.compiled_patterns = {}  # برای caching regex patterns
+        self.compiled_patterns: dict[str, re.Pattern[str]] = {}  # برای caching regex patterns
 
     async def range_filter(
         self, field: str, min_val: Any, max_val: Any, inclusive: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """
         فیلتر بازه‌ای برای مقادیر عددی یا تاریخی
 
@@ -121,7 +120,7 @@ class AdvancedFilter:
 
     async def regex_filter(
         self, field: str, pattern: str, case_sensitive: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """
         فیلتر بر اساس الگوی منظم
 
@@ -154,8 +153,8 @@ class AdvancedFilter:
         return matching_ids
 
     async def composite_filter(
-        self, filters: List[FilterCondition], logic: str = "AND"
-    ) -> List[str]:
+        self, filters: list[FilterCondition], logic: str = "AND"
+    ) -> list[str]:
         """
         فیلتر ترکیبی با چندین شرط
 
@@ -186,7 +185,7 @@ class AdvancedFilter:
                 result = result.union(result_set)
         elif logic == "NOT":
             # NOT فقط برای یک فیلتر
-            all_ids = set(doc.id for doc in await self._get_all_documents())
+            all_ids = {doc.id for doc in await self._get_all_documents()}
             result = all_ids - filter_results[0]
         else:
             raise ValueError(f"Unsupported logic: {logic}")
@@ -195,7 +194,7 @@ class AdvancedFilter:
 
     async def geo_filter(
         self, lat: float, lon: float, radius: float, field: str = "location"
-    ) -> List[str]:
+    ) -> list[str]:
         """
         فیلتر جغرافیایی بر اساس فاصله
 
@@ -237,10 +236,10 @@ class AdvancedFilter:
     async def date_range_filter(
         self,
         field: str,
-        start_date: Union[str, datetime],
-        end_date: Union[str, datetime],
+        start_date: str | datetime,
+        end_date: str | datetime,
         date_format: str = "%Y-%m-%d",
-    ) -> List[str]:
+    ) -> list[str]:
         """
         فیلتر بازه تاریخی
 
@@ -266,7 +265,7 @@ class AdvancedFilter:
         field: str,
         search_text: str,
         search_type: str = "contains",  # contains, starts_with, ends_with, exact
-    ) -> List[str]:
+    ) -> list[str]:
         """
         فیلتر جستجوی متنی
 
@@ -297,9 +296,8 @@ class AdvancedFilter:
             elif search_type == "ends_with":
                 if value.endswith(search_lower):
                     matching_ids.append(doc.id)
-            elif search_type == "exact":
-                if value == search_lower:
-                    matching_ids.append(doc.id)
+            elif search_type == "exact" and value == search_lower:
+                matching_ids.append(doc.id)
 
         return matching_ids
 
@@ -307,9 +305,9 @@ class AdvancedFilter:
         self,
         field: str,
         operator: FilterOperator,
-        value: Union[int, float],
+        value: int | float,
         tolerance: float = 0.0,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         فیلتر عددی با عملگرهای مختلف
 
@@ -350,15 +348,14 @@ class AdvancedFilter:
             elif operator == FilterOperator.LT:
                 if doc_value < value - tolerance:
                     matching_ids.append(doc.id)
-            elif operator == FilterOperator.LTE:
-                if doc_value <= value + tolerance:
-                    matching_ids.append(doc.id)
+            elif operator == FilterOperator.LTE and doc_value <= value + tolerance:
+                matching_ids.append(doc.id)
 
         return matching_ids
 
     async def array_filter(
-        self, field: str, operator: FilterOperator, values: List[Any]
-    ) -> List[str]:
+        self, field: str, operator: FilterOperator, values: list[Any]
+    ) -> list[str]:
         """
         فیلتر آرایه‌ای
 
@@ -387,23 +384,26 @@ class AdvancedFilter:
             elif operator == FilterOperator.NIN:
                 if not any(v in doc_value for v in values):
                     matching_ids.append(doc.id)
-            elif operator == FilterOperator.CONTAINS:
-                if all(v in doc_value for v in values):
-                    matching_ids.append(doc.id)
+            elif operator == FilterOperator.CONTAINS and all(
+                v in doc_value for v in values
+            ):
+                matching_ids.append(doc.id)
 
         return matching_ids
 
-    async def _apply_single_condition(self, condition: FilterCondition) -> List[str]:
+    async def _apply_single_condition(self, condition: FilterCondition) -> list[str]:
         """اعمال یک شرط فیلتر"""
         documents = await self._get_all_documents()
         matching_ids = []
 
         for doc in documents:
             if not hasattr(doc, "metadata") or condition.field not in doc.metadata:
-                if condition.operator == FilterOperator.EXISTS:
-                    # بررسی وجود فیلد
-                    if condition.value is False:
-                        matching_ids.append(doc.id)
+                # بررسی وجود فیلد
+                if (
+                    condition.operator == FilterOperator.EXISTS
+                    and condition.value is False
+                ):
+                    matching_ids.append(doc.id)
                 continue
 
             value = doc.metadata[condition.field]
@@ -442,9 +442,8 @@ class AdvancedFilter:
                 )
                 if pattern.search(str(value)):
                     matching_ids.append(doc.id)
-            elif condition.operator == FilterOperator.EXISTS:
-                if condition.value:
-                    matching_ids.append(doc.id)
+            elif condition.operator == FilterOperator.EXISTS and condition.value:
+                matching_ids.append(doc.id)
 
         return matching_ids
 
@@ -466,11 +465,12 @@ class AdvancedFilter:
 
         return distance
 
-    async def _get_all_documents(self) -> List:
+    async def _get_all_documents(self) -> list[Any]:
         """دریافت همه اسناد از vector store"""
         try:
             if hasattr(self.vector_store, "get_all_documents"):
-                return await self.vector_store.get_all_documents()
+                documents = await self.vector_store.get_all_documents()
+                return list(documents)
             elif hasattr(self.vector_store, "search"):
                 # استفاده از search با query خالی برای دریافت همه
                 results = await self.vector_store.search("", limit=10000)
@@ -478,14 +478,14 @@ class AdvancedFilter:
             else:
                 return []
         except Exception as e:
-            logger.error(f"Error getting all documents: {str(e)}")
+            logger.error(f"Error getting all documents: {e!s}")
             return []
 
-    async def clear_pattern_cache(self):
+    async def clear_pattern_cache(self) -> None:
         """پاک کردن cache الگوهای regex"""
         self.compiled_patterns.clear()
 
-    async def get_filter_statistics(self) -> Dict[str, Any]:
+    async def get_filter_statistics(self) -> dict[str, Any]:
         """دریافت آمار فیلترها"""
         return {
             "cached_patterns": len(self.compiled_patterns),
@@ -493,7 +493,7 @@ class AdvancedFilter:
             "available_fields": await self._get_available_fields(),
         }
 
-    async def _get_available_fields(self) -> List[str]:
+    async def _get_available_fields(self) -> list[str]:
         """دریافت فیلدهای موجود در metadata"""
         documents = await self._get_all_documents()
         fields = set()

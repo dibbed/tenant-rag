@@ -85,8 +85,7 @@ def test_static_checks_run_every_tool_and_keep_their_exit_status(workflow):
     assert job["continue-on-error"] == "${{ matrix.mode == 'report-only' }}"
     assert "--mode ${{ matrix.mode }}" in _run_text(job)
     modes = {entry["tool"]: entry["mode"] for entry in include}
-    assert modes["bandit"] == "blocking"
-    assert modes["ruff"] == modes["mypy"] == "report-only"
+    assert modes["ruff"] == modes["mypy"] == modes["bandit"] == "blocking"
 
 
 def test_the_summary_needs_every_check_and_always_runs(workflow):

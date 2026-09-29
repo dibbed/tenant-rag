@@ -7,16 +7,24 @@ including user interaction tracking, performance metrics, and custom reporting.
 
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Any, TypedDict
 
+from ragbot.outputs.logger import logger
 from ragbot.plugins.base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
     PluginResult,
-    PluginType,
     PluginStatus,
+    PluginType,
 )
-from ragbot.outputs.logger import logger
+
+
+class LoggingStats(TypedDict):
+    total_queries: int
+    avg_response_time: float
+    error_count: int
+    unique_users: set[int]
 
 
 class LoggingAnalyticsPlugin(BasePlugin):
@@ -27,7 +35,7 @@ class LoggingAnalyticsPlugin(BasePlugin):
     to provide insights and monitoring capabilities.
     """
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str, config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
 
         # Default configuration
@@ -44,12 +52,12 @@ class LoggingAnalyticsPlugin(BasePlugin):
         self.config.update(self.default_config)
 
         # Analytics data storage
-        self.query_logs: List[Dict[str, Any]] = []
-        self.user_interactions: List[Dict[str, Any]] = []
-        self.performance_metrics: List[Dict[str, Any]] = []
+        self.query_logs: list[dict[str, Any]] = []
+        self.user_interactions: list[dict[str, Any]] = []
+        self.performance_metrics: list[dict[str, Any]] = []
 
         # Statistics tracking
-        self.stats = {
+        self.stats: LoggingStats = {
             "total_queries": 0,
             "avg_response_time": 0.0,
             "error_count": 0,
@@ -78,7 +86,7 @@ class LoggingAnalyticsPlugin(BasePlugin):
     def plugin_author(self) -> str:
         return "RAG Bot Analytics Team"
 
-    async def initialize(self, context: PluginContext) -> None:
+    async def initialize(self, context: PluginContext) -> bool:
         """
         Initialize the analytics plugin
 
@@ -92,12 +100,12 @@ class LoggingAnalyticsPlugin(BasePlugin):
             self.set_status(PluginStatus.ACTIVE)
 
             # Register comprehensive hooks
-            self.register_hook("on_user_interaction", self.track_user_interaction)
-            self.register_hook("pre_query", self.log_query_start)
-            self.register_hook("post_query", self.log_query_result)
-            self.register_hook("pre_response", self.log_response_generation)
-            self.register_hook("post_response", self.log_response_complete)
-            self.register_hook("on_error", self.log_error_event)
+            self.register_hook(HookType.ON_USER_INTERACTION, self.track_user_interaction)
+            self.register_hook(HookType.PRE_QUERY, self.log_query_start)
+            self.register_hook(HookType.POST_QUERY, self.log_query_result)
+            self.register_hook(HookType.PRE_RESPONSE, self.log_response_generation)
+            self.register_hook(HookType.POST_RESPONSE, self.log_response_complete)
+            self.register_hook(HookType.ON_ERROR, self.log_error_event)
 
             return True
 
@@ -170,15 +178,17 @@ class LoggingAnalyticsPlugin(BasePlugin):
             user_id = context.user_id
 
             # Record user interaction
+            context_data = context.data or {}
             interaction = {
                 "user_id": user_id,
-                "action": context.data.get("action", "unknown"),
+                "action": context_data.get("action", "unknown"),
                 "timestamp": timestamp,
                 "metadata": context.metadata or {},
             }
 
             self.user_interactions.append(interaction)
-            self.stats["unique_users"].add(user_id)
+            if user_id is not None:
+                self.stats["unique_users"].add(user_id)
 
             return PluginResult(success=True, data=interaction)
 
@@ -436,20 +446,20 @@ class LoggingAnalyticsPlugin(BasePlugin):
             return 0.0
 
         total_time = sum(
-            log.get("response_time", 0.0)
+            float(log.get("response_time", 0.0) or 0.0)
             for log in self.query_logs
             if "response_time" in log
         )
-        return total_time / len(self.query_logs)
+        return float(total_time / len(self.query_logs))
 
-    def _get_top_queries(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def _get_top_queries(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get most frequent queries"""
         if not self.query_logs:
             return []
 
-        query_counts = {}
+        query_counts: dict[str, int] = {}
         for log in self.query_logs:
-            query = log.get("query", "")
+            query = str(log.get("query", ""))
             if query:
                 query_counts[query] = query_counts.get(query, 0) + 1
 
@@ -458,39 +468,42 @@ class LoggingAnalyticsPlugin(BasePlugin):
             {"query": query, "count": count} for query, count in sorted_queries[:limit]
         ]
 
-    def _get_user_activity_summary(self) -> Dict[str, Any]:
+    def _get_user_activity_summary(self) -> dict[str, Any]:
         """Get user activity summary"""
         if not self.user_interactions:
             return {"total_interactions": 0, "unique_users": 0}
 
-        interactions_by_user = {}
+        interactions_by_user: dict[int, int] = {}
         for interaction in self.user_interactions:
             user_id = interaction.get("user_id")
-            if user_id:
+            if isinstance(user_id, int):
                 interactions_by_user[user_id] = interactions_by_user.get(user_id, 0) + 1
 
         return {
             "total_interactions": len(self.user_interactions),
             "unique_users": len(interactions_by_user),
             "top_active_users": sorted(
-                [(user_id, count) for user_id, count in interactions_by_user.items()],
+                interactions_by_user.items(),
                 key=lambda x: x[1],
                 reverse=True,
             )[:5],
         }
 
-    def _get_performance_trends(self) -> Dict[str, Any]:
+    def _get_performance_trends(self) -> dict[str, Any]:
         """Get performance trends"""
         if not self.query_logs:
             return {"trend_data": []}
 
         # Group by hour for trend analysis
-        hourly_data = {}
+        hourly_data: dict[int, list[float]] = {}
         for log in self.query_logs:
-            hour = log["timestamp"].hour
+            timestamp = log.get("timestamp")
+            if not isinstance(timestamp, datetime):
+                continue
+            hour = timestamp.hour
             if hour not in hourly_data:
                 hourly_data[hour] = []
-            hourly_data[hour].append(log.get("response_time", 0.0))
+            hourly_data[hour].append(float(log.get("response_time", 0.0) or 0.0))
 
         trends = []
         for hour in sorted(hourly_data.keys()):
@@ -520,7 +533,7 @@ class LoggingAnalyticsPlugin(BasePlugin):
             return False
 
     def _update_performance_metrics(
-        self, response_time: float, query_log: Dict[str, Any]
+        self, response_time: float, query_log: dict[str, Any]
     ) -> None:
         """Update performance metrics based on query"""
         self.performance_metrics.append(

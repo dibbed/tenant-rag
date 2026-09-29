@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ragbot.rag import DocumentProcessingError, Document, PDFLoader
+from ragbot.rag import Document, DocumentProcessingError, PDFLoader
 
 
 class TestPDFLoader:

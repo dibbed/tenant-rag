@@ -6,26 +6,26 @@ Operates on TextChunk objects to preserve pipeline compatibility.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from ragbot.rag.chunkers.base import TextChunk
 
 
-class AwaitableList(list):
+class AwaitableList(list[TextChunk]):
     """List subclass supporting both synchronous usage and direct await expressions."""
 
-    def __await__(self):
-        async def _coro():
+    def __await__(self) -> Any:
+        async def _coro() -> AwaitableList:
             return self
 
         return _coro().__await__()
 
 
-class AwaitableDict(dict):
+class AwaitableDict(dict[str, Any]):
     """Dict subclass supporting both synchronous usage and direct await expressions."""
 
-    def __await__(self):
-        async def _coro():
+    def __await__(self) -> Any:
+        async def _coro() -> AwaitableDict:
             return self
 
         return _coro().__await__()
@@ -42,8 +42,8 @@ class ChunkOptimizer:
             self.min_size + 1, int(self.target_size * (1 + self.size_tolerance))
         )
 
-    def optimize(self, chunks: List[TextChunk]) -> List[TextChunk]:
-        optimized: List[TextChunk] = []
+    def optimize(self, chunks: list[TextChunk]) -> list[TextChunk]:
+        optimized: list[TextChunk] = []
         for c in chunks:
             n = len(c.content)
             if n < self.min_size:
@@ -59,8 +59,8 @@ class ChunkOptimizer:
         return AwaitableList(optimized)
 
     def _merge_with_previous(
-        self, acc: List[TextChunk], small: TextChunk
-    ) -> List[TextChunk]:
+        self, acc: list[TextChunk], small: TextChunk
+    ) -> list[TextChunk]:
         if not acc:
             return [small]
         last = acc[-1]
@@ -75,11 +75,13 @@ class ChunkOptimizer:
             return acc
         # Decide separator to preserve formatting
         sep = ""
-        if last.content and small.content:
-            if not last.content.endswith((" ", "\n")) and not small.content.startswith(
-                (" ", "\n")
-            ):
-                sep = " "
+        if (
+            last.content
+            and small.content
+            and not last.content.endswith((" ", "\n"))
+            and not small.content.startswith((" ", "\n"))
+        ):
+            sep = " "
         combined = last.content + sep + small.content
         # Position-aware end index: prefer max to avoid assuming strict contiguity
         new_start = last.start_index
@@ -108,17 +110,15 @@ class ChunkOptimizer:
             acc.extend(parts)
         return acc
 
-    def _split_large(self, c: TextChunk) -> List[TextChunk]:
+    def _split_large(self, c: TextChunk) -> list[TextChunk]:
         text = c.content
         base = c.start_index
-        out: List[TextChunk] = []
+        out: list[TextChunk] = []
         # 1) Try paragraph-aware splitting (double newlines)
         paras = self._iter_paragraphs(text)
         if len(paras) > 1:
             # Keep short paragraphs by merging with neighbors instead of dropping
-            temp: List[str] = []
-            for p in paras:
-                temp.append(p)
+            temp: list[str] = list(paras)
             # Rebuild with size constraints and position-aware indices
             cursor = 0
             for p in temp:
@@ -215,7 +215,7 @@ class ChunkOptimizer:
         # 3) Fallback: return original chunk when no safe split found
         return [c]
 
-    async def analyze_quality(self, chunks: List[TextChunk]) -> Dict[str, Any]:
+    async def analyze_quality(self, chunks: list[TextChunk]) -> dict[str, Any]:
         if not chunks:
             return {"total": 0, "quality_score": 0.0}
         # Prefer token-based measures when available
@@ -248,12 +248,12 @@ class ChunkOptimizer:
             "quality_score": round(score, 3),
         })
 
-    def _iter_paragraphs(self, txt: str) -> List[str]:
+    def _iter_paragraphs(self, txt: str) -> list[str]:
         # Split by double newlines; keep raw paragraphs
         parts = [p.strip("\n") for p in txt.split("\n\n")]
         return [p for p in parts if p is not None]
 
-    def _iter_sentences(self, txt: str) -> List[tuple[str, int, int]]:
+    def _iter_sentences(self, txt: str) -> list[tuple[str, int, int]]:
         # Multilingual regex: English .!? | Persian ؟ ؛ ، | CJK 。 ！ ？
         import re
 
@@ -275,16 +275,14 @@ class ChunkOptimizer:
 
     def _merge_source_ids(
         self, existing: Any, id1: str | None, id2: str | None
-    ) -> List[str]:
-        ids: List[str] = []
+    ) -> list[str]:
+        ids: list[str] = []
         if isinstance(existing, list):
             ids.extend([str(x) for x in existing])
-        for x in (id1, id2):
-            if x is not None:
-                ids.append(str(x))
+        ids.extend(str(x) for x in (id1, id2) if x is not None)
         # Deduplicate while preserving order
         seen = set()
-        unique: List[str] = []
+        unique: list[str] = []
         for x in ids:
             if x in seen:
                 continue

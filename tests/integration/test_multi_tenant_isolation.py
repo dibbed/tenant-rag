@@ -8,10 +8,11 @@ Invariants tested:
 
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from ragbot.caching.semantic_cache import SemanticCache
-from ragbot.configs.settings import Settings, MultiTenantSettings
+from ragbot.configs.settings import MultiTenantSettings, Settings
 from ragbot.rag.store.base import VectorDocument
 from ragbot.rag.store.faiss_store import FAISSStore
 from ragbot.services.rag_service import RAGService
@@ -20,7 +21,7 @@ from ragbot.services.rag_service import RAGService
 @pytest.mark.asyncio
 async def test_semantic_cache_tenant_isolation(tmp_path: Path):
     """Verify that semantic cache strictly isolates entries between different tenants."""
-    cache_settings = Settings(
+    _cache_settings = Settings(
         cache_dir=tmp_path / "cache",
         multi_tenant=MultiTenantSettings(enabled=True),
     )
@@ -137,6 +138,7 @@ async def test_faiss_vector_store_filesystem_isolation(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_rag_service_tenant_reset_isolation(tmp_path: Path):
     """Verify that resetting a tenant's store in RAGService does not affect other tenants."""
+    del tmp_path
     mock_cache = MagicMock()
     mock_cache.clear_cache = AsyncMock()
 

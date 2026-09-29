@@ -7,7 +7,7 @@ All logs in English; docstrings in Persian per rules.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict
+from typing import Any
 
 
 class SpamDetector:
@@ -21,7 +21,7 @@ class SpamDetector:
             r"\$\w+",
         ]
 
-    async def analyze(self, text: str) -> Dict[str, Any]:
+    async def analyze(self, text: str) -> dict[str, Any]:
         """تحلیل spam"""
 
         score = 0.0

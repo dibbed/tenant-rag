@@ -341,7 +341,7 @@ def test_scrypt_verification_rejects_tampered_or_wrong_input():
     assert verify_api_key_secret(raw_key, hashlib.sha256(raw_key.encode()).hexdigest()) is False
 
     parts = stored.split("$")
-    too_costly = "$".join(["scrypt", str(2**30)] + parts[2:])
+    too_costly = "$".join(["scrypt", str(2 ** 30), *parts[2:]])
     assert verify_api_key_secret(raw_key, too_costly) is False
     assert verify_api_key_secret(raw_key, "scrypt$16384$8$1$bad$bad") is False
 

@@ -2,7 +2,7 @@
 Test cases for BaseVectorStore advanced methods.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytest
 
@@ -17,8 +17,8 @@ class MockVectorDocument:
         self,
         id: str,
         content: str,
-        embedding: List[float],
-        metadata: Dict[str, Any] = None,
+        embedding: list[float],
+        metadata: dict[str, Any] | None = None,
     ):
         self.id = id
         self.content = content
@@ -44,8 +44,8 @@ class TestBaseVectorStore:
                 return "unknown"
 
             async def add_documents(
-                self, documents: List[VectorDocument], **kwargs
-            ) -> List[str]:
+                self, documents: list[VectorDocument], **kwargs
+            ) -> list[str]:
                 ids = []
                 for doc in documents:
                     self.documents[doc.id] = doc
@@ -54,7 +54,7 @@ class TestBaseVectorStore:
                 return ids
 
             async def search(
-                self, query_embedding: List[float], top_k: int = 10, **kwargs
+                self, query_embedding: list[float], top_k: int = 10, **kwargs
             ) -> SearchResult:
                 # Simple mock search - return all documents with dummy scores
                 docs = list(self.documents.values())[:top_k]
@@ -69,8 +69,8 @@ class TestBaseVectorStore:
                 )
 
             async def delete_documents(
-                self, document_ids: List[str], **kwargs
-            ) -> List[str]:
+                self, document_ids: list[str], **kwargs
+            ) -> list[str]:
                 deleted = []
                 for doc_id in document_ids:
                     if doc_id in self.documents:
@@ -86,10 +86,10 @@ class TestBaseVectorStore:
                 self.documents.clear()
                 self.document_count = 0
 
-            async def save(self, path: Optional[str] = None) -> None:
+            async def save(self, path: str | None = None) -> None:
                 pass
 
-            async def load(self, path: Optional[str] = None) -> None:
+            async def load(self, path: str | None = None) -> None:
                 pass
 
         return MockStore()
@@ -347,17 +347,17 @@ class DummyStore(BaseVectorStore):
         super().__init__(**kwargs)
         self._docs: dict[str, VectorDocument] = {}
         self.store_type_label = kwargs.get("store_type_label", "DummyStore")
-        self._doc_count = kwargs.get("document_count", None)
+        self._doc_count = kwargs.get("document_count")
 
     def get_store_type(self) -> str:
         return getattr(self, "store_type_label", "DummyStore")
 
-    async def add_documents(self, documents: List[VectorDocument], **kwargs: Any) -> List[str]:
+    async def add_documents(self, documents: list[VectorDocument], **kwargs: Any) -> list[str]:
         for d in documents:
             self._docs[d.id] = d
         return [d.id for d in documents]
 
-    async def update_documents(self, documents: List[VectorDocument], **kwargs: Any) -> List[str]:
+    async def update_documents(self, documents: list[VectorDocument], **kwargs: Any) -> list[str]:
         updated = []
         for d in documents:
             if d.id in self._docs:
@@ -365,7 +365,7 @@ class DummyStore(BaseVectorStore):
                 updated.append(d.id)
         return updated
 
-    async def delete_documents(self, document_ids: List[str], **kwargs: Any) -> List[str]:
+    async def delete_documents(self, document_ids: list[str], **kwargs: Any) -> list[str]:
         deleted = []
         for i in document_ids:
             if i in self._docs:
@@ -373,14 +373,14 @@ class DummyStore(BaseVectorStore):
                 deleted.append(i)
         return deleted
 
-    async def search(self, query_embedding: List[float], top_k: int = 10, **kwargs: Any) -> SearchResult:
+    async def search(self, query_embedding: list[float], top_k: int = 10, **kwargs: Any) -> SearchResult:
         docs = list(self._docs.values())[:top_k]
         return SearchResult(documents=docs, query_embedding=query_embedding, total_results=len(docs))
 
-    async def get_document(self, document_id: str) -> Optional[VectorDocument]:
+    async def get_document(self, document_id: str) -> VectorDocument | None:
         return self._docs.get(document_id)
 
-    async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+    async def get_documents(self, document_ids: list[str]) -> list[VectorDocument]:
         return [self._docs[i] for i in document_ids if i in self._docs]
 
     def get_document_count(self) -> int:
@@ -391,15 +391,16 @@ class DummyStore(BaseVectorStore):
     async def clear(self) -> None:
         self._docs.clear()
 
-    async def save(self, path: Optional[str] = None) -> None:
+    async def save(self, path: str | None = None) -> None:
         return None
 
-    async def load(self, path: Optional[str] = None) -> None:
+    async def load(self, path: str | None = None) -> None:
         return None
 
 
 @pytest.mark.asyncio
 async def test_upsert_documents_and_filters_and_info(monkeypatch):
+    del monkeypatch
     store = DummyStore(similarity_metric="cosine")
     d1 = VectorDocument(id="1", content="hello", embedding=[1, 0], metadata={"tag": "a", "num": 5})
     d2 = VectorDocument(id="2", content="world", embedding=[0, 1], metadata={"tag": "b", "num": 10})

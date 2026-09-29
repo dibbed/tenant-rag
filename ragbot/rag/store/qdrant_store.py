@@ -7,9 +7,13 @@ Async-friendly wrapper around qdrant-client with metadata support.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
-from typing import Any, Dict, List, Optional
 import uuid
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -21,8 +25,11 @@ from ragbot.rag.store.base import (
     log_store_errors,
 )
 
+T = TypeVar("T")
+
+
 try:
-    from qdrant_client import QdrantClient  # type: ignore
+    from qdrant_client import QdrantClient
     from qdrant_client.models import (
         Distance,
         FieldCondition,
@@ -42,7 +49,7 @@ except Exception:
 class QdrantVectorStore(BaseVectorStore):
     """Qdrant-based vector store implementation."""
 
-    _DUP_KEYS = {
+    _DUP_KEYS: ClassVar[set[str]] = {
         "language",
         "source_type",
         "mime_type",
@@ -87,7 +94,7 @@ class QdrantVectorStore(BaseVectorStore):
             )
         )
         default_qdrant_path = str(settings.store_path / "qdrant")
-        self.path: Optional[str] = kwargs.get(
+        self.path: str | None = kwargs.get(
             "path", getattr(store_cfg, "qdrant_path", default_qdrant_path)
         )
 
@@ -99,29 +106,27 @@ class QdrantVectorStore(BaseVectorStore):
         # Ensure collection exists
         self._ensure_collection_exists()
         # Best-effort payload indexes for common metadata keys
-        try:
+        with contextlib.suppress(Exception):
             self._ensure_payload_indexes()
-        except Exception:
-            pass
 
-        try:
+        with contextlib.suppress(Exception):
             logger.info(
                 "Qdrant store initialized",
                 url=self.url,
                 collection_name=self.collection_name,
                 vector_size=self.vector_size,
             )
-        except Exception:
-            pass
 
     def get_store_type(self) -> str:
         """Get the store type identifier."""
         return "qdrant"
 
-    async def _to_thread(self, fn, *args, **kwargs):
+    async def _to_thread(
+        self, fn: Callable[..., T], *args: Any, **kwargs: Any
+    ) -> T:
         return await asyncio.to_thread(fn, *args, **kwargs)
 
-    def _distance(self):
+    def _distance(self) -> Distance:
         metric = str(self.similarity_metric).lower()
         if metric == "cosine":
             return Distance.COSINE
@@ -141,34 +146,37 @@ class QdrantVectorStore(BaseVectorStore):
                     ),
                 )
         except Exception as e:
-            try:
+            with contextlib.suppress(Exception):
                 logger.error(f"Qdrant ensure collection failed: {e}")
-            except Exception:
-                pass
             raise
 
     def _ensure_payload_indexes(self) -> None:
         """Create payload indexes for frequently queried metadata keys (best-effort)."""
         try:
             # Prefer enum when available, fallback to string schema types
+            payload_schema_type: Any = None
             try:
-                from qdrant_client.models import PayloadSchemaType  # type: ignore
+                from qdrant_client.models import PayloadSchemaType as _PayloadSchemaType
+
+                payload_schema_type = _PayloadSchemaType
             except Exception:
                 try:
                     from qdrant_client.http.models import (
-                        PayloadSchemaType,  # type: ignore
+                        PayloadSchemaType as _PayloadSchemaType,
                     )
-                except Exception:
-                    PayloadSchemaType = None  # type: ignore
 
-            def _schema(t: str):
-                if PayloadSchemaType is None:
+                    payload_schema_type = _PayloadSchemaType
+                except Exception:
+                    pass
+
+            def _schema(t: str) -> Any:
+                if payload_schema_type is None:
                     return t
                 # Map simple strings to enum
                 mapping = {
-                    "keyword": getattr(PayloadSchemaType, "KEYWORD", None),
-                    "integer": getattr(PayloadSchemaType, "INTEGER", None),
-                    "float": getattr(PayloadSchemaType, "FLOAT", None),
+                    "keyword": getattr(payload_schema_type, "KEYWORD", None),
+                    "integer": getattr(payload_schema_type, "INTEGER", None),
+                    "float": getattr(payload_schema_type, "FLOAT", None),
                 }
                 return mapping.get(t, t)
 
@@ -186,25 +194,23 @@ class QdrantVectorStore(BaseVectorStore):
                 ("span_end", _schema("integer")),
             ]
             for field_name, field_schema in idx_specs:
-                try:
+                # Ignore if the index already exists or is unsupported.
+                with contextlib.suppress(Exception):
                     self.client.create_payload_index(
                         collection_name=self.collection_name,
                         field_name=field_name,
                         field_schema=field_schema,
                     )
-                except Exception:
-                    # Ignore if already exists or unsupported
-                    pass
         except Exception:
             return
 
     def _build_filter(
-        self, metadata_filter: Optional[Dict[str, Any]] = None
-    ) -> Optional[Filter]:
+        self, metadata_filter: dict[str, Any] | None = None
+    ) -> Filter | None:
         if not metadata_filter:
             return None
-        must: List[Any] = []
-        must_not: List[Any] = []
+        must: list[Any] = []
+        must_not: list[Any] = []
         dup_set = {
             "language",
             "source_type",
@@ -217,22 +223,17 @@ class QdrantVectorStore(BaseVectorStore):
         }
         for k, v in metadata_filter.items():
             # Resolve key: prefer top-level duplicated keys; allow dotted paths; else nested under metadata.
-            if k in dup_set:
-                key = k
-            elif "." in k:
-                key = k
-            else:
-                key = f"metadata.{k}"
+            key = k if k in dup_set or "." in k else f"metadata.{k}"
             if isinstance(v, dict):
                 # Membership
                 if "$in" in v:
-                    must.append(FieldCondition(key=key, match=MatchAny(any=v["$in"])))  # type: ignore
+                    must.append(FieldCondition(key=key, match=MatchAny(any=v["$in"])))
                 if "$nin" in v:
                     must_not.append(
                         FieldCondition(key=key, match=MatchAny(any=v["$nin"]))
-                    )  # type: ignore
+                    )
                 # Range
-                rng: Dict[str, Any] = {}
+                rng: dict[str, Any] = {}
                 if "$gte" in v:
                     rng["gte"] = v["$gte"]
                 if "$gt" in v:
@@ -242,27 +243,25 @@ class QdrantVectorStore(BaseVectorStore):
                 if "$lt" in v:
                     rng["lt"] = v["$lt"]
                 if rng:
-                    must.append(FieldCondition(key=key, range=Range(**rng)))  # type: ignore
+                    must.append(FieldCondition(key=key, range=Range(**rng)))
                 # Equality
                 if "$eq" in v:
                     must.append(
                         FieldCondition(key=key, match=MatchValue(value=v["$eq"]))
-                    )  # type: ignore
+                    )
                 if "$ne" in v:
                     must_not.append(
                         FieldCondition(key=key, match=MatchValue(value=v["$ne"]))
-                    )  # type: ignore
+                    )
             elif isinstance(v, list):
-                must.append(FieldCondition(key=key, match=MatchAny(any=v)))  # type: ignore
+                must.append(FieldCondition(key=key, match=MatchAny(any=v)))
             else:
-                must.append(FieldCondition(key=key, match=MatchValue(value=v)))  # type: ignore
+                must.append(FieldCondition(key=key, match=MatchValue(value=v)))
         return Filter(must=must, must_not=must_not) if (must or must_not) else None
 
     def _recreate_collection_with_size(self, size: int) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.client.delete_collection(self.collection_name)
-        except Exception:
-            pass
         self.client.create_collection(
             collection_name=self.collection_name,
             vectors_config=VectorParams(size=size, distance=self._distance()),
@@ -271,8 +270,8 @@ class QdrantVectorStore(BaseVectorStore):
 
     @log_store_errors("add_documents")
     async def add_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         if not documents:
             return []
         # Validate / auto-adjust dimension for empty collection
@@ -295,9 +294,9 @@ class QdrantVectorStore(BaseVectorStore):
             except Exception:
                 pass
 
-        def _payload_for(d: VectorDocument) -> Dict[str, Any]:
+        def _payload_for(d: VectorDocument) -> dict[str, Any]:
             normalized_meta, duplicates = self._prepare_metadata(d.metadata or {})
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "content": d.content,
                 "metadata": normalized_meta,
                 "_doc_id": d.id,
@@ -316,7 +315,7 @@ class QdrantVectorStore(BaseVectorStore):
 
         started = time.time()
 
-        def _upsert():
+        def _upsert() -> None:
             # Auto-batch for large inserts
             batch_size = int(
                 kwargs.get(
@@ -347,10 +346,10 @@ class QdrantVectorStore(BaseVectorStore):
     @log_store_errors("add_texts")
     async def add_texts(
         self,
-        texts: List[str],
-        embeddings: Optional[List[List[float]]] = None,
-        metadata: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[str]:
+        texts: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadata: list[dict[str, Any]] | None = None,
+    ) -> list[str]:
         if not texts:
             return []
         if embeddings is None:
@@ -358,7 +357,7 @@ class QdrantVectorStore(BaseVectorStore):
         normalized_meta = [
             self._prepare_metadata(m)[0] for m in (metadata or [{} for _ in texts])
         ]
-        docs: List[VectorDocument] = []
+        docs: list[VectorDocument] = []
         for i, t in enumerate(texts):
             doc_meta = normalized_meta[i] if i < len(normalized_meta) else {}
             emb = embeddings[i] if i < len(embeddings) else []
@@ -374,20 +373,20 @@ class QdrantVectorStore(BaseVectorStore):
 
     @log_store_errors("update_documents")
     async def update_documents(
-        self, documents: List[VectorDocument], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[VectorDocument], **kwargs: Any
+    ) -> list[str]:
         return await self.add_documents(documents, **kwargs)
 
     @log_store_errors("delete_documents")
     async def delete_documents(
-        self, document_ids: List[str], **kwargs: Any
-    ) -> List[str]:
+        self, document_ids: list[str], **kwargs: Any
+    ) -> list[str]:
         if not document_ids:
             return []
 
         started = time.time()
 
-        def _delete():
+        def _delete() -> None:
             self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=[self._to_qdrant_id(i) for i in document_ids],
@@ -407,13 +406,13 @@ class QdrantVectorStore(BaseVectorStore):
 
     @log_store_errors("search")
     async def search(
-        self, query_embedding: List[float], top_k: int = 10, **kwargs: Any
+        self, query_embedding: list[float], top_k: int = 10, **kwargs: Any
     ) -> SearchResult:
         flt = self._build_filter(kwargs.get("filters"))
 
         started = time.time()
 
-        def _search():
+        def _search() -> Any:
             if hasattr(self.client, "search"):
                 return self.client.search(
                     collection_name=self.collection_name,
@@ -431,7 +430,7 @@ class QdrantVectorStore(BaseVectorStore):
 
         res = await self._to_thread(_search)
         duration = time.time() - started
-        docs: List[VectorDocument] = []
+        docs: list[VectorDocument] = []
         for pt in res:
             try:
                 payload = pt.payload or {}
@@ -449,10 +448,8 @@ class QdrantVectorStore(BaseVectorStore):
                     score=float(getattr(pt, "score", 0.0)),
                 )
             )
-        try:
+        with contextlib.suppress(Exception):
             docs.sort(key=lambda d: d.score or 0.0, reverse=True)
-        except Exception:
-            pass
         # Optional threshold filtering
         thr = kwargs.get("similarity_threshold")
         if thr is not None:
@@ -475,10 +472,10 @@ class QdrantVectorStore(BaseVectorStore):
     @log_store_errors("query")
     async def query(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
-        similarity_threshold: Optional[float] = None,
-    ) -> List[VectorDocument]:
+        similarity_threshold: float | None = None,
+    ) -> list[VectorDocument]:
         """Compatibility method returning list of documents with optional threshold."""
         res = await self.search(query_embedding, top_k=top_k)
         docs = list(res.documents)
@@ -486,15 +483,13 @@ class QdrantVectorStore(BaseVectorStore):
             docs = [
                 d for d in docs if d.score is None or d.score >= similarity_threshold
             ]
-        try:
+        with contextlib.suppress(Exception):
             docs.sort(key=lambda d: d.score or 0.0, reverse=True)
-        except Exception:
-            pass
         return docs
 
     @log_store_errors("get_document")
-    async def get_document(self, document_id: str) -> Optional[VectorDocument]:
-        def _retrieve():
+    async def get_document(self, document_id: str) -> VectorDocument | None:
+        def _retrieve() -> Any:
             return self.client.retrieve(
                 collection_name=self.collection_name, ids=[self._to_qdrant_id(document_id)]
             )
@@ -515,18 +510,18 @@ class QdrantVectorStore(BaseVectorStore):
         )
 
     @log_store_errors("get_documents")
-    async def get_documents(self, document_ids: List[str]) -> List[VectorDocument]:
+    async def get_documents(self, document_ids: list[str]) -> list[VectorDocument]:
         if not document_ids:
             return []
 
-        def _retrieve():
+        def _retrieve() -> Any:
             return self.client.retrieve(
                 collection_name=self.collection_name,
                 ids=[self._to_qdrant_id(i) for i in document_ids],
             )
 
         pts = await self._to_thread(_retrieve)
-        out: List[VectorDocument] = []
+        out: list[VectorDocument] = []
         for pt in pts or []:
             try:
                 payload = pt.payload or {}
@@ -553,7 +548,7 @@ class QdrantVectorStore(BaseVectorStore):
     async def clear(self) -> None:
         started = time.time()
 
-        def _clear():
+        def _clear() -> None:
             self.client.delete_collection(self.collection_name)
             self.client.create_collection(
                 collection_name=self.collection_name,
@@ -574,17 +569,17 @@ class QdrantVectorStore(BaseVectorStore):
         await self._sync_metrics_size()
 
     @log_store_errors("save")
-    async def save(self, path: Optional[str] = None) -> None:
+    async def save(self, path: str | None = None) -> None:
         return None  # managed by Qdrant
 
     @log_store_errors("load")
-    async def load(self, path: Optional[str] = None) -> None:
+    async def load(self, path: str | None = None) -> None:
         return None  # managed by Qdrant
 
     def count(self) -> int:  # compatibility helper
         return self.get_document_count()
 
-    async def health_check(self) -> Dict[str, Any]:  # type: ignore[override]
+    async def health_check(self) -> dict[str, Any]:
         try:
             _ = self.get_document_count()
             return {
@@ -605,12 +600,12 @@ class QdrantVectorStore(BaseVectorStore):
     async def update_hnsw_config(
         self,
         *,
-        hnsw_m: Optional[int] = None,
-        hnsw_ef_construct: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        hnsw_m: int | None = None,
+        hnsw_ef_construct: int | None = None,
+    ) -> dict[str, Any]:
         """Attempt to update HNSW config in-place. Falls back to no-op if unsupported."""
         try:
-            from qdrant_client.models import HnswConfigDiff  # type: ignore
+            from qdrant_client.models import HnswConfigDiff
 
             diff = HnswConfigDiff(m=hnsw_m, ef_construct=hnsw_ef_construct)
             self.client.update_collection(
@@ -627,18 +622,16 @@ class QdrantVectorStore(BaseVectorStore):
         hnsw_m: int = 16,
         hnsw_ef_construct: int = 200,
         batch_size: int = 1000,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Recreate the collection with new HNSW parameters (best-effort)."""
-        docs: List[VectorDocument] = []
-        async for d in self.iter_all_documents(batch_size=batch_size):  # type: ignore
-            docs.append(d)
-        try:
+        docs: list[VectorDocument] = [
+            d async for d in self.iter_all_documents(batch_size=batch_size)
+        ]
+        with contextlib.suppress(Exception):
             self.client.delete_collection(self.collection_name)
-        except Exception:
-            pass
         # Recreate
         try:
-            from qdrant_client.models import HnswConfigDiff  # type: ignore
+            from qdrant_client.models import HnswConfigDiff
 
             self.client.create_collection(
                 collection_name=self.collection_name,
@@ -660,11 +653,11 @@ class QdrantVectorStore(BaseVectorStore):
         return {"status": "ok", "reinserted": len(docs)}
 
     # ---------- Hybrid search & reranking ----------
-    def _extract_keywords(self, query: str) -> List[str]:
+    def _extract_keywords(self, query: str) -> list[str]:
         q = (query or "").strip().lower()
         words = [w for w in q.replace("\n", " ").split(" ") if len(w) > 2]
-        seen: Dict[str, None] = {}
-        out: List[str] = []
+        seen: dict[str, None] = {}
+        out: list[str] = []
         for w in words:
             if w not in seen:
                 seen[w] = None
@@ -672,10 +665,10 @@ class QdrantVectorStore(BaseVectorStore):
         return out[:16]
 
     def _simple_rerank(
-        self, query: str, documents: List[VectorDocument]
-    ) -> List[VectorDocument]:
+        self, query: str, documents: list[VectorDocument]
+    ) -> list[VectorDocument]:
         q_words = set((query or "").lower().split())
-        rescored: List[VectorDocument] = []
+        rescored: list[VectorDocument] = []
         for d in documents:
             doc_words = set((d.content or "").lower().split())
             overlap = len(q_words & doc_words) / max(len(q_words) or 1, 1)
@@ -696,7 +689,7 @@ class QdrantVectorStore(BaseVectorStore):
     async def hybrid_search(
         self,
         query: str,
-        query_embedding: List[float],
+        query_embedding: list[float],
         alpha: float = 0.7,
         top_k: int = 10,
         **kwargs: Any,
@@ -704,7 +697,7 @@ class QdrantVectorStore(BaseVectorStore):
         sem_res = await self.search(query_embedding, top_k=top_k * 2)
         sem_docs = sem_res.documents
         q_words = set((query or "").lower().split())
-        rescored: List[VectorDocument] = []
+        rescored: list[VectorDocument] = []
         for d in sem_docs:
             doc_words = set((d.content or "").lower().split())
             overlap = len(q_words & doc_words) / max(len(q_words) or 1, 1)
@@ -721,20 +714,20 @@ class QdrantVectorStore(BaseVectorStore):
         rescored.sort(key=lambda x: x.score or 0.0, reverse=True)
         out = rescored[:top_k]
         if kwargs.get("enable_reranking", True) and out:
-            try:
+            with contextlib.suppress(Exception):
                 out = self._simple_rerank(query, out)
-            except Exception:
-                pass
         return SearchResult(
             documents=out, query_embedding=query_embedding, total_results=len(out)
         )
 
     # --------- Optional iteration helpers for migration ---------
-    async def iter_all_documents(self, batch_size: int = 1000):  # pragma: no cover
+    async def iter_all_documents(
+        self, batch_size: int = 1000
+    ) -> AsyncIterator[VectorDocument]:  # pragma: no cover
         offset = None
         while True:
 
-            def _scroll(current_offset=offset):
+            def _scroll(current_offset: Any = offset) -> Any:
                 return self.client.scroll(
                     collection_name=self.collection_name,
                     with_payload=True,
@@ -765,7 +758,7 @@ class QdrantVectorStore(BaseVectorStore):
     def _sanitize_metadata_value(self, value: Any) -> Any:
         if value is None:
             return None
-        if isinstance(value, (str, int, float, bool)):
+        if isinstance(value, str | int | float | bool):
             return value
         if isinstance(value, list):
             return [self._sanitize_metadata_value(v) for v in value]
@@ -774,9 +767,9 @@ class QdrantVectorStore(BaseVectorStore):
         return str(value)
 
     def _prepare_metadata(
-        self, metadata: Dict[str, Any]
-    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-        normalized: Dict[str, Any] = {}
+        self, metadata: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        normalized: dict[str, Any] = {}
         for key, value in metadata.items():
             normalized[key] = self._sanitize_metadata_value(value)
 
@@ -787,7 +780,7 @@ class QdrantVectorStore(BaseVectorStore):
             if "end" in span and "span_end" not in normalized:
                 normalized["span_end"] = span["end"]
 
-        duplicates: Dict[str, Any] = {}
+        duplicates: dict[str, Any] = {}
         for key in self._DUP_KEYS:
             if key in normalized:
                 duplicates[key] = normalized[key]
@@ -804,7 +797,7 @@ class QdrantVectorStore(BaseVectorStore):
                 return
         metrics_manager.update_vector_store_size(size, store_type=self.store_type_label)
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         """
         Get comprehensive statistics about the Qdrant vector store.
 
@@ -845,7 +838,7 @@ class QdrantVectorStore(BaseVectorStore):
                 "error": str(e),
             }
 
-    def get_store_info(self) -> Dict[str, Any]:
+    def get_store_info(self) -> dict[str, Any]:
         """
         Get comprehensive information about this Qdrant store instance.
 
@@ -877,7 +870,7 @@ class QdrantVectorStore(BaseVectorStore):
                 "error": str(e),
             }
 
-    async def _get_collection_info(self) -> Dict[str, Any]:
+    async def _get_collection_info(self) -> dict[str, Any]:
         """
         Get detailed information about the Qdrant collection.
 
@@ -886,7 +879,7 @@ class QdrantVectorStore(BaseVectorStore):
         """
         try:
 
-            def _get_info():
+            def _get_info() -> dict[str, Any]:
                 return {
                     "name": self.collection_name,
                     "count": self.client.count(self.collection_name).count,
@@ -898,7 +891,7 @@ class QdrantVectorStore(BaseVectorStore):
             logger.error(f"Error getting collection info: {e}")
             return {"error": str(e)}
 
-    async def add_chunks(self, chunks: List[Any], **kwargs: Any) -> List[str]:
+    async def add_chunks(self, chunks: list[Any], **kwargs: Any) -> list[str]:
         """
         Add text chunks with semantic metadata to Qdrant store.
 
@@ -910,7 +903,7 @@ class QdrantVectorStore(BaseVectorStore):
             List[str]: List of chunk IDs that were added
         """
         # Convert chunks to VectorDocuments
-        documents = []
+        documents: list[VectorDocument] = []
         for i, chunk in enumerate(chunks):
             # Extract content and metadata from chunk
             content = getattr(chunk, "content", str(chunk))
@@ -946,8 +939,8 @@ class QdrantVectorStore(BaseVectorStore):
         return await self.add_documents(documents, **kwargs)
 
     async def add_documents_from_loader(
-        self, documents: List[Any], **kwargs: Any
-    ) -> List[str]:
+        self, documents: list[Any], **kwargs: Any
+    ) -> list[str]:
         """
         Add documents directly from loaders with rich metadata to Qdrant store.
 
@@ -959,7 +952,7 @@ class QdrantVectorStore(BaseVectorStore):
             List[str]: List of document IDs that were added
         """
         # Convert loader documents to VectorDocuments
-        vector_docs = []
+        vector_docs: list[VectorDocument] = []
         for doc in documents:
             # Extract document information
             doc_id = getattr(doc, "id", f"doc_{len(vector_docs)}")
@@ -1000,8 +993,8 @@ class QdrantVectorStore(BaseVectorStore):
         return await self.add_documents(vector_docs, **kwargs)
 
     async def get_documents_by_metadata(
-        self, metadata_filter: Dict[str, Any]
-    ) -> List[VectorDocument]:
+        self, metadata_filter: dict[str, Any]
+    ) -> list[VectorDocument]:
         """
         Get documents filtered by metadata from Qdrant store.
 
@@ -1028,7 +1021,7 @@ class QdrantVectorStore(BaseVectorStore):
 
     async def semantic_search(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
         similarity_threshold: float = 0.7,
         **kwargs: Any,

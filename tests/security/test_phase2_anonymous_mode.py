@@ -94,6 +94,7 @@ def production_defaults(monkeypatch):
 
 
 def test_default_configuration_requires_authentication(production_defaults):
+    del production_defaults
     with api_client(multi_tenant_enabled=False) as (client, rag):
         for name, response in _call_all_routes(client).items():
             assert response.status_code == status.HTTP_401_UNAUTHORIZED, name
@@ -175,6 +176,7 @@ def test_startup_warning_when_insecure_mode_is_enabled(monkeypatch):
 
 
 def test_startup_warning_when_api_is_locked(production_defaults):
+    del production_defaults
     with patch.object(access_mode, "logger") as fake_logger:
         assert log_access_mode_warnings(multi_tenant_enabled=False) == "locked"
     assert "401" in fake_logger.warning.call_args[0][0]
@@ -189,6 +191,7 @@ def test_startup_warning_when_allow_anonymous_is_ignored_outside_development(mon
 
 
 def test_multi_tenant_mode_is_reported_as_authenticated(production_defaults):
+    del production_defaults
     with patch.object(access_mode, "logger") as fake_logger:
         assert log_access_mode_warnings(multi_tenant_enabled=True) == "authenticated"
     fake_logger.warning.assert_not_called()

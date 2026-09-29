@@ -7,20 +7,22 @@ helpers when available. Falls back gracefully when full export is not possible.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any, AsyncIterator, Dict, List, Optional
+import contextlib
+from typing import TYPE_CHECKING, Any
 
 from ragbot.outputs.logger import logger
 from ragbot.rag import BaseVectorStore, VectorDocument, VectorStoreFactory
-from ragbot.configs.settings import settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 async def _iter_docs_generic(store: BaseVectorStore) -> AsyncIterator[VectorDocument]:
     # Prefer store-specific iterators
     if hasattr(store, "iter_all_documents") and callable(
-        getattr(store, "iter_all_documents")
+        store.iter_all_documents
     ):
-        async for d in store.iter_all_documents():  # type: ignore[attr-defined]
+        async for d in store.iter_all_documents():
             yield d
         return
 
@@ -34,10 +36,8 @@ async def _iter_docs_generic(store: BaseVectorStore) -> AsyncIterator[VectorDocu
 
     # Last resort: attempt sampling via count and bail
     count = 0
-    try:
+    with contextlib.suppress(Exception):
         count = int(store.get_document_count())
-    except Exception:
-        pass
     if count == 0:
         return
     raise NotImplementedError(
@@ -50,11 +50,11 @@ async def migrate_stores(
     target_type: str,
     *,
     batch_size: int = 500,
-    source_kwargs: Optional[Dict[str, Any]] = None,
-    target_kwargs: Optional[Dict[str, Any]] = None,
+    source_kwargs: dict[str, Any] | None = None,
+    target_kwargs: dict[str, Any] | None = None,
     rollback_on_failure: bool = False,
-    progress_cb: Optional[Any] = None,
-) -> Dict[str, Any]:
+    progress_cb: Any | None = None,
+) -> dict[str, Any]:
     """Migrate documents from one store to another.
 
     Returns a summary dict.
@@ -68,8 +68,8 @@ async def migrate_stores(
     migrated = 0
     failed = 0
     total = 0
-    batch: List[VectorDocument] = []
-    migrated_ids: List[str] = []
+    batch: list[VectorDocument] = []
+    migrated_ids: list[str] = []
 
     # Try to estimate total for progress
     try:
@@ -88,10 +88,8 @@ async def migrate_stores(
                         migrated_ids.extend(added)
                 except Exception as e:
                     failed += len(batch)
-                    try:
+                    with contextlib.suppress(Exception):
                         logger.error(f"Migration batch failed: {e}")
-                    except Exception:
-                        pass
                     # Rollback previously migrated docs if requested
                     if rollback_on_failure and migrated_ids:
                         try:
@@ -111,7 +109,7 @@ async def migrate_stores(
                 batch = []
                 # Progress callback after each batch
                 if callable(progress_cb):
-                    try:
+                    with contextlib.suppress(Exception):
                         progress_cb(
                             {
                                 "migrated": migrated,
@@ -120,8 +118,6 @@ async def migrate_stores(
                                 "phase": "migrating",
                             }
                         )
-                    except Exception:
-                        pass
         if batch:
             try:
                 added = await tgt.add_documents(batch)
@@ -130,10 +126,8 @@ async def migrate_stores(
                     migrated_ids.extend(added)
             except Exception as e:
                 failed += len(batch)
-                try:
+                with contextlib.suppress(Exception):
                     logger.error(f"Migration batch failed: {e}")
-                except Exception:
-                    pass
                 if rollback_on_failure and migrated_ids:
                     try:
                         await tgt.delete_documents(migrated_ids)
@@ -150,7 +144,7 @@ async def migrate_stores(
                     }
         # Final progress callback
         if callable(progress_cb):
-            try:
+            with contextlib.suppress(Exception):
                 progress_cb(
                     {
                         "migrated": migrated,
@@ -159,8 +153,6 @@ async def migrate_stores(
                         "phase": "completed",
                     }
                 )
-            except Exception:
-                pass
     except NotImplementedError as e:
         return {
             "status": "unsupported",
@@ -182,10 +174,10 @@ async def verify_migration(
     source_type: str,
     target_type: str,
     *,
-    source_kwargs: Optional[Dict[str, Any]] = None,
-    target_kwargs: Optional[Dict[str, Any]] = None,
-    sample_ids: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    source_kwargs: dict[str, Any] | None = None,
+    target_kwargs: dict[str, Any] | None = None,
+    sample_ids: list[str] | None = None,
+) -> dict[str, Any]:
     """Verify migration by comparing counts and sampling a few IDs if provided."""
     source_kwargs = source_kwargs or {}
     target_kwargs = target_kwargs or {}
@@ -196,10 +188,10 @@ async def verify_migration(
     src_count = src.get_document_count()
     tgt_count = tgt.get_document_count()
 
-    result: Dict[str, Any] = {"source_count": src_count, "target_count": tgt_count}
+    result: dict[str, Any] = {"source_count": src_count, "target_count": tgt_count}
 
     if sample_ids:
-        mismatches: List[str] = []
+        mismatches: list[str] = []
         for doc_id in sample_ids:
             sdoc = await src.get_document(doc_id)
             tdoc = await tgt.get_document(doc_id)

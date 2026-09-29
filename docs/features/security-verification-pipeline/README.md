@@ -12,8 +12,8 @@ The workflow is `.github/workflows/ci.yml` (workflow name "Verification Pipeline
 |---|---|---|---|
 | `Tests (Python 3.10)`, `Tests (Python 3.11)`, `Tests (Python 3.12)` | Blocking | The full test suite, with Redis | A test fails or has an error, a test file cannot be collected, or no test runs. Skipped tests are allowed; the report lists each one with its reason. |
 | `Security Regression Suite (Python 3.10)`, `(Python 3.11)`, `(Python 3.12)` | Blocking | The security tests of `tests/security/suite_manifest.json`, in their own job, with Redis | A security test fails, has an error, is skipped or is marked xfail. A security test file is skipped or cannot be collected. A test of the manifest is missing, or a collected test is not in the manifest. |
-| `Static Analysis (ruff, report-only)` | Report-only | The Ruff rules of `pyproject.toml` (Ruff 0.12.12, `ruff check .`) | Ruff reports findings. The run is not blocked. |
-| `Static Analysis (mypy, report-only)` | Report-only | Types in `ragbot` (MyPy 1.10.1, `mypy ragbot --ignore-missing-imports`, as `make type-check`) | MyPy reports errors. The run is not blocked. |
+| `Static Analysis (ruff, blocking)` | Blocking | The Ruff rules of `pyproject.toml` (Ruff 0.12.12, `ruff check .`) | Ruff reports findings. |
+| `Static Analysis (mypy, blocking)` | Blocking | Types in `ragbot` (MyPy 1.10.1, `mypy ragbot --ignore-missing-imports`, as `make type-check`) | MyPy reports errors. |
 | `Static Analysis (bandit, blocking)` | Blocking | Insecure code patterns in `ragbot` (Bandit 1.7.9 with the `[tool.bandit]` settings) | A HIGH or MEDIUM finding remains, or Bandit cannot run. LOW findings stay visible but do not fail the gate. |
 | `Dependency Vulnerability Check` | Blocking | `uv.lock` is current, the generated `requirements.txt` export has no drift, and the locked default production environment has no blocking advisory (pip-audit 2.10.1 with OSV) | The lock/export drifts, the locked install fails, an advisory is HIGH, CRITICAL or of unknown severity without an accepted exception, an exception is invalid, or a package cannot be audited. |
 | `Optional Extra Audit (<extra>)` | Report-only | Each declared optional extra (`dev`, `test`, `full`, `offline`, `ocr`, `ml`, `hf`, `vectorstores`, `docs`) is resolved from `uv.lock`, installed in isolation and audited | Findings keep the audit step failed/visible but do not weaken the blocking default-install dependency gate. |
@@ -22,7 +22,7 @@ The workflow is `.github/workflows/ci.yml` (workflow name "Verification Pipeline
 
 The workflow runs on `ubuntu-24.04` with read-only repository permissions. Every action is pinned to a commit SHA, and checkout does not keep the token. Runs of the same pull request cancel older runs. Pushes to `main` are never cancelled.
 
-A Report-Only Check keeps a visible failed step when findings are present and uses `continue-on-error` only at the policy boundary. Ruff and MyPy remain report-only. Optional-extra dependency audits are also report-only because some extras can carry upstream advisories without weakening the default-install gate. Bandit is no longer report-only: HIGH and MEDIUM findings are blocking, while LOW findings remain in its JSON report and logs.
+A Report-Only Check keeps a visible failed step when findings are present and uses `continue-on-error` only at the policy boundary. In Phase 4, Ruff and MyPy were promoted to Blocking checks following full remediation of static quality debt. Optional-extra dependency audits remain report-only because some extras carry upstream advisories without weakening the default-install gate. Bandit remains blocking: HIGH and MEDIUM findings block, while LOW findings remain in its JSON report and logs.
 
 ## Required status checks
 
@@ -34,9 +34,9 @@ Branch protection of `main` requires these checks, from GitHub Actions:
 - `Container Build Check`
 - `Verification Summary`
 
-`Static Analysis (bandit, blocking)` is enforced transitively by the required `Verification Summary`: the summary waits for the static-analysis matrix and fails when the Bandit report is not `pass`. A separate required-check entry is optional if branch protection is later changed to require every constituent job directly.
+`Static Analysis (ruff, blocking)`, `Static Analysis (mypy, blocking)`, and `Static Analysis (bandit, blocking)` are enforced transitively by the required `Verification Summary`: the summary waits for the static-analysis matrix and fails when any static analysis report is not `pass`. A separate required-check entry is optional if branch protection is later changed to require every constituent job directly.
 
-The branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. Ruff and MyPy are not required checks; Bandit is blocking through the required Verification Summary.
+The branch must be up to date with `main` before a merge. The rules apply to administrators too. Force pushes and branch deletion are not allowed. Ruff, MyPy, and Bandit are blocking through the required Verification Summary.
 
 If you rename a job or change the Python versions, update the required checks in the branch protection settings in the same change. Otherwise a pull request waits for a check that never reports.
 
@@ -68,7 +68,7 @@ The manifest diff then shows the change in review. A pull request that removes a
 
 ## Static analysis policy
 
-Ruff, MyPy and Bandit use the versions pinned in the `dev` extra of `pyproject.toml` and resolved by `uv.lock`. Ruff and MyPy remain Report-Only under the currently approved policy. Bandit runs in Blocking mode.
+Ruff, MyPy and Bandit use the versions pinned in the `dev` extra of `pyproject.toml` and resolved by `uv.lock`. In Phase 4, Ruff and MyPy were promoted to Blocking checks following full remediation of static quality debt. Bandit runs in Blocking mode for HIGH and MEDIUM findings.
 
 Bandit's blocking policy is severity-aware: HIGH and MEDIUM findings fail the check; LOW findings stay visible in the report and job log. Suppressions must be narrow and justified. The repository does not use a broad Bandit skip to make the gate green.
 

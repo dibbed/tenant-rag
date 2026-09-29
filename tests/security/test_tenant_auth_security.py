@@ -15,11 +15,10 @@ Verifies:
 - Super-admin authorization bypass
 """
 
-from datetime import datetime, timedelta
-import hashlib
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -29,16 +28,8 @@ from ragbot.api.dependencies import (
     get_integration_service_dep,
     get_rag_service_dep,
 )
-from ragbot.configs.settings import Settings, MultiTenantSettings
-from ragbot.multi_tenant.models import (
-    TenantApiKey,
-    TenantConfig,
-    TenantPlan,
-    TenantStatus,
-    TenantTier,
-    TenantUser,
-)
-from ragbot.multi_tenant.tenant_auth import TenantAuth, UserRole, Permission
+from ragbot.configs.settings import MultiTenantSettings, Settings
+from ragbot.multi_tenant.tenant_auth import Permission, TenantAuth, UserRole
 from ragbot.multi_tenant.tenant_manager import TenantManager
 from ragbot.services.rag_service import IngestResult, QueryResult
 
@@ -172,12 +163,13 @@ async def test_cross_tenant_boundaries_forbidden(
     security_tenant_manager, security_tenant_auth, security_test_client, security_rag_service
 ):
     """Verify that Tenant A cannot query, ingest into, or reset Tenant B."""
+    del security_rag_service
     # 1. Provision Tenant A and Tenant B
-    tenant_a = await security_tenant_manager.create_tenant(
+    _tenant_a = await security_tenant_manager.create_tenant(
         name="Tenant A Corp",
         tenant_id="tenant_a",
     )
-    tenant_b = await security_tenant_manager.create_tenant(
+    _tenant_b = await security_tenant_manager.create_tenant(
         name="Tenant B Corp",
         tenant_id="tenant_b",
     )
@@ -242,7 +234,7 @@ async def test_reset_requires_admin_role(
     security_tenant_manager, security_tenant_auth, security_test_client
 ):
     """Verify that a non-admin user within Tenant A cannot reset Tenant A's store."""
-    tenant = await security_tenant_manager.create_tenant(
+    _tenant = await security_tenant_manager.create_tenant(
         name="Reset Test Corp",
         tenant_id="tenant_reset",
     )
@@ -280,7 +272,7 @@ async def test_super_admin_can_reset_any_tenant(
     security_tenant_manager, security_tenant_auth, security_test_client
 ):
     """Verify that a super_admin principal can perform operations across tenants."""
-    tenant = await security_tenant_manager.create_tenant(
+    _tenant = await security_tenant_manager.create_tenant(
         name="Target Corp",
         tenant_id="target_tenant",
     )
@@ -331,7 +323,7 @@ async def test_expired_api_key_rejected(
     security_tenant_manager, security_tenant_auth, security_test_client
 ):
     """Verify that an expired API key returns 401 Unauthorized."""
-    tenant = await security_tenant_manager.create_tenant(
+    _tenant = await security_tenant_manager.create_tenant(
         name="Expiring Corp",
         tenant_id="tenant_expire",
     )
@@ -357,7 +349,7 @@ async def test_suspended_tenant_denied(
     security_tenant_manager, security_tenant_auth, security_test_client
 ):
     """Verify that a suspended tenant's valid API key is rejected with 403."""
-    tenant = await security_tenant_manager.create_tenant(
+    _tenant = await security_tenant_manager.create_tenant(
         name="Suspended Corp",
         tenant_id="tenant_suspend",
     )
@@ -388,7 +380,7 @@ async def test_immediate_persistent_revocation(
     security_tenant_manager, security_tenant_auth, security_test_client
 ):
     """Verify that revoking an API key immediately invalidates it without restart."""
-    tenant = await security_tenant_manager.create_tenant(
+    _tenant = await security_tenant_manager.create_tenant(
         name="Revoke Corp",
         tenant_id="tenant_revoke",
     )

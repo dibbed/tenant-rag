@@ -18,15 +18,15 @@ import asyncio
 import json
 import os
 import shutil
-from typing import Any, Dict, List
+from typing import Any
 
-from ragbot.rag.store.faiss_store import FAISSVectorStore
 from ragbot.rag import VectorDocument
+from ragbot.rag.store.faiss_store import FAISSVectorStore
 
 
-def _load_jsonl(path: str) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
-    with open(path, "r", encoding="utf-8") as f:
+def _load_jsonl(path: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -48,7 +48,7 @@ async def _build(path: str, jsonl: str | None) -> None:
     store = FAISSVectorStore(index_path=path)
 
     # Prepare documents
-    docs: List[VectorDocument] = []
+    docs: list[VectorDocument] = []
     if jsonl:
         rows = _load_jsonl(jsonl)
         for i, row in enumerate(rows):

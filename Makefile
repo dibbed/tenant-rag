@@ -76,7 +76,7 @@ verify-tests:  ## Run the full test suite with the pipeline gate
 verify-security:  ## Run the Security Regression Suite (the Redis tests need TEST_REDIS_URL)
 	@bash scripts/verify_pipeline.sh security
 
-verify-static:  ## Run Ruff/MyPy report-only and Bandit as a Blocking Check
+verify-static:  ## Run Ruff, MyPy, and Bandit as Blocking Checks
 	@bash scripts/verify_pipeline.sh static
 
 verify-deps:  ## Run the Dependency Vulnerability Check (pip-audit and OSV)

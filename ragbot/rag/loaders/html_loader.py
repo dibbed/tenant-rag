@@ -12,19 +12,20 @@ Docstring style follows Google Python style. All docstrings are in English.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
-import aiohttp
 from bs4 import BeautifulSoup
 
 try:
-    from fake_useragent import UserAgent  # type: ignore
+    from fake_useragent import UserAgent
 
     HAS_FAKE_USERAGENT = True
 except Exception:  # pragma: no cover
-    UserAgent = None  # type: ignore
+    UserAgent = None
     HAS_FAKE_USERAGENT = False
+
+import contextlib
 
 from ragbot.configs.settings import settings
 from ragbot.rag.exceptions import DocumentProcessingError
@@ -40,15 +41,13 @@ from .base import Document, DocumentLoader
 class HTMLLoader(DocumentLoader):
     """Asynchronous loader for HTML documents."""
 
-    async def load(self, file_path: str) -> Document:
-        """Load an HTML document from local file or URL.
-
-        Args:
-            file_path: Local HTML path or HTTP/HTTPS URL
-
-        Returns:
-            Document: Loaded document with text and metadata
-        """
+    async def load(
+        self, source: str | None = None, **kwargs: Any
+    ) -> Document:
+        """Load an HTML document from a local file or URL."""
+        file_path = source if source is not None else kwargs.pop("file_path", None)
+        if not isinstance(file_path, str):
+            raise TypeError("load() requires a source path")
         try:
             # Detect source type
             if file_path.startswith(("http://", "https://")):
@@ -99,19 +98,19 @@ class HTMLLoader(DocumentLoader):
                 resp = req.get(url)
                 if hasattr(resp, "raise_for_status"):
                     resp.raise_for_status()
-                return resp.text
+                return str(resp.text)
 
         timeout_s = max(1.0, float(settings.multi_format.html_timeout))
         retries = max(0, int(settings.multi_format.html_retries))
         headers = self._build_headers(url)
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for attempt in range(retries + 1):
             try:
                 return await fetch_text_safely(url, headers=headers, timeout=timeout_s)
-            except UnsafeURLError:
+            except UnsafeURLError:  # noqa: PERF203 - intentional per-iteration fault isolation
                 # Never retry a blocked target.
                 raise
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 last_exc = e
                 if attempt < retries:
                     await asyncio.sleep(min(1.0 * (attempt + 1), 3.0))
@@ -129,7 +128,7 @@ class HTMLLoader(DocumentLoader):
         """Read HTML from local file asynchronously using a thread."""
         try:
             return await asyncio.to_thread(self._read_file_sync, file_path)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise DocumentProcessingError(
                 "File read failed",
                 document_type="html",
@@ -139,8 +138,7 @@ class HTMLLoader(DocumentLoader):
 
     def _read_file_sync(self, file_path: str) -> str:
         """Synchronous file read helper for to_thread."""
-        f = open(file_path, "r", encoding="utf-8")
-        try:
+        with contextlib.closing(open(file_path, encoding="utf-8")) as f:
             if hasattr(f, "__enter__"):
                 try:
                     with f as file:
@@ -148,11 +146,6 @@ class HTMLLoader(DocumentLoader):
                 except TypeError:
                     return f.read()
             return f.read()
-        finally:
-            try:
-                f.close()
-            except Exception:
-                pass
 
     async def _extract_main_content(self, soup: BeautifulSoup, source: str) -> str:
         """Extract main content with optional heading markers and cleaning."""
@@ -176,6 +169,7 @@ class HTMLLoader(DocumentLoader):
             self._inject_heading_markers_if_enabled(soup)
 
         # Choose extraction strategy
+        text: str
         if settings.multi_format.html_enable_structural_extraction:
             # After marker injection, prefer full document text to include headings
             text = soup.get_text(separator="\n", strip=True)
@@ -186,7 +180,7 @@ class HTMLLoader(DocumentLoader):
                 or soup.find("section")
                 or soup.find("div", class_="content")
             )
-            text = (
+            text = str(
                 main_content.get_text(separator="\n", strip=True)
                 if main_content
                 else soup.get_text(separator="\n", strip=True)
@@ -198,9 +192,9 @@ class HTMLLoader(DocumentLoader):
 
     async def _extract_metadata(
         self, soup: BeautifulSoup, source: str, source_type: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract rich metadata from HTML."""
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "source": source,
             "type": "html",
             "source_type": source_type,
@@ -231,7 +225,7 @@ class HTMLLoader(DocumentLoader):
             )
 
         # OpenGraph/Twitter cards
-        def _get_meta(prop: str, attr: str = "property") -> Optional[str]:
+        def _get_meta(prop: str, attr: str = "property") -> str | None:
             tag = soup.find("meta", attrs={attr: prop})
             return tag.get("content") if tag and tag.get("content") else None
 
@@ -293,7 +287,7 @@ class HTMLLoader(DocumentLoader):
         # Collapse Windows newlines and excessive blank lines
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         lines = [ln.strip() for ln in text.split("\n")]
-        out: List[str] = []
+        out: list[str] = []
         prev_blank = False
         for ln in lines:
             is_blank = len(ln) == 0
@@ -303,9 +297,9 @@ class HTMLLoader(DocumentLoader):
             prev_blank = is_blank
         return "\n".join(out).strip()
 
-    def _extract_headings(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
+    def _extract_headings(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
         """Extract headings h1–h6 with their level and text."""
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for level in range(1, 7):
             for tag in soup.find_all(f"h{level}"):
                 # Prefer original text if marker injection was applied
@@ -330,19 +324,17 @@ class HTMLLoader(DocumentLoader):
                     continue
                 marker = "#" * max(1, min(level, 6))
                 # Replace tag text content with marker + text to persist in get_text
-                try:
+                with contextlib.suppress(Exception):
                     tag["data-original-text"] = txt
-                except Exception:
-                    pass
                 tag.string = f"{marker} {txt}"
 
     def _extract_links(
-        self, soup: BeautifulSoup, base_url: Optional[str]
-    ) -> List[Dict[str, str]]:
+        self, soup: BeautifulSoup, base_url: str | None
+    ) -> list[dict[str, str]]:
         """Extract and absolutize anchors with limits and deduplication."""
         max_links = max(0, int(settings.multi_format.html_max_links))
         seen: set[str] = set()
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         for a in soup.find_all("a", href=True):
             href = a.get("href", "").strip()
             if not href:
@@ -358,11 +350,11 @@ class HTMLLoader(DocumentLoader):
         return out
 
     def _extract_images(
-        self, soup: BeautifulSoup, base_url: Optional[str]
-    ) -> List[Dict[str, str]]:
+        self, soup: BeautifulSoup, base_url: str | None
+    ) -> list[dict[str, str]]:
         """Extract image src/alt with absolute URLs and limit."""
         max_images = max(0, int(settings.multi_format.html_max_images))
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str]] = []
         for img in soup.find_all("img"):
             src = (img.get("src") or "").strip()
             if not src or src.startswith("data:"):
@@ -377,8 +369,8 @@ class HTMLLoader(DocumentLoader):
         return out
 
     def _make_absolute_url(
-        self, url_value: str, base_url: Optional[str]
-    ) -> Optional[str]:
+        self, url_value: str, base_url: str | None
+    ) -> str | None:
         """Convert relative URLs to absolute using base URL when provided."""
         if not url_value:
             return None
@@ -389,7 +381,7 @@ class HTMLLoader(DocumentLoader):
                 return url_value
         return url_value
 
-    def _detect_language_fallback(self, soup: BeautifulSoup) -> Optional[str]:
+    def _detect_language_fallback(self, soup: BeautifulSoup) -> str | None:
         """Detect language via heuristics if html[lang] not present (3-segment voting)."""
         try:
             from langdetect import detect  # lazy import
@@ -407,20 +399,18 @@ class HTMLLoader(DocumentLoader):
                 text[-2000:],
             ]
             for seg in segments:
-                try:
+                with contextlib.suppress(Exception):
                     if seg and seg.strip():
                         votes.append(detect(seg))
-                except Exception:
-                    continue
             if votes:
                 from collections import Counter as _Ctr
 
-                return _Ctr(votes).most_common(1)[0][0]
+                return str(_Ctr(votes).most_common(1)[0][0])
         except Exception:
             return None
         return None
 
-    def _build_headers(self, url: str) -> Dict[str, str]:
+    def _build_headers(self, url: str) -> dict[str, str]:
         """Build HTTP headers including User-Agent and optional cookies/extra headers."""
         ua_mode = settings.multi_format.html_user_agent_mode
         fixed = settings.multi_format.html_user_agent
@@ -436,17 +426,17 @@ class HTMLLoader(DocumentLoader):
                     user_agent = ua.firefox
             except Exception:
                 user_agent = fixed
-        headers: Dict[str, str] = {"User-Agent": user_agent}
+        headers: dict[str, str] = {"User-Agent": user_agent}
         # Custom headers (JSON string of key->value)
         extra_json = settings.multi_format.html_custom_headers
         if extra_json:
             try:
                 import json
 
-                extra: Dict[str, str] = json.loads(extra_json)
-                for k, v in extra.items():
-                    if isinstance(k, str) and isinstance(v, str):
-                        headers[k] = v
+                extra: dict[str, str] = json.loads(extra_json)
+                headers.update(
+                    {k: v for k, v in extra.items() if isinstance(k, str) and isinstance(v, str)}
+                )
             except Exception:
                 pass
         # Cookies header if provided as raw cookie string

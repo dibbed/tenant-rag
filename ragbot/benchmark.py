@@ -6,17 +6,18 @@ This script benchmarks different vector store implementations to help users
 choose the best option for their use case based on performance metrics.
 """
 
-import asyncio
-import time
-import psutil
-import statistics
-from typing import Dict, List, Any, Optional
-from pathlib import Path
-import json
 import argparse
+import asyncio
+import json
+import statistics
+import time
+from pathlib import Path
+from typing import Any
 
-from ragbot.rag import VectorStoreFactory, VectorDocument
+import psutil
+
 from ragbot.outputs.logger import logger
+from ragbot.rag import VectorDocument, VectorStoreFactory
 
 
 class VectorStoreBenchmark:
@@ -43,9 +44,9 @@ class VectorStoreBenchmark:
         self.document_count = document_count
         self.embedding_dimension = embedding_dimension
         self.test_documents = self._generate_test_documents()
-        self.results: Dict[str, Dict[str, Any]] = {}
+        self.results: dict[str, dict[str, Any]] = {}
 
-    def _generate_test_documents(self) -> List[VectorDocument]:
+    def _generate_test_documents(self) -> list[VectorDocument]:
         """Generate test documents with random embeddings."""
         import random
 
@@ -72,7 +73,9 @@ class VectorStoreBenchmark:
 
         return documents
 
-    async def benchmark_store(self, store_type: str, **store_kwargs) -> Dict[str, Any]:
+    async def benchmark_store(
+        self, store_type: str, **store_kwargs: Any
+    ) -> dict[str, Any]:
         """
         Benchmark a specific store type.
 
@@ -123,11 +126,11 @@ class VectorStoreBenchmark:
                 query_embedding = [0.1 + (i * 0.01)] * self.embedding_dimension
 
                 search_start = time.time()
-                results = await store.search(query_embedding, top_k=10)
+                search_result = await store.search(query_embedding, top_k=10)
                 search_time = time.time() - search_start
 
                 search_times.append(search_time)
-                search_results_count.append(len(results.documents))
+                search_results_count.append(len(search_result.documents))
 
             avg_search_time = statistics.mean(search_times)
             min_search_time = min(search_times)
@@ -158,7 +161,7 @@ class VectorStoreBenchmark:
 
                     filter_start = time.time()
                     try:
-                        results = await store.search_with_metadata_filter(
+                        await store.search_with_metadata_filter(
                             query_embedding, filter_dict, top_k=5
                         )
                         filter_time = time.time() - filter_start
@@ -177,7 +180,7 @@ class VectorStoreBenchmark:
             doc_count = store.get_document_count()
 
             # Compile results
-            results = {
+            benchmark_results: dict[str, Any] = {
                 "store_type": store_type,
                 "document_count": doc_count,
                 "embedding_dimension": self.embedding_dimension,
@@ -200,7 +203,7 @@ class VectorStoreBenchmark:
             }
 
             logger.info(f"✅ Completed benchmark for {store_type}")
-            return results
+            return benchmark_results
 
         except Exception as e:
             logger.error(f"❌ Benchmark failed for {store_type}: {e}")
@@ -211,8 +214,8 @@ class VectorStoreBenchmark:
             }
 
     async def run_all_benchmarks(
-        self, stores: Optional[List[str]] = None
-    ) -> Dict[str, Dict[str, Any]]:
+        self, stores: list[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         """
         Run benchmarks for all available stores.
 
@@ -232,10 +235,10 @@ class VectorStoreBenchmark:
         results = {}
 
         for store_type in stores:
-            try:
+            try:  # Keep each backend benchmark failure-isolated.
                 result = await self.benchmark_store(store_type)
                 results[store_type] = result
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.error(f"Failed to benchmark {store_type}: {e}")
                 results[store_type] = {
                     "store_type": store_type,
@@ -245,7 +248,7 @@ class VectorStoreBenchmark:
 
         return results
 
-    def generate_report(self, results: Dict[str, Dict[str, Any]]) -> str:
+    def generate_report(self, results: dict[str, dict[str, Any]]) -> str:
         """
         Generate a human-readable benchmark report.
 
@@ -258,7 +261,7 @@ class VectorStoreBenchmark:
         report = []
         report.append("🚀 Vector Store Performance Benchmark Report")
         report.append("=" * 50)
-        report.append(f"📊 Test Parameters:")
+        report.append("📊 Test Parameters:")
         report.append(f"   • Document Count: {self.document_count:,}")
         report.append(f"   • Embedding Dimension: {self.embedding_dimension}")
         report.append(f"   • Test Time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -372,7 +375,7 @@ class VectorStoreBenchmark:
         return "\n".join(report)
 
     def save_results(
-        self, results: Dict[str, Dict[str, Any]], output_path: str
+        self, results: dict[str, dict[str, Any]], output_path: str
     ) -> None:
         """
         Save benchmark results to JSON file.
@@ -389,7 +392,7 @@ class VectorStoreBenchmark:
         logger.info(f"💾 Results saved to {output_path}")
 
 
-async def main():
+async def main() -> None:
     """Main benchmark execution function."""
     parser = argparse.ArgumentParser(description="Benchmark vector stores")
     parser.add_argument(

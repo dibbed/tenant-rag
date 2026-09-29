@@ -6,7 +6,7 @@
 
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
@@ -40,7 +40,7 @@ class CacheMetricsCollector:
     این کلاس متریک‌های کش را جمع‌آوری و مدیریت می‌کند.
     """
 
-    def __init__(self, registry: CollectorRegistry = None):
+    def __init__(self, registry: CollectorRegistry | None = None) -> None:
         """مقداردهی اولیه جمع‌آورنده متریک‌ها.
 
         Args:
@@ -79,19 +79,19 @@ class CacheMetricsCollector:
             "rag_cache_memory_usage_bytes", "Cache memory usage", registry=self.registry
         )
 
-    def record_cache_hit(self):
+    def record_cache_hit(self) -> None:
         """ثبت cache hit."""
         self.cache_hits.inc()
 
-    def record_cache_miss(self):
+    def record_cache_miss(self) -> None:
         """ثبت cache miss."""
         self.cache_misses.inc()
 
-    def record_cache_eviction(self):
+    def record_cache_eviction(self) -> None:
         """ثبت cache eviction."""
         self.cache_evictions.inc()
 
-    def update_cache_size(self, size: int):
+    def update_cache_size(self, size: int) -> None:
         """به‌روزرسانی اندازه کش.
 
         Args:
@@ -99,7 +99,7 @@ class CacheMetricsCollector:
         """
         self.cache_size.set(size)
 
-    def update_hit_rate(self, hit_rate: float):
+    def update_hit_rate(self, hit_rate: float) -> None:
         """به‌روزرسانی نرخ hit.
 
         Args:
@@ -107,7 +107,7 @@ class CacheMetricsCollector:
         """
         self.cache_hit_rate.set(hit_rate)
 
-    def record_response_time(self, duration: float):
+    def record_response_time(self, duration: float) -> None:
         """ثبت زمان پاسخ.
 
         Args:
@@ -115,7 +115,7 @@ class CacheMetricsCollector:
         """
         self.cache_response_time.observe(duration)
 
-    def update_memory_usage(self, usage: float):
+    def update_memory_usage(self, usage: float) -> None:
         """به‌روزرسانی استفاده از حافظه.
 
         Args:
@@ -123,7 +123,7 @@ class CacheMetricsCollector:
         """
         self.cache_memory_usage.set(usage)
 
-    def get_metrics_summary(self) -> Dict[str, Any]:
+    def get_metrics_summary(self) -> dict[str, Any]:
         """دریافت خلاصه متریک‌ها.
 
         Returns:
@@ -145,16 +145,16 @@ class CachePerformanceAnalyzer:
     این کلاس عملکرد کش را تحلیل و هشدارهای لازم را تولید می‌کند.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """مقداردهی اولیه تحلیلگر عملکرد."""
-        self.performance_history = []
+        self.performance_history: list[dict[str, Any]] = []
         self.alert_thresholds = {
             "hit_rate_min": 0.6,
             "response_time_max": 0.1,
             "memory_usage_max": 0.8,
         }
 
-    async def analyze_performance(self, cache_stats: Dict[str, Any]) -> Dict[str, Any]:
+    async def analyze_performance(self, cache_stats: dict[str, Any]) -> dict[str, Any]:
         """تحلیل عملکرد کش.
 
         Args:
@@ -188,7 +188,7 @@ class CachePerformanceAnalyzer:
 
         return analysis
 
-    async def _analyze_trends(self) -> Dict[str, Any]:
+    async def _analyze_trends(self) -> dict[str, Any]:
         """تحلیل روندها.
 
         Returns:
@@ -209,7 +209,7 @@ class CachePerformanceAnalyzer:
             "performance_stability": self._calculate_stability(hit_rates),
         }
 
-    async def _check_alerts(self, stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _check_alerts(self, stats: dict[str, Any]) -> list[dict[str, Any]]:
         """بررسی هشدارها.
 
         Args:
@@ -244,7 +244,7 @@ class CachePerformanceAnalyzer:
 
         return alerts
 
-    async def _generate_recommendations(self, stats: Dict[str, Any]) -> List[str]:
+    async def _generate_recommendations(self, stats: dict[str, Any]) -> list[str]:
         """تولید توصیه‌ها.
 
         Args:
@@ -279,7 +279,7 @@ class CachePerformanceAnalyzer:
 
         return recommendations
 
-    def _calculate_trend(self, values: List[float]) -> str:
+    def _calculate_trend(self, values: list[float]) -> str:
         """محاسبه روند.
 
         Args:
@@ -310,7 +310,7 @@ class CachePerformanceAnalyzer:
         else:
             return "stable"
 
-    def _calculate_stability(self, values: List[float]) -> float:
+    def _calculate_stability(self, values: list[float]) -> float:
         """محاسبه پایداری.
 
         Args:
@@ -329,7 +329,7 @@ class CachePerformanceAnalyzer:
         # پایداری بر اساس انحراف معیار
         stability = 1.0 - min(std_dev / mean_value, 1.0) if mean_value > 0 else 0.0
 
-        return stability
+        return float(stability)
 
 
 class CacheHealthChecker:
@@ -352,7 +352,7 @@ class CacheHealthChecker:
             "max_eviction_rate": 0.1,
         }
 
-    async def check_health(self) -> Dict[str, Any]:
+    async def check_health(self) -> dict[str, Any]:
         """بررسی سلامت کش.
 
         Returns:

@@ -5,23 +5,25 @@ This module provides comprehensive key management capabilities including
 key generation, storage, rotation, and lifecycle management.
 """
 
-from typing import Dict, List, Any, Optional
-from contextlib import contextmanager
-from dataclasses import dataclass
-from enum import Enum
+import hashlib
 import os
 import sqlite3
 import time
-import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
+from typing import Any
+
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.fernet import Fernet
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
-from ragbot.security.encryption import EncryptionKey, EncryptionAlgorithm
+from ragbot.security.encryption import EncryptionAlgorithm, EncryptionKey
 
 
 class KeyType(Enum):
@@ -55,7 +57,7 @@ class KeyPolicy:
     key_size: int
     expiration_days: int
     rotation_interval_days: int
-    max_documents_per_key: int
+    max_documents_per_key: int | float
     require_backup: bool = True
     allow_export: bool = False
 
@@ -68,7 +70,7 @@ class KeyManager:
     with secure storage and audit capabilities.
     """
 
-    def __init__(self, storage_path: Optional[str] = None):
+    def __init__(self, storage_path: str | None = None):
         """
         Initialize key manager
 
@@ -83,7 +85,7 @@ class KeyManager:
         self.key_path.mkdir(exist_ok=True)
 
         # Key cache for performance
-        self._key_cache: Dict[str, EncryptionKey] = {}
+        self._key_cache: dict[str, EncryptionKey] = {}
         self._cache_ttl = 3600  # 1 hour
 
         # Policies
@@ -95,7 +97,7 @@ class KeyManager:
         logger.info(f"KeyManager initialized with storage at {self.storage_path}")
 
     @contextmanager
-    def _get_connection(self):
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
         """Get managed SQLite connection guaranteeing close() on block exit."""
         conn = sqlite3.connect(self.db_path)
         try:
@@ -107,8 +109,8 @@ class KeyManager:
         self,
         key_type: KeyType,
         algorithm: str = "AES-256",
-        key_size: Optional[int] = None,
-        expires_in_days: Optional[int] = None,
+        key_size: int | None = None,
+        expires_in_days: int | None = None,
     ) -> EncryptionKey:
         """
         Generate new encryption key
@@ -138,10 +140,7 @@ class KeyManager:
             expires_in_days = expires_in_days or 365
 
         # Generate key based on algorithm
-        if algorithm == "AES-256":
-            key_data = os.urandom(32)  # 256 bits
-            encryption_algorithm = EncryptionAlgorithm.AES_256_GCM
-        elif algorithm == "AES-256-GCM":
+        if algorithm == "AES-256" or algorithm == "AES-256-GCM":
             key_data = os.urandom(32)  # 256 bits
             encryption_algorithm = EncryptionAlgorithm.AES_256_GCM
         elif algorithm == "RSA-2048":
@@ -190,7 +189,7 @@ class KeyManager:
         """
         return await self._store_key_securely(key)
 
-    async def retrieve_key(self, key_id: str) -> Optional[EncryptionKey]:
+    async def retrieve_key(self, key_id: str) -> EncryptionKey | None:
         """
         Retrieve encryption key by ID
 
@@ -217,9 +216,10 @@ class KeyManager:
         if key_info["status"] in ["revoked", "compromised"]:
             raise ValueError(f"Key {key_id} has been {key_info['status']}")
 
-        if key_info["status"] == "expired":
-            if not await self._check_key_grace_period(key_id):
-                raise ValueError(f"Key {key_id} has expired")
+        if key_info["status"] == "expired" and not await self._check_key_grace_period(
+            key_id
+        ):
+            raise ValueError(f"Key {key_id} has expired")
 
         # Read key from file
         key_data = await self._read_key_from_file(key_id)
@@ -278,8 +278,8 @@ class KeyManager:
             return False
 
     async def rotate_key(
-        self, key_id: str, new_algorithm: Optional[str] = None
-    ) -> Optional[EncryptionKey]:
+        self, key_id: str, new_algorithm: str | None = None
+    ) -> EncryptionKey | None:
         """
         Rotate encryption key
 
@@ -297,14 +297,13 @@ class KeyManager:
                 return None
 
             # Determine new algorithm
-            if not new_algorithm:
-                new_algorithm = key_info["algorithm"]
+            algorithm = new_algorithm or str(key_info["algorithm"])
 
             # Generate new key
             key_type = KeyType(key_info["key_type"])
             new_key = await self.generate_key(
                 key_type=key_type,
-                algorithm=new_algorithm,
+                algorithm=algorithm,
                 key_size=key_info.get("key_size"),
             )
 
@@ -323,8 +322,8 @@ class KeyManager:
             return None
 
     async def list_keys(
-        self, key_type: Optional[KeyType] = None, status: Optional[KeyStatus] = None
-    ) -> List[Dict[str, Any]]:
+        self, key_type: KeyType | None = None, status: KeyStatus | None = None
+    ) -> list[dict[str, Any]]:
         """
         List encryption keys with optional filtering
 
@@ -358,7 +357,7 @@ class KeyManager:
             keys = []
 
             for row in rows:
-                key_dict = dict(zip(columns, row))
+                key_dict = dict(zip(columns, row, strict=False))
                 # Add additional info
                 key_dict["is_expired"] = self._is_key_expired(key_dict["expires_at"])
                 key_dict["days_until_expiry"] = self._days_until_expiry(
@@ -368,7 +367,7 @@ class KeyManager:
 
             return keys
 
-    async def get_key_statistics(self) -> Dict[str, Any]:
+    async def get_key_statistics(self) -> dict[str, Any]:
         """
         Get key management statistics
 
@@ -431,7 +430,7 @@ class KeyManager:
             encryption_algorithm=serialization.NoEncryption(),
         )
 
-    def _load_default_policies(self) -> Dict[str, KeyPolicy]:
+    def _load_default_policies(self) -> dict[str, KeyPolicy]:
         """Load default key policies"""
         return {
             "master": KeyPolicy(
@@ -476,7 +475,7 @@ class KeyManager:
             ),
         }
 
-    def _initialize_database(self):
+    def _initialize_database(self) -> None:
         """Initialize key management database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -536,7 +535,7 @@ class KeyManager:
 
         return key.key_id
 
-    async def _read_key_from_file(self, key_id: str) -> Optional[bytes]:
+    async def _read_key_from_file(self, key_id: str) -> bytes | None:
         """Read key from secure storage"""
         key_file = self.key_path / f"{key_id}.key"
 
@@ -575,7 +574,7 @@ class KeyManager:
 
     async def _record_key_creation(
         self, key: EncryptionKey, key_type: KeyType, algorithm: str
-    ):
+    ) -> None:
         """Record key creation in database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -596,7 +595,7 @@ class KeyManager:
             )
             conn.commit()
 
-    async def _get_key_info(self, key_id: str) -> Optional[Dict[str, Any]]:
+    async def _get_key_info(self, key_id: str) -> dict[str, Any] | None:
         """Get key information from database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -607,9 +606,9 @@ class KeyManager:
                 return None
 
             columns = [description[0] for description in cursor.description]
-            return dict(zip(columns, row))
+            return dict(zip(columns, row, strict=False))
 
-    async def _update_key_status(self, key_id: str, status: KeyStatus):
+    async def _update_key_status(self, key_id: str, status: KeyStatus) -> None:
         """Update key status in database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -621,7 +620,7 @@ class KeyManager:
             )
             conn.commit()
 
-    async def _log_key_action(self, key_id: str, action: str, details: str):
+    async def _log_key_action(self, key_id: str, action: str, details: str) -> None:
         """Log key action in database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -634,7 +633,7 @@ class KeyManager:
             )
             conn.commit()
 
-    async def _record_key_rotation(self, old_key_id: str, new_key_id: str):
+    async def _record_key_rotation(self, old_key_id: str, new_key_id: str) -> None:
         """Record key rotation in database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -653,25 +652,25 @@ class KeyManager:
         # For now, return False (no grace period)
         return False
 
-    def _cache_key(self, key: EncryptionKey):
+    def _cache_key(self, key: EncryptionKey) -> None:
         """Cache key for performance"""
         self._key_cache[key.key_id] = key
 
-    def _get_cached_key(self, key_id: str) -> Optional[EncryptionKey]:
+    def _get_cached_key(self, key_id: str) -> EncryptionKey | None:
         """Get key from cache"""
         return self._key_cache.get(key_id)
 
-    def _remove_from_cache(self, key_id: str):
+    def _remove_from_cache(self, key_id: str) -> None:
         """Remove key from cache"""
         self._key_cache.pop(key_id, None)
 
-    def _is_key_expired(self, expires_at: Optional[str]) -> bool:
+    def _is_key_expired(self, expires_at: str | None) -> bool:
         """Check if key is expired"""
         if not expires_at:
             return False
         return datetime.now() > datetime.fromisoformat(expires_at)
 
-    def _days_until_expiry(self, expires_at: Optional[str]) -> int:
+    def _days_until_expiry(self, expires_at: str | None) -> int | float:
         """Get days until key expires"""
         if not expires_at:
             return float("inf")

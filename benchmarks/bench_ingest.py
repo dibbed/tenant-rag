@@ -21,18 +21,18 @@ import platform
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Ensure project root in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from ragbot.rag.store.factory import VectorStoreFactory
-from ragbot.rag.store.base import VectorDocument
+from ragbot.rag.store.base import VectorDocument  # noqa: E402,I001  # Import after source-tree path bootstrap.
+from ragbot.rag.store.factory import VectorStoreFactory  # noqa: E402  # Import after source-tree path bootstrap.
 
 
-def generate_synthetic_documents(count: int, dim: int) -> List[VectorDocument]:
+def generate_synthetic_documents(count: int, dim: int) -> list[VectorDocument]:
     return [
         VectorDocument(
             id=f"bench_doc_{i:05d}",
@@ -48,7 +48,7 @@ def generate_synthetic_documents(count: int, dim: int) -> List[VectorDocument]:
     ]
 
 
-async def run_benchmark_async(backend: str, total_chunks: int, batch_size: int) -> Dict[str, Any]:
+async def run_benchmark_async(backend: str, total_chunks: int, batch_size: int) -> dict[str, Any]:
     dim = 384
     store_path = Path(f"data/vector_stores/bench_ingest_{backend}")
 
@@ -61,7 +61,7 @@ async def run_benchmark_async(backend: str, total_chunks: int, batch_size: int) 
 
     docs = generate_synthetic_documents(total_chunks, dim)
 
-    batch_latencies_ms: List[float] = []
+    batch_latencies_ms: list[float] = []
     t_start = time.perf_counter()
 
     for start_idx in range(0, total_chunks, batch_size):

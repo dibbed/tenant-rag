@@ -10,16 +10,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from ragbot.configs.settings import settings
 from ragbot.rag.chunkers.base import BaseChunker, TextChunk
+
+if TYPE_CHECKING:
+    from ragbot.rag.chunkers.token_chunker import TokenChunker
 
 
 @dataclass
 class _HierChunkMeta:
     level: int
-    parent_id: Optional[str]
+    parent_id: str | None
     type: str  # title | section | paragraph | sentence
 
 
@@ -37,8 +40,8 @@ class HierarchicalChunker(BaseChunker):
     def __init__(
         self,
         *,
-        min_chunk_chars: Optional[int] = None,
-        max_chunk_chars: Optional[int] = None,
+        min_chunk_chars: int | None = None,
+        max_chunk_chars: int | None = None,
         include_sentences_for_long_paragraphs: bool = True,
         **kwargs: Any,
     ) -> None:
@@ -54,6 +57,7 @@ class HierarchicalChunker(BaseChunker):
         )
         self.include_sentences = include_sentences_for_long_paragraphs
         # Optional token-aware limits
+        self._token_counter: TokenChunker | None
         try:
             from ragbot.rag.chunkers.token_chunker import TokenChunker
 
@@ -61,17 +65,17 @@ class HierarchicalChunker(BaseChunker):
         except Exception:
             self._token_counter = None
 
-    def chunk(self, text: str, **kwargs: Any) -> List[TextChunk]:  # type: ignore[override]
+    def chunk(self, text: str, **kwargs: Any) -> list[TextChunk]:
         if not isinstance(text, str) or not text.strip():
             return []
 
         # Analyze structure (prefer metadata.headings when provided)
-        metadata_in: Dict[str, Any] = kwargs.get("metadata", {}) or {}
+        metadata_in: dict[str, Any] = kwargs.get("metadata", {}) or {}
         ext_headings = metadata_in.get("headings") or []
-        title: Optional[tuple[str, int, int]] = None
-        sections: List[tuple[str, int, int]] = []
+        title: tuple[str, int, int] | None = None
+        sections: list[tuple[str, int, int]] = []
         if isinstance(ext_headings, list) and ext_headings:
-            used_positions: List[tuple[int, int]] = []
+            used_positions: list[tuple[int, int]] = []
             for h in ext_headings:
                 try:
                     lvl = int(h.get("level"))
@@ -103,15 +107,15 @@ class HierarchicalChunker(BaseChunker):
             sections = self._extract_sections(text)
         paragraphs = self._extract_paragraphs(text)
 
-        chunks: List[TextChunk] = []
+        chunks: list[TextChunk] = []
 
         # Level 1: title
-        parent_map: Dict[Any, str] = {}
-        last_parent_id: Optional[str] = None
+        parent_map: dict[Any, str] = {}
+        last_parent_id: str | None = None
         if title:
-            t_txt = title[0] if isinstance(title, (tuple, list)) else str(title)
-            t_start = title[1] if isinstance(title, (tuple, list)) and len(title) > 1 else None
-            t_end = title[2] if isinstance(title, (tuple, list)) and len(title) > 2 else None
+            t_txt = title[0] if isinstance(title, tuple | list) else str(title)
+            t_start = title[1] if isinstance(title, tuple | list) and len(title) > 1 else None
+            t_end = title[2] if isinstance(title, tuple | list) and len(title) > 2 else None
             t_chunk = self._make_chunk(
                 text,
                 t_txt,
@@ -125,9 +129,9 @@ class HierarchicalChunker(BaseChunker):
 
         # Level 2: sections
         for sec in sections:
-            s_txt = sec[0] if isinstance(sec, (tuple, list)) else str(sec)
-            s_start = sec[1] if isinstance(sec, (tuple, list)) and len(sec) > 1 else None
-            s_end = sec[2] if isinstance(sec, (tuple, list)) and len(sec) > 2 else None
+            s_txt = sec[0] if isinstance(sec, tuple | list) else str(sec)
+            s_start = sec[1] if isinstance(sec, tuple | list) and len(sec) > 1 else None
+            s_end = sec[2] if isinstance(sec, tuple | list) and len(sec) > 2 else None
             chunk = self._make_chunk(
                 text,
                 s_txt,
@@ -142,7 +146,7 @@ class HierarchicalChunker(BaseChunker):
             last_parent_id = chunk.chunk_id or last_parent_id
 
         # Level 3: paragraphs (avoid merging table-like blocks)
-        buffer_para: Optional[str] = None
+        buffer_para: str | None = None
         for para_content, para_start, para_end in paragraphs:
             p = para_content.strip()
             if not p:
@@ -150,10 +154,7 @@ class HierarchicalChunker(BaseChunker):
             parent_id = last_parent_id
             is_table_block = p.startswith("[Table]") or ("\t" in p)
             if len(p) < self.min_chunk_chars and not is_table_block:
-                if buffer_para:
-                    buffer_para = buffer_para + "\n\n" + p
-                else:
-                    buffer_para = p
+                buffer_para = buffer_para + "\n\n" + p if buffer_para else p
                 continue
             if buffer_para:
                 merged = buffer_para + "\n\n" + p
@@ -186,7 +187,7 @@ class HierarchicalChunker(BaseChunker):
 
         # Level 4: sentences for long paragraphs
         if self.include_sentences:
-            new_chunks: List[TextChunk] = []
+            new_chunks: list[TextChunk] = []
             for c in chunks:
                 if (
                     c.metadata.get("level") == 3
@@ -220,7 +221,7 @@ class HierarchicalChunker(BaseChunker):
         # Dynamic overlap near boundaries (last short sentence appended to next)
         chunks = self._add_dynamic_overlap(chunks)
         # Re-enforce size limits after overlap merge
-        enforced: List[TextChunk] = []
+        enforced: list[TextChunk] = []
         for c in chunks:
             if self._is_within_limit(c.content):
                 enforced.append(c)
@@ -241,7 +242,7 @@ class HierarchicalChunker(BaseChunker):
         chunks = enforced
 
         # Enforce size constraints by splitting oversized chunks (token-aware when possible)
-        final_chunks: List[TextChunk] = []
+        final_chunks: list[TextChunk] = []
         for c in chunks:
             if self._is_within_limit(c.content):
                 final_chunks.append(c)
@@ -271,14 +272,14 @@ class HierarchicalChunker(BaseChunker):
                 text,
                 meta_in.get("headings"),
                 meta_in.get("page_ranges"),
-            )  # type: ignore[arg-type]
+            )
         except Exception:
             pass
 
         return final_chunks
 
     # ---------- helpers ----------
-    def _extract_title(self, text: str) -> Optional[tuple[str, int, int]]:
+    def _extract_title(self, text: str) -> tuple[str, int, int] | None:
         m = re.search(r"^#\s+(.+)$", text, re.MULTILINE)
         if not m:
             return None
@@ -290,8 +291,8 @@ class HierarchicalChunker(BaseChunker):
             line_end = len(text)
         return (title_text, line_start, line_end)
 
-    def _extract_sections(self, text: str) -> List[tuple[str, int, int]]:
-        spans: List[tuple[str, int, int]] = []
+    def _extract_sections(self, text: str) -> list[tuple[str, int, int]]:
+        spans: list[tuple[str, int, int]] = []
         for m in re.finditer(r"^##+\s+(.+)$", text, re.MULTILINE):
             sec_text = m.group(1).strip()
             line_start = text.rfind("\n", 0, m.start()) + 1
@@ -301,8 +302,8 @@ class HierarchicalChunker(BaseChunker):
             spans.append((sec_text, line_start, line_end))
         return spans
 
-    def _extract_paragraphs(self, text: str) -> List[tuple[str, int, int]]:
-        spans: List[tuple[str, int, int]] = []
+    def _extract_paragraphs(self, text: str) -> list[tuple[str, int, int]]:
+        spans: list[tuple[str, int, int]] = []
         start = 0
         while start < len(text):
             end = text.find("\n\n", start)
@@ -314,15 +315,15 @@ class HierarchicalChunker(BaseChunker):
             start = end + 2
         return spans
 
-    def _split_sentences(self, txt: str) -> List[str]:
+    def _split_sentences(self, txt: str) -> list[str]:
         # Support Persian punctuation: . ! ? ؟ ؛ ،
         sentences = re.split(r"[\.\!\?\u061F\u061B\u060C]+\s+", txt)
         return [s for s in sentences if s and s.strip()]
 
     def _iter_sentences(
         self, txt_slice: str, base_offset: int
-    ) -> List[tuple[str, int, int]]:
-        out: List[tuple[str, int, int]] = []
+    ) -> list[tuple[str, int, int]]:
+        out: list[tuple[str, int, int]] = []
         pos = 0
         for s in self._split_sentences(txt_slice):
             s = s.strip()
@@ -339,10 +340,10 @@ class HierarchicalChunker(BaseChunker):
             pos = rel + len(s)
         return out
 
-    def _split_by_paragraph_or_mid_sentence(self, txt: str) -> List[str]:
+    def _split_by_paragraph_or_mid_sentence(self, txt: str) -> list[str]:
         paragraphs = self._extract_paragraphs(txt)
         if len(paragraphs) > 1:
-            return paragraphs
+            return [paragraph[0] for paragraph in paragraphs]
         sents = self._split_sentences(txt)
         if len(sents) > 1:
             mid = max(1, len(sents) // 2)
@@ -358,11 +359,11 @@ class HierarchicalChunker(BaseChunker):
         token_limit = max(1, self.max_chunk_chars // 4)
         return self._token_counter.count_tokens(content) <= token_limit
 
-    def _add_dynamic_overlap(self, chunks: List[TextChunk]) -> List[TextChunk]:
+    def _add_dynamic_overlap(self, chunks: list[TextChunk]) -> list[TextChunk]:
         if not chunks:
             return chunks
-        out: List[TextChunk] = []
-        prev_last_sentence: Optional[str] = None
+        out: list[TextChunk] = []
+        prev_last_sentence: str | None = None
         for c in chunks:
             text = c.content
             sentences = self._split_sentences(text)
@@ -388,10 +389,10 @@ class HierarchicalChunker(BaseChunker):
         *,
         meta: _HierChunkMeta,
         index: int,
-        start: Optional[int] = None,
-        end: Optional[int] = None,
+        start: int | None = None,
+        end: int | None = None,
     ) -> TextChunk:
-        if isinstance(content, (tuple, list)):
+        if isinstance(content, tuple | list):
             if len(content) >= 3 and isinstance(content[1], int) and isinstance(content[2], int):
                 if start is None:
                     start = content[1]
@@ -407,7 +408,7 @@ class HierarchicalChunker(BaseChunker):
             if start < 0:
                 start = 0
             end = start + len(content)
-        metadata: Dict[str, Any] = {
+        metadata: dict[str, Any] = {
             "chunk_type": "hierarchical",
             "level": meta.level,
             "structure_type": meta.type,

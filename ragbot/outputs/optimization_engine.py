@@ -7,7 +7,8 @@ runtime optimizations safely.
 """
 
 import asyncio
-from typing import Any, Optional
+import contextlib
+from typing import Any
 
 from loguru import logger
 
@@ -20,7 +21,7 @@ from ragbot.utils.memory_optimizer import MemoryOptimizer
 class OptimizationEngine:
     """Orchestrates runtime performance optimizations."""
 
-    def __init__(self, settings: Optional[Any] = None) -> None:
+    def __init__(self, settings: Any | None = None) -> None:
         """Initialize the optimization engine.
 
         Args:
@@ -36,7 +37,7 @@ class OptimizationEngine:
         )
         self.memory_optimizer = MemoryOptimizer(settings=settings)
 
-        self._engine_task: Optional[asyncio.Task] = None
+        self._engine_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Start the optimization engine loop."""
@@ -54,7 +55,7 @@ class OptimizationEngine:
                             5, int(self.settings.performance.monitoring_interval)
                         )
                     await asyncio.sleep(interval)
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(f"Optimization engine loop error: {e}")
                     await asyncio.sleep(15)
 
@@ -120,16 +121,12 @@ class OptimizationEngine:
         """Shutdown the optimization engine and sub-components."""
         if self._engine_task:
             self._engine_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._engine_task
-            except asyncio.CancelledError:
-                pass
 
         await self.performance_monitor.shutdown()
         await self.resource_monitor.shutdown()
         await self.memory_optimizer.shutdown()
-        try:
+        # Safe guard: older executors may have already been shutdown.
+        with contextlib.suppress(Exception):
             await self.async_processor.shutdown()
-        except Exception:
-            # Safe guard: older executors may have already been shutdown
-            pass

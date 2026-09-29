@@ -11,7 +11,7 @@ import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -360,21 +360,21 @@ def mock_graceful_degradation():
 
 
 # Test data generators
-def generate_test_embeddings(count: int, dimension: int = 1536) -> List[List[float]]:
+def generate_test_embeddings(count: int, dimension: int = 1536) -> list[list[float]]:
     """Generate test embeddings."""
     import random
 
     return [[random.random() for _ in range(dimension)] for _ in range(count)]
 
 
-def generate_test_chunks(count: int, base_text: str = "Test chunk") -> List[str]:
+def generate_test_chunks(count: int, base_text: str = "Test chunk") -> list[str]:
     """Generate test text chunks."""
     return [f"{base_text} {i}" for i in range(count)]
 
 
 def generate_test_metadata(
     count: int, source: str = "test.txt"
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Generate test metadata."""
     return [{"id": i, "source": source, "chunk_index": i} for i in range(count)]
 

@@ -7,9 +7,10 @@ to continue operating with reduced functionality when components fail.
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, Optional, List
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -32,7 +33,7 @@ class FallbackConfig:
     enabled: bool = True
     timeout: float = 5.0
     max_retries: int = 2
-    fallback_message: Optional[str] = None
+    fallback_message: str | None = None
     cache_fallback: bool = True
     offline_mode: bool = False
 
@@ -46,8 +47,8 @@ class ServiceHealth:
     last_check: float
     error_count: int
     success_count: int
-    response_time: Optional[float] = None
-    error_message: Optional[str] = None
+    response_time: float | None = None
+    error_message: str | None = None
     fallback_active: bool = False
 
 
@@ -60,14 +61,14 @@ class GracefulDegradationService:
     reduced functionality rather than complete failure.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the graceful degradation service."""
-        self.services: Dict[str, ServiceHealth] = {}
-        self.fallback_configs: Dict[str, FallbackConfig] = {}
-        self.circuit_breakers: Dict[str, CircuitBreaker] = {}
-        self.fallback_handlers: Dict[str, Callable] = {}
-        self.fallback_counts: Dict[str, int] = {}
-        self.timeouts_registry: Dict[str, float] = {}
+        self.services: dict[str, ServiceHealth] = {}
+        self.fallback_configs: dict[str, FallbackConfig] = {}
+        self.circuit_breakers: dict[str, CircuitBreaker] = {}
+        self.fallback_handlers: dict[str, Callable[..., Any]] = {}
+        self.fallback_counts: dict[str, int] = {}
+        self.timeouts_registry: dict[str, float] = {}
 
         # Initialize default services
         self._initialize_default_services()
@@ -99,13 +100,13 @@ class GracefulDegradationService:
             self.fallback_counts.get(service_name, 0) + 1
         )
 
-    def get_fallback_metrics(self) -> Dict[str, int]:
+    def get_fallback_metrics(self) -> dict[str, int]:
         """Expose fallback counts by service for telemetry."""
         return dict(self.fallback_counts)
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Get comprehensive performance metrics for all services."""
-        metrics = {
+        metrics: dict[str, Any] = {
             "services_count": len(self.services),
             "fallback_counts": dict(self.fallback_counts),
             "timeouts_registry": dict(self.timeouts_registry),
@@ -163,7 +164,7 @@ class GracefulDegradationService:
         )
         return total_success / total_calls if total_calls > 0 else 0.0
 
-    def _get_circuit_breaker_status(self) -> Dict[str, str]:
+    def _get_circuit_breaker_status(self) -> dict[str, str]:
         """Get circuit breaker status for all services."""
         return {
             name: getattr(breaker, "state", "unknown")
@@ -238,7 +239,9 @@ class GracefulDegradationService:
 
         logger.info(f"Registered service '{name}' for graceful degradation")
 
-    def register_fallback_handler(self, service_name: str, handler: Callable) -> None:
+    def register_fallback_handler(
+        self, service_name: str, handler: Callable[..., Any]
+    ) -> None:
         """
         Register a fallback handler for a service.
 
@@ -252,13 +255,13 @@ class GracefulDegradationService:
     async def execute_with_fallback(
         self,
         service_name: str,
-        primary_func: Callable,
-        *args,
-        fallback_func: Optional[Callable] = None,
-        cache=None,
-        cache_key: Optional[str] = None,
-        cache_ttl: Optional[int] = None,
-        **kwargs,
+        primary_func: Callable[..., Any],
+        *args: Any,
+        fallback_func: Callable[..., Any] | None = None,
+        cache: Any | None = None,
+        cache_key: str | None = None,
+        cache_ttl: int | None = None,
+        **kwargs: Any,
     ) -> Any:
         """
         Execute a function with graceful degradation fallback.
@@ -350,7 +353,9 @@ class GracefulDegradationService:
                 # No fallback, re-raise error
                 raise
 
-    async def _execute_function(self, func: Callable, *args, **kwargs) -> Any:
+    async def _execute_function(
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
         """Execute a function (async or sync)."""
         if asyncio.iscoroutinefunction(func):
             return await func(*args, **kwargs)
@@ -360,10 +365,10 @@ class GracefulDegradationService:
     async def _execute_fallback(
         self,
         service_name: str,
-        fallback_func: Optional[Callable],
+        fallback_func: Callable[..., Any] | None,
         original_error: Exception,
-        *args,
-        **kwargs,
+        *args: Any,
+        **kwargs: Any,
     ) -> Any:
         """
         Execute fallback logic for a failed service.
@@ -417,7 +422,11 @@ class GracefulDegradationService:
             )
 
     async def _default_fallback(
-        self, service_name: str, original_error: Exception, *args, **kwargs
+        self,
+        service_name: str,
+        original_error: Exception,
+        *args: Any,
+        **kwargs: Any,
     ) -> Any:
         """
         Default fallback behavior for services.
@@ -468,7 +477,9 @@ class GracefulDegradationService:
                 "degraded": True,
             }
 
-    async def _openai_fallback(self, error: Exception, *args, **kwargs) -> Any:
+    async def _openai_fallback(
+        self, error: Exception, *args: Any, **kwargs: Any
+    ) -> Any:
         """Fallback for OpenAI service failures."""
         # Try to return a cached response or generic message
         fallback_response = (
@@ -492,13 +503,17 @@ class GracefulDegradationService:
             "fallback_reason": str(error),
         }
 
-    async def _redis_fallback(self, error: Exception, *args, **kwargs) -> Any:
+    async def _redis_fallback(
+        self, error: Exception, *args: Any, **kwargs: Any
+    ) -> Any:
         """Fallback for Redis service failures."""
         # Continue without caching
         logger.info("Continuing without Redis caching due to service failure")
         return None  # Indicates no cached data available
 
-    async def _vector_store_fallback(self, error: Exception, *args, **kwargs) -> Any:
+    async def _vector_store_fallback(
+        self, error: Exception, *args: Any, **kwargs: Any
+    ) -> Any:
         """Fallback for vector store service failures."""
         # Return empty search results
         return {
@@ -586,7 +601,7 @@ class GracefulDegradationService:
             error_message=str(error),
         )
 
-    def get_service_health(self, service_name: str) -> Optional[ServiceHealth]:
+    def get_service_health(self, service_name: str) -> ServiceHealth | None:
         """
         Get health information for a specific service.
 
@@ -598,7 +613,7 @@ class GracefulDegradationService:
         """
         return self.services.get(service_name)
 
-    def get_all_service_health(self) -> Dict[str, ServiceHealth]:
+    def get_all_service_health(self) -> dict[str, ServiceHealth]:
         """
         Get health information for all registered services.
 
@@ -607,7 +622,7 @@ class GracefulDegradationService:
         """
         return self.services.copy()
 
-    def get_system_status(self) -> Dict[str, Any]:
+    def get_system_status(self) -> dict[str, Any]:
         """
         Get overall system status based on service health.
 
@@ -683,7 +698,7 @@ class GracefulDegradationService:
         self,
         component_name: str,
         error: Exception,
-        fallback_message: Optional[str] = None,
+        fallback_message: str | None = None,
     ) -> None:
         """
         Handle component failure and record it in the graceful degradation system.
@@ -699,7 +714,7 @@ class GracefulDegradationService:
 
             # Log the failure
             logger.error(
-                f"Component '{component_name}' failed: {str(error)}",
+                f"Component '{component_name}' failed: {error!s}",
                 component=component_name,
                 error_type=type(error).__name__,
             )
@@ -715,7 +730,7 @@ class GracefulDegradationService:
                 f"Failed to handle component failure for '{component_name}': {e}"
             )
 
-    def get_failed_components(self) -> List[str]:
+    def get_failed_components(self) -> list[str]:
         """
         Get list of components that have failed.
 

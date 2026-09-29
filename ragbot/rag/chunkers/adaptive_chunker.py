@@ -7,12 +7,18 @@ thresholds. Output is a list of TextChunk compatible with pipeline expectations.
 
 from __future__ import annotations
 
+import contextlib
 import re
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.rag.chunkers.base import BaseChunker, TextChunk
+
+if TYPE_CHECKING:
+    from ragbot.rag.chunkers.hierarchical_chunker import HierarchicalChunker
+    from ragbot.rag.chunkers.semantic_chunker import SemanticChunker
+    from ragbot.rag.chunkers.token_chunker import TokenChunker
 
 
 class AdaptiveChunker(BaseChunker):
@@ -21,9 +27,9 @@ class AdaptiveChunker(BaseChunker):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         # Child chunkers are created lazily to avoid heavy imports when unused
-        self._semantic = None
-        self._hier = None
-        self._token = None
+        self._semantic: SemanticChunker | None = None
+        self._hier: HierarchicalChunker | None = None
+        self._token: TokenChunker | None = None
 
         # Thresholds (pull from settings if present, otherwise defaults)
         adv = getattr(settings, "advanced_chunking", None)
@@ -37,12 +43,12 @@ class AdaptiveChunker(BaseChunker):
             adv, "adaptive_semantic_coherence_threshold", 0.7
         )
 
-    def chunk(self, text: str, **kwargs: Any) -> List[TextChunk]:  # type: ignore[override]
+    def chunk(self, text: str, **kwargs: Any) -> list[TextChunk]:
         if not isinstance(text, str) or not text.strip():
             return []
 
         # Pass-through structural metadata from loaders to downstream chunkers
-        metadata_in: Dict[str, Any] = kwargs.get("metadata", {}) or {}
+        metadata_in: dict[str, Any] = kwargs.get("metadata", {}) or {}
         headings = metadata_in.get("headings") or []
         language = metadata_in.get("language") or metadata_in.get("likely_language")
         _tables_max_cols = metadata_in.get("tables_max_cols")
@@ -59,12 +65,10 @@ class AdaptiveChunker(BaseChunker):
             analysis = self._analyze_text(text)
             strategy = self._select_strategy(analysis)
 
-        try:
+        with contextlib.suppress(Exception):
             logger.info(
                 f"AdaptiveChunker strategy selected: {strategy} (analysis={analysis})"
             )
-        except Exception:
-            pass
 
         if strategy == "hierarchical":
             chunks = self._get_hier().chunk(
@@ -101,7 +105,7 @@ class AdaptiveChunker(BaseChunker):
                         target_size=getattr(adv, "chunk_target_size", 500),
                         size_tolerance=getattr(adv, "chunk_size_tolerance", 0.2),
                     )
-                    chunks = opt.optimize(chunks)  # type: ignore[misc]
+                    chunks = opt.optimize(chunks)
             except Exception:
                 pass
             for ch in chunks:
@@ -115,14 +119,12 @@ class AdaptiveChunker(BaseChunker):
                 text, metadata={"headings": headings, "language": language}
             )
             if not base_chunks:
-                try:
+                with contextlib.suppress(Exception):
                     logger.warning(
                         "Full: hierarchical produced 0 chunks, falling back to token"
                     )
-                except Exception:
-                    pass
                 return self._get_token().chunk(text, **kwargs)
-            refined: List[TextChunk] = []
+            refined: list[TextChunk] = []
             # Determine token-based refinement threshold (fallback to chunk_target_size or 500)
             full_refine_threshold = getattr(
                 getattr(settings, "advanced_chunking", object()),
@@ -177,19 +179,15 @@ class AdaptiveChunker(BaseChunker):
                     c.metadata.setdefault("selected_strategy", strategy)
                     refined.append(c)
             if not refined:
-                try:
+                with contextlib.suppress(Exception):
                     logger.warning(
                         "Full: semantic refinement produced 0 chunks, using base chunks"
                     )
-                except Exception:
-                    pass
                 refined = base_chunks
-            try:
+            with contextlib.suppress(Exception):
                 logger.info(
                     f"Full chunking pipeline applied: base_count={len(base_chunks)}, refined_count={len(refined)}"
                 )
-            except Exception:
-                pass
             for ch in refined:
                 ch.metadata.setdefault("analysis", analysis)
                 ch.metadata.setdefault("selected_strategy", strategy)
@@ -197,7 +195,7 @@ class AdaptiveChunker(BaseChunker):
             try:
                 adv = getattr(settings, "advanced_chunking", object())
                 min_chars = getattr(adv, "semantic_min_chunk_size", 100)
-                merged: List[TextChunk] = []
+                merged: list[TextChunk] = []
                 for ch in refined:
                     if merged:
                         prev = merged[-1]
@@ -210,12 +208,10 @@ class AdaptiveChunker(BaseChunker):
                             )
                             prev_end_before = prev.end_index or 0
                             prev.content = f"{prev.content}{sep}{ch.content}".strip()
-                            try:
+                            with contextlib.suppress(Exception):
                                 prev.end_index = max(
                                     prev_end_before, (ch.end_index or prev_end_before)
                                 )
-                            except Exception:
-                                pass
                             prev.metadata["merged_next"] = True
                             continue
                     merged.append(ch)
@@ -233,7 +229,7 @@ class AdaptiveChunker(BaseChunker):
                         target_size=getattr(adv, "chunk_target_size", 500),
                         size_tolerance=getattr(adv, "chunk_size_tolerance", 0.2),
                     )
-                    refined = opt.optimize(refined)  # type: ignore[misc]
+                    refined = opt.optimize(refined)
             except Exception:
                 pass
             for ch in refined:
@@ -246,7 +242,7 @@ class AdaptiveChunker(BaseChunker):
             chunks = self._get_hier().chunk(
                 text, metadata={"headings": headings, "language": language}
             )
-            refined: List[TextChunk] = []
+            hybrid_refined: list[TextChunk] = []
             for c in chunks:
                 # Token-aware threshold from settings when available
                 try:
@@ -274,9 +270,9 @@ class AdaptiveChunker(BaseChunker):
                             "chunk_type": "hybrid",
                             "parent_id": c.chunk_id,
                         }
-                    refined.extend(subs)
+                    hybrid_refined.extend(subs)
                 else:
-                    refined.append(c)
+                    hybrid_refined.append(c)
             # Optional final optimization
             try:
                 adv = getattr(settings, "advanced_chunking", object())
@@ -287,13 +283,13 @@ class AdaptiveChunker(BaseChunker):
                         target_size=getattr(adv, "chunk_target_size", 500),
                         size_tolerance=getattr(adv, "chunk_size_tolerance", 0.2),
                     )
-                    refined = opt.optimize(refined)  # type: ignore[misc]
+                    hybrid_refined = opt.optimize(hybrid_refined)
             except Exception:
                 pass
-            for ch in refined:
+            for ch in hybrid_refined:
                 ch.metadata.setdefault("analysis", analysis)
                 ch.metadata.setdefault("selected_strategy", strategy)
-            return refined
+            return hybrid_refined
 
         # Default: token-based
         chunks = self._get_token().chunk(
@@ -309,7 +305,7 @@ class AdaptiveChunker(BaseChunker):
                     target_size=getattr(adv, "chunk_target_size", 500),
                     size_tolerance=getattr(adv, "chunk_size_tolerance", 0.2),
                 )
-                chunks = opt.optimize(chunks)  # type: ignore[misc]
+                chunks = opt.optimize(chunks)
         except Exception:
             pass
         for ch in chunks:
@@ -319,21 +315,21 @@ class AdaptiveChunker(BaseChunker):
         return chunks
 
     # ---------- internals ----------
-    def _get_semantic(self):
+    def _get_semantic(self) -> SemanticChunker:
         if self._semantic is None:
             from ragbot.rag.chunkers.semantic_chunker import SemanticChunker
 
             self._semantic = SemanticChunker()
         return self._semantic
 
-    def _get_hier(self):
+    def _get_hier(self) -> HierarchicalChunker:
         if self._hier is None:
             from ragbot.rag.chunkers.hierarchical_chunker import HierarchicalChunker
 
             self._hier = HierarchicalChunker()
         return self._hier
 
-    def _get_token(self):
+    def _get_token(self) -> TokenChunker:
         if self._token is None:
             from ragbot.rag.chunkers.token_chunker import TokenChunker
 
@@ -343,7 +339,7 @@ class AdaptiveChunker(BaseChunker):
             )
         return self._token
 
-    def _analyze_text(self, text: str) -> Dict[str, Any]:
+    def _analyze_text(self, text: str) -> dict[str, Any]:
         length = len(text)
         word_count = len(text.split())
         sentence_count = max(
@@ -367,7 +363,7 @@ class AdaptiveChunker(BaseChunker):
             "semantic_score": semantic_score,
         }
 
-    def _select_strategy(self, a: Dict[str, Any]) -> str:
+    def _select_strategy(self, a: dict[str, Any]) -> str:
         if a["structure_score"] > self.structure_complexity_threshold:
             return "hierarchical"
         if a["semantic_score"] > self.semantic_coherence_threshold:

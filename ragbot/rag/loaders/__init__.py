@@ -1,4 +1,5 @@
 import sys
+
 from . import (
     docx,
     html_loader,
@@ -13,7 +14,7 @@ from .advanced_loaders import AdvancedDocumentLoader
 from .base import BaseLoader, Document, DocumentLoader
 from .docx import DOCXLoader
 from .html_loader import HTMLLoader
-from .markdown_loader import MDLoader, MarkdownLoader
+from .markdown_loader import MarkdownLoader, MDLoader
 from .ocr_loader import OCRLoader
 from .pdf import PDFLoader
 from .pptx_loader import PPTXLoader
@@ -41,27 +42,27 @@ sys.modules.setdefault("ragbot.rag.loaders.pptxloader", pptx_loader)
 sys.modules.setdefault("ragbot.rag.loaders.xlsxloader", xlsx_loader)
 
 __all__ = [
-    "BaseLoader",
-    "DocumentLoader",
-    "Document",
-    "TextLoader",
-    "TXTLoader",
-    "PDFLoader",
-    "URLLoader",
-    "DOCXLoader",
-    "PPTXLoader",
-    "XLSXLoader",
-    "HTMLLoader",
-    "MarkdownLoader",
-    "MDLoader",
-    "OCRLoader",
     "AdvancedDocumentLoader",
-    "pdfloader",
+    "BaseLoader",
+    "DOCXLoader",
+    "Document",
+    "DocumentLoader",
+    "HTMLLoader",
+    "MDLoader",
+    "MarkdownLoader",
+    "OCRLoader",
+    "PDFLoader",
+    "PPTXLoader",
+    "TXTLoader",
+    "TextLoader",
+    "URLLoader",
+    "XLSXLoader",
     "docxloader",
-    "txtloader",
     "htmlloader",
     "mdloader",
     "ocrloader",
+    "pdfloader",
     "pptxloader",
+    "txtloader",
     "xlsxloader",
 ]

@@ -4,44 +4,44 @@ import asyncio
 import json
 import sqlite3
 import uuid
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import asdict
+from typing import Any
 
-from ..outputs.logger import logger
-from ..rag.store.base import VectorDocument
+from ragbot.outputs.logger import logger
+from ragbot.rag.store.base import VectorDocument
+
 from .models import (
-    TenantConfig,
-    TenantUser,
-    TenantUsage,
-    TenantBilling,
-    TenantPolicy,
-    TenantAuditLog,
-    TenantStatus,
-    TenantTier,
-    TenantPlan,
-    TenantLimits,
-    TenantFeatures,
     DEFAULT_TIER_CONFIGS,
     TenantApiKey,
+    TenantAuditLog,
+    TenantConfig,
+    TenantPlan,
+    TenantPolicy,
+    TenantStatus,
+    TenantTier,
+    TenantUsage,
+    TenantUser,
 )
 
 
 class TenantManager:
     """مدیریت tenant ها و جداسازی داده‌ها با پشتیبانی از ذخیره‌سازی پایدار"""
 
-    def __init__(self, settings=None, db_path: Optional[Any] = None):
+    def __init__(
+        self, settings: Any | None = None, db_path: Any | None = None
+    ) -> None:
         self.settings = settings
-        self.tenants: Dict[str, TenantConfig] = {}
-        self.tenant_users: Dict[str, List[TenantUser]] = {}
-        self.tenant_usage: Dict[str, List[TenantUsage]] = {}
-        self.tenant_policies: Dict[str, List[TenantPolicy]] = {}
-        self.tenant_audit_logs: Dict[str, List[TenantAuditLog]] = {}
+        self.tenants: dict[str, TenantConfig] = {}
+        self.tenant_users: dict[str, list[TenantUser]] = {}
+        self.tenant_usage: dict[str, list[TenantUsage]] = {}
+        self.tenant_policies: dict[str, list[TenantPolicy]] = {}
+        self.tenant_audit_logs: dict[str, list[TenantAuditLog]] = {}
 
         # Cache for tenant isolation
-        self._tenant_cache: Dict[str, Any] = {}
-        self._isolation_rules: Dict[str, Dict[str, Any]] = {}
+        self._tenant_cache: dict[str, Any] = {}
+        self._isolation_rules: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
         # Database path setup
@@ -142,7 +142,7 @@ class TenantManager:
                     self.tenant_usage.setdefault(tenant_id, [])
                     self.tenant_policies.setdefault(tenant_id, [])
                     self.tenant_audit_logs.setdefault(tenant_id, [])
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(f"Failed to load persisted tenant {tenant_id}: {e}")
 
             cursor.execute("SELECT tenant_id, user_json FROM tenant_users")
@@ -150,7 +150,7 @@ class TenantManager:
                 try:
                     user = TenantUser.model_validate_json(u_json)
                     self.tenant_users.setdefault(tid, []).append(user)
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(f"Failed to load tenant user for {tid}: {e}")
 
             logger.info(f"Loaded {len(self.tenants)} persisted tenants from database")
@@ -211,7 +211,7 @@ class TenantManager:
             logger.error(f"Error saving tenant API key: {e}")
             raise
 
-    def get_api_key_by_hash(self, key_hash: str) -> Optional[TenantApiKey]:
+    def get_api_key_by_hash(self, key_hash: str) -> TenantApiKey | None:
         """Lookup active API key by cryptographic SHA-256 hash."""
         try:
             cursor = self._conn.cursor()
@@ -244,7 +244,7 @@ class TenantManager:
             logger.error(f"Error fetching API key by hash: {e}")
             return None
 
-    def get_api_key_by_id(self, key_id: str) -> Optional[TenantApiKey]:
+    def get_api_key_by_id(self, key_id: str) -> TenantApiKey | None:
         """Lookup API key by key ID."""
         try:
             cursor = self._conn.cursor()
@@ -277,7 +277,7 @@ class TenantManager:
             logger.error(f"Error fetching API key by id {key_id}: {e}")
             return None
 
-    def revoke_api_key(self, key_id: str, tenant_id: Optional[str] = None) -> bool:
+    def revoke_api_key(self, key_id: str, tenant_id: str | None = None) -> bool:
         """Revoke API key immediately in persistent storage."""
         try:
             with self._conn:
@@ -296,7 +296,7 @@ class TenantManager:
             logger.error(f"Error revoking API key {key_id}: {e}")
             return False
 
-    def list_api_keys(self, tenant_id: str) -> List[TenantApiKey]:
+    def list_api_keys(self, tenant_id: str) -> list[TenantApiKey]:
         """List all API keys belonging to a tenant."""
         try:
             cursor = self._conn.cursor()
@@ -310,23 +310,22 @@ class TenantManager:
                 """,
                 (tenant_id,),
             )
-            keys = []
-            for row in cursor.fetchall():
-                keys.append(
-                    TenantApiKey(
-                        key_id=row[0],
-                        tenant_id=row[1],
-                        user_id=row[2],
-                        name=row[3],
-                        key_hash=row[4],
-                        key_prefix=row[5],
-                        permissions=json.loads(row[6]) if row[6] else [],
-                        created_at=datetime.fromisoformat(row[7]),
-                        expires_at=datetime.fromisoformat(row[8]) if row[8] else None,
-                        last_used_at=datetime.fromisoformat(row[9]) if row[9] else None,
-                        is_active=bool(row[10]),
-                    )
+            keys = [
+                TenantApiKey(
+                    key_id=row[0],
+                    tenant_id=row[1],
+                    user_id=row[2],
+                    name=row[3],
+                    key_hash=row[4],
+                    key_prefix=row[5],
+                    permissions=json.loads(row[6]) if row[6] else [],
+                    created_at=datetime.fromisoformat(row[7]),
+                    expires_at=datetime.fromisoformat(row[8]) if row[8] else None,
+                    last_used_at=datetime.fromisoformat(row[9]) if row[9] else None,
+                    is_active=bool(row[10]),
                 )
+                for row in cursor.fetchall()
+            ]
             return keys
         except Exception as e:
             logger.error(f"Error listing API keys for tenant {tenant_id}: {e}")
@@ -348,10 +347,10 @@ class TenantManager:
         name: str,
         tier: TenantTier = TenantTier.FREE,
         plan: TenantPlan = TenantPlan.TRIAL,
-        domain: Optional[str] = None,
-        contact_email: Optional[str] = None,
-        custom_settings: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        domain: str | None = None,
+        contact_email: str | None = None,
+        custom_settings: dict[str, Any] | None = None,
+        tenant_id: str | None = None,
     ) -> TenantConfig:
         """ایجاد tenant جدید و ذخیره در دیتابیس پایدار"""
         async with self._lock:
@@ -429,15 +428,14 @@ class TenantManager:
                 logger.error(f"Error creating tenant: {e}")
                 raise
 
-    async def get_tenant(self, tenant_id: str) -> Optional[TenantConfig]:
+    async def get_tenant(self, tenant_id: str) -> TenantConfig | None:
         """دریافت تنظیمات tenant"""
         try:
             tenant = self.tenants.get(tenant_id)
-            if tenant:
-                # بررسی انقضا
-                if tenant.expires_at and datetime.now() > tenant.expires_at:
-                    await self._suspend_tenant(tenant_id, "expired")
-                    return None
+            # بررسی انقضا
+            if tenant and tenant.expires_at and datetime.now() > tenant.expires_at:
+                await self._suspend_tenant(tenant_id, "expired")
+                return None
             return tenant
         except Exception as e:
             logger.error(f"Error getting tenant {tenant_id}: {e}")
@@ -446,9 +444,9 @@ class TenantManager:
     async def update_tenant(
         self,
         tenant_id: str,
-        updates: Optional[Dict[str, Any]] = None,
-        **kwargs,
-    ) -> Optional[TenantConfig]:
+        updates: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> TenantConfig | None:
         """به‌روزرسانی تنظیمات tenant"""
         merged_updates = dict(updates or {})
         merged_updates.update(kwargs)
@@ -487,7 +485,7 @@ class TenantManager:
                     tenant_id=tenant_id,
                     action="tenant_updated",
                     resource="tenant",
-                    details=updates,
+                    details=merged_updates,
                 )
 
                 logger.info(f"Tenant updated: {tenant_id}")
@@ -608,8 +606,8 @@ class TenantManager:
                 return False
 
     async def isolate_data(
-        self, tenant_id: str, documents: List[VectorDocument]
-    ) -> List[VectorDocument]:
+        self, tenant_id: str, documents: list[VectorDocument]
+    ) -> list[VectorDocument]:
         """جداسازی داده‌ها بر اساس tenant"""
         try:
             tenant = await self.get_tenant(tenant_id)
@@ -645,7 +643,7 @@ class TenantManager:
 
     async def apply_tenant_policies(
         self, tenant_id: str, query: str
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """اعمال سیاست‌های tenant بر روی query"""
         try:
             tenant = await self.get_tenant(tenant_id)
@@ -716,9 +714,11 @@ class TenantManager:
                     )
                     return False
 
-            elif operation == "storage":
-                if usage.storage_used_gb >= limits.max_storage_gb:
-                    await self._log_audit(
+            elif (
+                operation == "storage"
+                and usage.storage_used_gb >= limits.max_storage_gb
+            ):
+                await self._log_audit(
                         tenant_id=tenant_id,
                         action="limit_exceeded",
                         resource="storage",
@@ -726,8 +726,8 @@ class TenantManager:
                             "limit": limits.max_storage_gb,
                             "usage": usage.storage_used_gb,
                         },
-                    )
-                    return False
+                )
+                return False
 
             return True
 
@@ -739,7 +739,7 @@ class TenantManager:
         self,
         tenant_id: str,
         operation: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """ردیابی استفاده tenant"""
         try:
@@ -791,7 +791,7 @@ class TenantManager:
 
     async def get_tenant_analytics(
         self, tenant_id: str, days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """دریافت تحلیل‌های tenant"""
         try:
             tenant = await self.get_tenant(tenant_id)
@@ -814,9 +814,9 @@ class TenantManager:
             total_api_calls = sum(usage.api_calls for usage in filtered_usage)
             total_cost = sum(usage.cost_usd for usage in filtered_usage)
 
-            avg_response_time = 0
-            avg_error_rate = 0
-            avg_satisfaction = 0
+            avg_response_time = 0.0
+            avg_error_rate = 0.0
+            avg_satisfaction = 0.0
 
             if filtered_usage:
                 avg_response_time = sum(
@@ -928,10 +928,13 @@ class TenantManager:
 
     async def _apply_policy_actions(
         self, policy: TenantPolicy, query: str, tenant: TenantConfig
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """اعمال اقدامات سیاست"""
         try:
-            result = {"policy": policy.policy_name, "actions_applied": []}
+            result: dict[str, Any] = {
+                "policy": policy.policy_name,
+                "actions_applied": [],
+            }
 
             for action in policy.actions:
                 if action == "query_modification":
@@ -1001,10 +1004,10 @@ class TenantManager:
         tenant_id: str,
         action: str,
         resource: str,
-        details: Dict[str, Any],
-        user_id: Optional[str] = None,
+        details: dict[str, Any],
+        user_id: str | None = None,
         success: bool = True,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         """ثبت audit log"""
         try:
@@ -1048,7 +1051,7 @@ class TenantManager:
         except Exception as e:
             logger.error(f"Error logging audit: {e}")
 
-    async def get_all_tenants(self) -> List[TenantConfig]:
+    async def get_all_tenants(self) -> list[TenantConfig]:
         """دریافت تمام tenant ها"""
         return list(self.tenants.values())
 
@@ -1056,7 +1059,7 @@ class TenantManager:
         """تعداد کل tenant ها"""
         return len(self.tenants)
 
-    async def get_active_tenants(self) -> List[TenantConfig]:
+    async def get_active_tenants(self) -> list[TenantConfig]:
         """دریافت tenant های فعال"""
         return [
             tenant

@@ -7,7 +7,7 @@ sentence-transformers library for local embedding generation.
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -18,6 +18,8 @@ try:
     HUGGINGFACE_AVAILABLE = True
 except ImportError:
     HUGGINGFACE_AVAILABLE = False
+
+import contextlib
 
 from ragbot.caching import cache_manager
 from ragbot.configs.settings import settings
@@ -78,7 +80,7 @@ class HuggingFaceEmbedder(BaseEmbedder):
                 self.device = "cpu"
 
         # Initialize model
-        self.model: Optional[SentenceTransformer] = None
+        self.model: SentenceTransformer | None = None
         self._load_model()
 
         logger.info(
@@ -110,7 +112,7 @@ class HuggingFaceEmbedder(BaseEmbedder):
         except Exception as e:
             logger.error(f"Failed to load HuggingFace model: {e}")
             raise EmbeddingError(
-                f"Failed to load model {self.model_name}: {str(e)}",
+                f"Failed to load model {self.model_name}: {e!s}",
                 provider="huggingface",
                 model=self.model_name,
                 details=str(e),
@@ -130,9 +132,10 @@ class HuggingFaceEmbedder(BaseEmbedder):
             }
             return model_dims.get(self.model_name, 768)
 
-        return self.model.get_sentence_embedding_dimension()
+        dimension = self.model.get_sentence_embedding_dimension()
+        return int(dimension) if dimension is not None else 768
 
-    async def embed_texts(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    async def embed_texts(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """
         Generate embeddings for a list of texts asynchronously.
 
@@ -164,10 +167,8 @@ class HuggingFaceEmbedder(BaseEmbedder):
         try:
             start_time = time.time()
             # metrics hook
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_start(texts, **kwargs)
-            except Exception:
-                pass
 
             # Preprocess texts
             processed_texts = [self.preprocess_text(text) for text in texts]
@@ -183,9 +184,9 @@ class HuggingFaceEmbedder(BaseEmbedder):
             }
 
             # Try cache first
-            results: List[Optional[List[float]]] = [None] * len(processed_texts)
-            to_compute_indices: List[int] = []
-            to_compute_texts: List[str] = []
+            results: list[list[float] | None] = [None] * len(processed_texts)
+            to_compute_indices: list[int] = []
+            to_compute_texts: list[str] = []
 
             for i, ptxt in enumerate(processed_texts):
                 try:
@@ -202,17 +203,23 @@ class HuggingFaceEmbedder(BaseEmbedder):
                     to_compute_indices.append(i)
                     to_compute_texts.append(ptxt)
 
-            new_embeddings: List[List[float]] = []
+            new_embeddings: list[list[float]] = []
             if to_compute_texts:
                 # Generate embeddings for uncached texts
                 # Offload blocking encode to thread in async context
-                new_embeddings = await asyncio.to_thread(
-                    self.model.encode,
-                    to_compute_texts,
-                    **encode_kwargs,
-                )
-                if isinstance(new_embeddings, np.ndarray):
-                    new_embeddings = new_embeddings.tolist()
+                model = self.model
+                assert model is not None
+
+                def _encode() -> Any:
+                    return model.encode(to_compute_texts, **encode_kwargs)
+
+                raw_embeddings = await asyncio.to_thread(_encode)
+                if isinstance(raw_embeddings, np.ndarray):
+                    raw_embeddings = raw_embeddings.tolist()
+                new_embeddings = [
+                    [float(value) for value in embedding]
+                    for embedding in raw_embeddings
+                ]
                 # Postprocess and assign
                 for j, emb in enumerate(new_embeddings):
                     emb = self.postprocess_embedding(emb)
@@ -243,10 +250,8 @@ class HuggingFaceEmbedder(BaseEmbedder):
             )
 
             # metrics hook end
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_end(texts, embeddings, duration, **kwargs)
-            except Exception:
-                pass
 
             logger.debug(
                 f"Generated {len(embeddings)} embeddings",
@@ -263,20 +268,20 @@ class HuggingFaceEmbedder(BaseEmbedder):
 
             if "out of memory" in str(e).lower():
                 raise EmbeddingError(
-                    f"GPU out of memory: {str(e)}",
+                    f"GPU out of memory: {e!s}",
                     provider="huggingface",
                     model=self.model_name,
                     details=str(e),
                 ) from e
             else:
                 raise EmbeddingError(
-                    f"HuggingFace embedding generation failed: {str(e)}",
+                    f"HuggingFace embedding generation failed: {e!s}",
                     provider="huggingface",
                     model=self.model_name,
                     details=str(e),
                 ) from e
 
-    def embed_texts_sync(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    def embed_texts_sync(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """
         Generate embeddings for a list of texts synchronously.
 
@@ -305,10 +310,8 @@ class HuggingFaceEmbedder(BaseEmbedder):
             )
         try:
             start_time = time.time()
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_start(texts, **kwargs)
-            except Exception:
-                pass
             processed_texts = [self.preprocess_text(text) for text in texts]
             encode_kwargs = {
                 "show_progress_bar": kwargs.get("show_progress_bar", False),
@@ -318,43 +321,40 @@ class HuggingFaceEmbedder(BaseEmbedder):
                 ),
                 "batch_size": kwargs.get("batch_size", self.batch_size),
             }
-            embeddings = self.model.encode(processed_texts, **encode_kwargs)
-            if isinstance(embeddings, np.ndarray):
-                embeddings = embeddings.tolist()
-            embeddings = [self.postprocess_embedding(emb) for emb in embeddings]
+            raw_embeddings = self.model.encode(processed_texts, **encode_kwargs)
+            if isinstance(raw_embeddings, np.ndarray):
+                raw_embeddings = raw_embeddings.tolist()
+            embeddings = [
+                self.postprocess_embedding([float(value) for value in embedding])
+                for embedding in raw_embeddings
+            ]
             duration = time.time() - start_time
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_query_processing(
                     language="unknown",
                     status="success",
                     llm_duration=duration,
                 )
-            except Exception:
-                pass
             logger.debug(
                 f"Generated {len(embeddings)} embeddings (sync)",
                 model=self.model_name,
                 duration=duration,
                 device=str(self.model.device) if self.model else "unknown",
             )
-            try:
+            with contextlib.suppress(Exception):
                 self._on_embed_end(texts, embeddings, duration, **kwargs)
-            except Exception:
-                pass
             return embeddings
         except Exception as e:
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_error("embedding_generation", "huggingface")
-            except Exception:
-                pass
             raise EmbeddingError(
-                f"HuggingFace embedding generation failed (sync): {str(e)}",
+                f"HuggingFace embedding generation failed (sync): {e!s}",
                 provider="huggingface",
                 model=self.model_name,
                 details=str(e),
             ) from e
 
-    async def embed_text(self, text: str, **kwargs: Any) -> List[float]:
+    async def embed_text(self, text: str, **kwargs: Any) -> list[float]:
         """
         Generate embedding for a single text (compatibility method).
 
@@ -378,16 +378,16 @@ class HuggingFaceEmbedder(BaseEmbedder):
 
         # Truncate if too long (most models have max sequence length)
         if self.model and hasattr(self.model, "max_seq_length"):
-            max_length = self.model.max_seq_length
+            max_length = self.model.max_seq_length or 512
             # Rough estimation: 4 characters per token
-            max_chars = max_length * 4
+            max_chars = int(max_length) * 4
             if len(text) > max_chars:
                 text = text[:max_chars]
                 logger.debug(f"Truncated text to {max_chars} characters")
 
         return text
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """Get detailed information about the model."""
         info = super().get_model_info()
 
@@ -410,7 +410,7 @@ class HuggingFaceEmbedder(BaseEmbedder):
 
         return info
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Get information about the device being used."""
         device_info = {
             "requested_device": self.device,
@@ -465,7 +465,7 @@ class HuggingFaceEmbedder(BaseEmbedder):
         # Reload model
         self._load_model()
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check on HuggingFace embedding service."""
         try:
             # Test with a simple text

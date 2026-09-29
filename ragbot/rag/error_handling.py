@@ -9,9 +9,10 @@ import asyncio
 import functools
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any
 
 from ragbot.outputs.logger import logger
 from ragbot.rag.exceptions import RAGError
@@ -37,9 +38,9 @@ class ErrorContext:
     timestamp: float
     component: str
     operation: str
-    user_id: Optional[int] = None
-    request_id: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    user_id: int | None = None
+    request_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_exception(
@@ -47,8 +48,8 @@ class ErrorContext:
         error: Exception,
         component: str,
         operation: str,
-        user_id: Optional[int] = None,
-        request_id: Optional[str] = None,
+        user_id: int | None = None,
+        request_id: str | None = None,
         **metadata: Any,
     ) -> "ErrorContext":
         """
@@ -89,8 +90,8 @@ class RetryConfig:
     max_delay: float = 60.0
     backoff_multiplier: float = 2.0
     jitter: bool = True
-    retryable_exceptions: List[Type[Exception]] = field(default_factory=list)
-    non_retryable_exceptions: List[Type[Exception]] = field(default_factory=list)
+    retryable_exceptions: list[type[Exception]] = field(default_factory=list)
+    non_retryable_exceptions: list[type[Exception]] = field(default_factory=list)
 
 
 class CircuitBreakerState(Enum):
@@ -137,7 +138,9 @@ class CircuitBreaker:
 
         logger.info(f"Circuit breaker '{name}' initialized")
 
-    async def call(self, func: Callable, *args, **kwargs) -> Any:
+    async def call(
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
         """
         Execute function with circuit breaker protection.
 
@@ -217,7 +220,7 @@ class CircuitBreaker:
                 f"Circuit breaker '{self.name}' opened due to {self.failure_count} failures"
             )
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """Get current circuit breaker state."""
         return {
             "name": self.name,
@@ -319,11 +322,11 @@ class RetryHandler:
 
     async def execute_with_retry(
         self,
-        func: Callable,
-        *args,
+        func: Callable[..., Any],
+        *args: Any,
         component: str = "unknown",
         operation: str = "unknown",
-        **kwargs,
+        **kwargs: Any,
     ) -> Any:
         """
         Execute function with retry logic.
@@ -359,11 +362,11 @@ class RetryHandler:
 
                 return result
 
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 last_error = e
 
                 # Create error context
-                error_context = ErrorContext.from_exception(
+                _error_context = ErrorContext.from_exception(
                     e,
                     component,
                     operation,
@@ -373,7 +376,7 @@ class RetryHandler:
 
                 # Log error with context
                 logger.error(
-                    f"Attempt {attempt} failed: {str(e)}",
+                    f"Attempt {attempt} failed: {e!s}",
                     component=component,
                     operation=operation,
                     error_type=type(e).__name__,
@@ -411,7 +414,9 @@ class RetryHandler:
             raise last_error
 
 
-def with_retry(config: Optional[RetryConfig] = None):
+def with_retry(
+    config: RetryConfig | None = None,
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator for adding retry logic to functions.
 
@@ -424,11 +429,11 @@ def with_retry(config: Optional[RetryConfig] = None):
     if config is None:
         config = RetryConfig()
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         retry_handler = RetryHandler(config)
 
         @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             return await retry_handler.execute_with_retry(
                 func,
                 *args,
@@ -438,7 +443,7 @@ def with_retry(config: Optional[RetryConfig] = None):
             )
 
         @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
+        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             return asyncio.run(
                 retry_handler.execute_with_retry(
                     func,
@@ -457,7 +462,9 @@ def with_retry(config: Optional[RetryConfig] = None):
     return decorator
 
 
-def with_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = None):
+def with_circuit_breaker(
+    name: str, config: CircuitBreakerConfig | None = None
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
     Decorator for adding circuit breaker protection to functions.
 
@@ -473,9 +480,9 @@ def with_circuit_breaker(name: str, config: Optional[CircuitBreakerConfig] = Non
 
     circuit_breaker = CircuitBreaker(name, config)
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
             return await circuit_breaker.call(func, *args, **kwargs)
 
         return wrapper

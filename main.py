@@ -11,7 +11,7 @@ project_root = Path(__file__).resolve().parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from ragbot.main import main
+from ragbot.main import main  # noqa: E402  # Import after source-tree path bootstrap.
 
 if __name__ == "__main__":
     main()

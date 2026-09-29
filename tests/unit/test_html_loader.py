@@ -3,7 +3,6 @@ Unit tests for HTMLLoader covering URL/file loading, headings, metadata,
 and custom headers/cookies behavior.
 """
 
-from typing import Dict
 
 import pytest
 from aioresponses import CallbackResult, aioresponses
@@ -129,7 +128,8 @@ async def test_custom_headers_and_cookies(html_loader: HTMLLoader, monkeypatch) 
     body = "<html><body><h1>OK</h1></body></html>"
 
     def cb(url, **kwargs):
-        headers: Dict[str, str] = kwargs.get("headers", {})
+        del url
+        headers: dict[str, str] = kwargs.get("headers", {})
         assert headers.get("User-Agent") == "MyAgent/1.0"
         assert headers.get("Cookie") == "a=1; b=2"
         assert headers.get("X-Region") == "IR"

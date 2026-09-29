@@ -1,18 +1,19 @@
 """Performance timing utilities for measuring response times."""
 
 import time
-from typing import Dict, Optional
+from collections.abc import Iterator
 from contextlib import contextmanager
+
 from ragbot.outputs.logger import logger
 
 
 class PerformanceTimer:
     """Timer for measuring bot response times"""
 
-    def __init__(self):
-        self.start_time: Optional[float] = None
-        self.end_time: Optional[float] = None
-        self.checkpoints: Dict[str, float] = {}
+    def __init__(self) -> None:
+        self.start_time: float | None = None
+        self.end_time: float | None = None
+        self.checkpoints: dict[str, float] = {}
 
     def start(self) -> None:
         """Start timing"""
@@ -28,10 +29,14 @@ class PerformanceTimer:
         if len(self.checkpoints) > 1:
             # Find the most recent checkpoint before this one
             prev_checkpoint = self.start_time
+            if prev_checkpoint is None:
+                return
             for checkpoint_name, checkpoint_time in self.checkpoints.items():
-                if checkpoint_name != name and checkpoint_time < current_time:
-                    if checkpoint_time > prev_checkpoint:
-                        prev_checkpoint = checkpoint_time
+                if (
+                    checkpoint_name != name
+                    and prev_checkpoint < checkpoint_time < current_time
+                ):
+                    prev_checkpoint = checkpoint_time
 
             duration = current_time - prev_checkpoint
             if duration >= 0:  # Only log positive durations
@@ -79,7 +84,9 @@ class PerformanceTimer:
 
 
 @contextmanager
-def measure_response_time(operation_name: str = "operation"):
+def measure_response_time(
+    operation_name: str = "operation",
+) -> Iterator[PerformanceTimer]:
     """Context manager for measuring response times"""
     timer = PerformanceTimer()
     timer.start()
@@ -95,7 +102,7 @@ def log_timing_details(
     message_type: str,
     user_id: int,
     duration: float,
-    checkpoints: Dict[str, float] = None,
+    checkpoints: dict[str, float] | None = None,
 ) -> None:
     """Log detailed timing information"""
 

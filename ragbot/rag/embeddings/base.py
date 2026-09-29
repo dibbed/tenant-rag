@@ -13,7 +13,7 @@ Design goals:
 import math
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -43,7 +43,7 @@ class BaseEmbedder(ABC):
         self.timeout = kwargs.get("timeout", 30.0)
 
     @abstractmethod
-    async def embed_texts(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    async def embed_texts(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """
         Generate embeddings for a list of texts asynchronously.
 
@@ -59,7 +59,7 @@ class BaseEmbedder(ABC):
         """
         pass
 
-    async def embed_text(self, text: str, **kwargs: Any) -> List[float]:
+    async def embed_text(self, text: str, **kwargs: Any) -> list[float]:
         """
         Generate embedding for a single text (compatibility method).
 
@@ -77,7 +77,7 @@ class BaseEmbedder(ABC):
         return embeddings[0] if embeddings else []
 
     @abstractmethod
-    def embed_texts_sync(self, texts: List[str], **kwargs: Any) -> List[List[float]]:
+    def embed_texts_sync(self, texts: list[str], **kwargs: Any) -> list[list[float]]:
         """
         Generate embeddings for a list of texts synchronously.
 
@@ -93,7 +93,7 @@ class BaseEmbedder(ABC):
         """
         pass
 
-    async def embed_single(self, text: str, **kwargs: Any) -> List[float]:
+    async def embed_single(self, text: str, **kwargs: Any) -> list[float]:
         """
         Generate embedding for a single text.
 
@@ -110,7 +110,7 @@ class BaseEmbedder(ABC):
         embeddings = await self.embed_texts([text], **kwargs)
         return embeddings[0]
 
-    def embed_single_sync(self, text: str, **kwargs: Any) -> List[float]:
+    def embed_single_sync(self, text: str, **kwargs: Any) -> list[float]:
         """
         Generate embedding for a single text synchronously.
 
@@ -128,8 +128,8 @@ class BaseEmbedder(ABC):
         return embeddings[0] if embeddings else []
 
     async def embed_batch(
-        self, texts: List[str], batch_size: Optional[int] = None, **kwargs: Any
-    ) -> List[List[float]]:
+        self, texts: list[str], batch_size: int | None = None, **kwargs: Any
+    ) -> list[list[float]]:
         """
         Generate embeddings for texts in batches.
 
@@ -167,7 +167,7 @@ class BaseEmbedder(ABC):
         # Default implementation - subclasses should override
         return 768
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         Get information about the embedding model.
 
@@ -182,7 +182,7 @@ class BaseEmbedder(ABC):
             "config": self.config,
         }
 
-    def validate_texts(self, texts: List[str]) -> bool:
+    def validate_texts(self, texts: list[str]) -> bool:
         """
         Validate input texts for embedding.
 
@@ -222,7 +222,7 @@ class BaseEmbedder(ABC):
         preprocessed = _WS_RE.sub(" ", preprocessed)
         return preprocessed
 
-    def postprocess_embedding(self, embedding: List[float]) -> List[float]:
+    def postprocess_embedding(self, embedding: list[float]) -> list[float]:
         """
         Postprocess embedding after generation.
 
@@ -235,7 +235,7 @@ class BaseEmbedder(ABC):
         # Default postprocessing - subclasses can override
         return embedding
 
-    def normalize_embedding(self, embedding: List[float]) -> List[float]:
+    def normalize_embedding(self, embedding: list[float]) -> list[float]:
         """
         Normalize embedding vector to unit length.
 
@@ -259,14 +259,14 @@ class BaseEmbedder(ABC):
             if norm == 0:
                 return embedding
             normalized = embedding_array / norm
-            return normalized.tolist()
+            return [float(value) for value in normalized.tolist()]
 
         except Exception:
             # Return original embedding if normalization fails
             return embedding
 
     def compute_similarity(
-        self, embedding1: List[float], embedding2: List[float]
+        self, embedding1: list[float], embedding2: list[float]
     ) -> float:
         """
         Compute cosine similarity between two embeddings.
@@ -284,7 +284,7 @@ class BaseEmbedder(ABC):
                 dot = 0.0
                 n1 = 0.0
                 n2 = 0.0
-                for a, b in zip(embedding1, embedding2):
+                for a, b in zip(embedding1, embedding2, strict=False):
                     dot += a * b
                     n1 += a * a
                     n2 += b * b
@@ -326,17 +326,17 @@ class BaseEmbedder(ABC):
     # Optional cache hooks (no-op by default)
     async def get_cached_embedding(
         self, text: str, **_kwargs: Any
-    ) -> Optional[List[float]]:
+    ) -> list[float] | None:
         """Optional hook: retrieve cached embedding for a text (override in subclasses)."""
         return None
 
     async def set_cached_embedding(
-        self, text: str, embedding: List[float], **_kwargs: Any
+        self, text: str, embedding: list[float], **_kwargs: Any
     ) -> None:
         """Optional hook: store embedding for a text in cache (override in subclasses)."""
         return None
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the embedding service.
 
@@ -364,14 +364,14 @@ class BaseEmbedder(ABC):
             }
 
     # Optional metric hooks (no-op by default)
-    def _on_embed_start(self, texts: List[str], **_kwargs: Any) -> None:
+    def _on_embed_start(self, texts: list[str], **_kwargs: Any) -> None:
         """Hook called before embedding starts (override in subclasses)."""
         return None
 
     def _on_embed_end(
         self,
-        texts: List[str],
-        embeddings: List[List[float]],
+        texts: list[str],
+        embeddings: list[list[float]],
         duration: float,
         **_kwargs: Any,
     ) -> None:

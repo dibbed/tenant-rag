@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from ragbot.api.dependencies import (
@@ -24,8 +25,10 @@ from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.rag.exceptions import DocumentProcessingError, VectorStoreError
 from ragbot.rag.loaders.url_guard import UnsafeURLError, validate_url_target
-from ragbot.services.integration_service import IntegrationService
-from ragbot.services.rag_service import IngestResult, RAGService
+
+if TYPE_CHECKING:
+    from ragbot.services.integration_service import IntegrationService
+    from ragbot.services.rag_service import IngestResult, RAGService
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Documents"])
 
@@ -39,7 +42,7 @@ async def upload_document(
     file: UploadFile = File(...),
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
-    tenant_id: Optional[str] = Depends(get_tenant_context),
+    tenant_id: str | None = Depends(get_tenant_context),
 ) -> IngestResponse:
     """
     Upload and ingest a document file (PDF, DOCX, TXT, HTML, MD, etc.).
@@ -127,7 +130,7 @@ async def upload_document(
             await integration_service.track_user_action(
                 user_id="api_user",
                 action="upload_document",
-                details={
+                metadata={
                     "filename": filename,
                     "chunks_created": result.chunks_created,
                     "processing_time": result.processing_time,
@@ -186,7 +189,7 @@ async def ingest_text(
     payload: TextIngestRequest,
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
-    tenant_id: Optional[str] = Depends(get_tenant_context),
+    tenant_id: str | None = Depends(get_tenant_context),
 ) -> IngestResponse:
     """Ingest raw text content into the RAG knowledge base."""
     text = payload.text.strip()
@@ -238,7 +241,7 @@ async def ingest_text(
             await integration_service.track_user_action(
                 user_id="api_user",
                 action="ingest_text",
-                details={
+                metadata={
                     "text_length": len(text),
                     "chunks_created": result.chunks_created,
                 },
@@ -286,7 +289,7 @@ async def ingest_url(
     payload: URLIngestRequest,
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
-    tenant_id: Optional[str] = Depends(get_tenant_context),
+    tenant_id: str | None = Depends(get_tenant_context),
 ) -> IngestResponse:
     """Fetch and ingest content from a specified URL."""
     url = payload.url.strip()
@@ -325,7 +328,7 @@ async def ingest_url(
             await integration_service.track_user_action(
                 user_id="api_user",
                 action="ingest_url",
-                details={
+                metadata={
                     "url": url,
                     "chunks_created": result.chunks_created,
                     "tenant_id": tenant_id,
@@ -363,7 +366,7 @@ async def ingest_url(
 async def reset_store(
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
-    tenant_id: Optional[str] = Depends(get_tenant_context),
+    tenant_id: str | None = Depends(get_tenant_context),
     _auth: None = Depends(verify_reset_authorization),
 ) -> ResetResponse:
     """
@@ -389,8 +392,8 @@ async def reset_store(
                 # Clear global cache_manager singleton
                 await cache_manager.initialize()
                 l12_ok = await cache_manager.clear()
-                sem_ok = await cache_manager.clear_semantic_cache()
-                cache_cleared = bool(l12_ok and (sem_ok or True))
+                _sem_ok = await cache_manager.clear_semantic_cache()
+                cache_cleared = bool(l12_ok and (True))
             except Exception as cache_err:
                 logger.warning(f"Cache clear during reset partially failed: {cache_err}")
                 cache_cleared = False

@@ -5,14 +5,15 @@ This module provides comprehensive encryption capabilities for vector documents,
 embeddings, and metadata using various encryption algorithms.
 """
 
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass
-from enum import Enum
 import hashlib
 import json
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any
+
 from cryptography.fernet import Fernet
 
 from ragbot.outputs.logger import logger
@@ -45,11 +46,11 @@ class EncryptedDocument:
     encrypted_embeddings: bytes
     encryption_algorithm: EncryptionAlgorithm
     key_id: str
-    iv: Optional[bytes] = None
-    tag: Optional[bytes] = None
-    timestamp: Optional[datetime] = None
+    iv: bytes | None = None
+    tag: bytes | None = None
+    timestamp: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.timestamp is None:
             self.timestamp = datetime.now()
 
@@ -63,9 +64,9 @@ class KeyRotationResult:
     documents_rotated: int
     rotation_time: float
     success: bool
-    errors: Optional[List[str]] = None
+    errors: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.errors is None:
             self.errors = []
 
@@ -78,7 +79,7 @@ class EncryptionKey:
     algorithm: EncryptionAlgorithm
     key_data: bytes
     created_at: datetime
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     is_active: bool = True
 
     def is_expired(self) -> bool:
@@ -87,7 +88,7 @@ class EncryptionKey:
             return False
         return datetime.now() > self.expires_at
 
-    def days_until_expiry(self) -> int:
+    def days_until_expiry(self) -> int | float:
         """Get days until key expires"""
         if self.expires_at is None:
             return float("inf")
@@ -103,7 +104,7 @@ class EncryptionManager:
     and metadata using various encryption algorithms with key management.
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize encryption manager
 
@@ -111,8 +112,8 @@ class EncryptionManager:
             config: Configuration dictionary with encryption settings
         """
         self.config = config or {}
-        self.keys: Dict[str, EncryptionKey] = {}
-        self.active_key_id: Optional[str] = None
+        self.keys: dict[str, EncryptionKey] = {}
+        self.active_key_id: str | None = None
         self.encryption_mode = EncryptionMode(self.config.get("mode", "symmetric"))
         self.algorithm = EncryptionAlgorithm(
             self.config.get("algorithm", "aes_256_gcm")
@@ -274,8 +275,8 @@ class EncryptionManager:
             raise
 
     async def encrypt_embeddings(
-        self, embeddings: List[float]
-    ) -> Tuple[bytes, Optional[bytes], Optional[bytes]]:
+        self, embeddings: list[float]
+    ) -> tuple[bytes, bytes | None, bytes | None]:
         """
         Encrypt embeddings vector
 
@@ -300,9 +301,9 @@ class EncryptionManager:
     async def decrypt_embeddings(
         self,
         encrypted_embeddings: bytes,
-        iv: Optional[bytes] = None,
-        tag: Optional[bytes] = None,
-    ) -> List[float]:
+        iv: bytes | None = None,
+        tag: bytes | None = None,
+    ) -> list[float]:
         """
         Decrypt embeddings back to original format
 
@@ -322,8 +323,10 @@ class EncryptionManager:
 
         key = self.keys[self.active_key_id]
         decrypted_bytes = await self._decrypt_data(encrypted_embeddings, key, iv, tag)
-
-        return json.loads(decrypted_bytes.decode("utf-8"))
+        payload = json.loads(decrypted_bytes.decode("utf-8"))
+        if not isinstance(payload, list):
+            raise ValueError("Decrypted embeddings payload must be a list")
+        return [float(value) for value in payload]
 
     async def rotate_encryption_keys(self) -> KeyRotationResult:
         """
@@ -334,7 +337,7 @@ class EncryptionManager:
         """
         start_time = time.time()
         old_key_id = self.active_key_id
-        errors = []
+        errors: list[str] = []
 
         try:
             # Generate new key
@@ -376,7 +379,7 @@ class EncryptionManager:
                 errors=errors,
             )
 
-    async def _encrypt_data(self, data: bytes, key: EncryptionKey) -> Dict[str, bytes]:
+    async def _encrypt_data(self, data: bytes, key: EncryptionKey) -> dict[str, bytes]:
         """Encrypt data using specified key and algorithm"""
         if key.algorithm == EncryptionAlgorithm.FERNET:
             return await self._encrypt_fernet(data, key)
@@ -389,20 +392,22 @@ class EncryptionManager:
         self,
         encrypted_data: bytes,
         key: EncryptionKey,
-        iv: Optional[bytes] = None,
-        tag: Optional[bytes] = None,
+        iv: bytes | None = None,
+        tag: bytes | None = None,
     ) -> bytes:
         """Decrypt data using specified key and algorithm"""
         if key.algorithm == EncryptionAlgorithm.FERNET:
             return await self._decrypt_fernet(encrypted_data, key)
         elif key.algorithm == EncryptionAlgorithm.AES_256_GCM:
+            if iv is None or tag is None:
+                raise ValueError("AES-GCM decryption requires both iv and tag")
             return await self._decrypt_aes_gcm(encrypted_data, key, iv, tag)
         else:
             raise ValueError(f"Unsupported encryption algorithm: {key.algorithm}")
 
     async def _encrypt_fernet(
         self, data: bytes, key: EncryptionKey
-    ) -> Dict[str, bytes]:
+    ) -> dict[str, bytes]:
         """Encrypt data using Fernet symmetric encryption"""
         fernet = Fernet(key.key_data)
         encrypted = fernet.encrypt(data)
@@ -415,7 +420,7 @@ class EncryptionManager:
 
     async def _encrypt_aes_gcm(
         self, data: bytes, key: EncryptionKey
-    ) -> Dict[str, bytes]:
+    ) -> dict[str, bytes]:
         """Encrypt data using AES-256-GCM"""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -474,7 +479,7 @@ class EncryptionManager:
         random_bytes = os.urandom(8)
         return hashlib.sha256(timestamp.encode() + random_bytes).hexdigest()[:16]
 
-    def _initialize_default_key(self):
+    def _initialize_default_key(self) -> None:
         """Initialize default encryption key"""
         if not self.keys:
             # Generate default key
@@ -498,7 +503,7 @@ class EncryptionManager:
             self.keys[key_id] = default_key
             self.active_key_id = key_id
 
-    def get_key_info(self, key_id: str) -> Optional[Dict[str, Any]]:
+    def get_key_info(self, key_id: str) -> dict[str, Any] | None:
         """
         Get information about a specific key
 
@@ -522,16 +527,21 @@ class EncryptionManager:
             "days_until_expiry": key.days_until_expiry(),
         }
 
-    def list_keys(self) -> List[Dict[str, Any]]:
+    def list_keys(self) -> list[dict[str, Any]]:
         """
         List all available encryption keys
 
         Returns:
             List of key information dictionaries
         """
-        return [self.get_key_info(key_id) for key_id in self.keys.keys()]
+        key_infos: list[dict[str, Any]] = []
+        for key_id in self.keys:
+            key_info = self.get_key_info(key_id)
+            if key_info is not None:
+                key_infos.append(key_info)
+        return key_infos
 
-    def get_active_key_id(self) -> Optional[str]:
+    def get_active_key_id(self) -> str | None:
         """Get the currently active key ID"""
         return self.active_key_id
 
@@ -561,7 +571,7 @@ class EncryptionManager:
         logger.info(f"Active key set to {key_id}")
         return True
 
-    def get_encryption_stats(self) -> Dict[str, Any]:
+    def get_encryption_stats(self) -> dict[str, Any]:
         """
         Get encryption statistics
 

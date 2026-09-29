@@ -6,7 +6,7 @@ All logs/prints in English. Docstrings in Persian per project rules.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
 class ToxicityDetector:
@@ -16,7 +16,7 @@ class ToxicityDetector:
         self.words_fa = {"احمق", "خنگ", "فحش", "لعنتی"}
         self.words_en = {"stupid", "idiot", "dumb", "hate"}
 
-    async def analyze(self, text: str) -> Dict[str, Any]:
+    async def analyze(self, text: str) -> dict[str, Any]:
         """تحلیل سمی بودن متن"""
 
         lowered = text.lower()

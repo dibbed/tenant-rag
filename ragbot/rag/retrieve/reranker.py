@@ -3,8 +3,9 @@
 """
 
 import asyncio
+import contextlib
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -12,16 +13,17 @@ from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import metrics_manager, reranker_evaluator
 from ragbot.rag.exceptions import DocumentProcessingError
+from ragbot.rag.store.base import VectorDocument
 
+CrossEncoder: Any
 try:
-    from sentence_transformers import CrossEncoder
+    from sentence_transformers import CrossEncoder as _CrossEncoder
 
+    CrossEncoder = _CrossEncoder
     CROSS_ENCODER_AVAILABLE = True
 except ImportError:
-    CROSS_ENCODER_AVAILABLE = False
     CrossEncoder = None
-
-from ..store.base import VectorDocument
+    CROSS_ENCODER_AVAILABLE = False
 
 
 class CrossEncoderReranker:
@@ -29,11 +31,11 @@ class CrossEncoderReranker:
 
     def __init__(
         self,
-        model_name: Optional[str] = None,
-        threshold: Optional[float] = None,
-        enable_metadata_scoring: Optional[bool] = None,
-        **kwargs,
-    ):
+        model_name: str | None = None,
+        threshold: float | None = None,
+        enable_metadata_scoring: bool | None = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize reranker with settings integration
 
@@ -45,10 +47,15 @@ class CrossEncoderReranker:
         # خواندن تنظیمات از settings
         adv_settings = getattr(settings, "advanced_retrieval", object())
 
-        self.model_name = model_name or getattr(
-            adv_settings, "reranker_model", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        self.model_name = str(
+            model_name
+            or getattr(
+                adv_settings,
+                "reranker_model",
+                "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            )
         )
-        self.threshold = (
+        self.threshold = float(
             threshold
             if threshold is not None
             else getattr(adv_settings, "reranker_threshold", 0.7)
@@ -60,13 +67,13 @@ class CrossEncoderReranker:
         )
 
         # تنظیمات اضافی
-        self.rerank_timeout = getattr(adv_settings, "rerank_timeout", 30.0)
-        self.batch_size = getattr(adv_settings, "rerank_batch_size", 32)
-        self.max_documents = getattr(adv_settings, "rerank_max_documents", 100)
-        self.metadata_weight = getattr(adv_settings, "metadata_weight", 0.2)
+        self.rerank_timeout = float(getattr(adv_settings, "rerank_timeout", 30.0))
+        self.batch_size = int(getattr(adv_settings, "rerank_batch_size", 32))
+        self.max_documents = int(getattr(adv_settings, "rerank_max_documents", 100))
+        self.metadata_weight = float(getattr(adv_settings, "metadata_weight", 0.2))
 
         # Initialize CrossEncoder model if available
-        self.model = None
+        self.model: Any | None = None
         self.model_available = False
 
         if CROSS_ENCODER_AVAILABLE:
@@ -90,8 +97,8 @@ class CrossEncoderReranker:
             logger.warning("CrossEncoder not available, falling back to simple scoring")
 
         # Cache برای reranking results
-        self._rerank_cache: Dict[str, List[VectorDocument]] = {}
-        self._cache_max_size = getattr(adv_settings, "rerank_cache_size", 50)
+        self._rerank_cache: dict[str, list[VectorDocument]] = {}
+        self._cache_max_size = int(getattr(adv_settings, "rerank_cache_size", 50))
 
         logger.info(
             "CrossEncoder reranker initialized",
@@ -102,8 +109,8 @@ class CrossEncoderReranker:
         )
 
     async def rerank(
-        self, query: str, documents: List[VectorDocument], top_k: Optional[int] = None
-    ) -> List[VectorDocument]:
+        self, query: str, documents: list[VectorDocument], top_k: int | None = None
+    ) -> list[VectorDocument]:
         """
         رتبه‌بندی مجدد بر اساس شباهت معنایی - بهبود یافته
 
@@ -216,20 +223,24 @@ class CrossEncoderReranker:
             except Exception as e2:
                 logger.warning(f"Failed to record error metrics: {e2}")
             raise DocumentProcessingError(
-                f"Failed to rerank documents: {str(e)}",
+                f"Failed to rerank documents: {e!s}",
                 document_type="reranking",
                 source=query,
             ) from e
 
     async def _perform_reranking(
-        self, query: str, documents: List[VectorDocument], top_k: Optional[int]
-    ) -> List[VectorDocument]:
+        self, query: str, documents: list[VectorDocument], top_k: int | None
+    ) -> list[VectorDocument]:
         """انجام reranking با fallback strategies"""
         if not self.model_available:
             logger.warning("CrossEncoder not available, using fallback scoring")
             return await self._fallback_reranking(query, documents, top_k)
 
         try:
+            model = self.model
+            if model is None:
+                return await self._fallback_reranking(query, documents, top_k)
+
             # ایجاد جفت‌های (پرسش، سند) با batch processing
             pairs = [(query, doc.content) for doc in documents]
 
@@ -237,11 +248,11 @@ class CrossEncoderReranker:
             if len(pairs) > self.batch_size:
                 scores = await self._batch_predict(pairs)
             else:
-                scores = self.model.predict(pairs).tolist()
+                scores = model.predict(pairs).tolist()
 
             # مرتب‌سازی بر اساس امتیاز
             ranked_docs = sorted(
-                zip(documents, scores), key=lambda x: x[1], reverse=True
+                zip(documents, scores, strict=False), key=lambda x: x[1], reverse=True
             )
 
             # فیلتر کردن بر اساس threshold
@@ -275,18 +286,21 @@ class CrossEncoderReranker:
             logger.warning(f"CrossEncoder reranking failed: {e}, using fallback")
             return await self._fallback_reranking(query, documents, top_k)
 
-    async def _batch_predict(self, pairs: List[Tuple[str, str]]) -> List[float]:
+    async def _batch_predict(self, pairs: list[tuple[str, str]]) -> list[float]:
         """Batch prediction برای اسناد زیاد"""
-        scores = []
+        model = self.model
+        if model is None:
+            return []
+        scores: list[float] = []
         for i in range(0, len(pairs), self.batch_size):
             batch = pairs[i : i + self.batch_size]
-            batch_scores = self.model.predict(batch).tolist()
+            batch_scores = model.predict(batch).tolist()
             scores.extend(batch_scores)
         return scores
 
     async def _fallback_reranking(
-        self, query: str, documents: List[VectorDocument], top_k: Optional[int]
-    ) -> List[VectorDocument]:
+        self, query: str, documents: list[VectorDocument], top_k: int | None
+    ) -> list[VectorDocument]:
         """Fallback reranking بدون CrossEncoder"""
         try:
             query_words = set(query.lower().split())
@@ -333,9 +347,9 @@ class CrossEncoderReranker:
     async def rerank_with_metadata(
         self,
         query: str,
-        documents: List[VectorDocument],
-        metadata_weight: Optional[float] = None,
-    ) -> List[VectorDocument]:
+        documents: list[VectorDocument],
+        metadata_weight: float | None = None,
+    ) -> list[VectorDocument]:
         """
         رتبه‌بندی با در نظر گیری متادیتا - بهبود یافته
 
@@ -398,14 +412,12 @@ class CrossEncoderReranker:
 
             # ثبت متریک
             duration = time.time() - start_time
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_query_processing(
                     "reranking_with_metadata",
                     "success",
                     retrieval_duration=duration,
                 )
-            except Exception:
-                pass
 
             logger.debug(
                 "Metadata reranking completed",
@@ -419,32 +431,34 @@ class CrossEncoderReranker:
 
         except Exception as e:
             logger.error(f"Metadata reranking failed: {e} for query: {query}")
-            try:
+            with contextlib.suppress(Exception):
                 metrics_manager.record_error("reranking_with_metadata", "error")
-            except Exception:
-                pass
             raise DocumentProcessingError(
-                f"Failed to rerank documents with metadata: {str(e)}",
+                f"Failed to rerank documents with metadata: {e!s}",
                 document_type="reranking_with_metadata",
                 source=query,
             ) from e
 
     async def _calculate_semantic_scores(
-        self, query: str, documents: List[VectorDocument]
-    ) -> List[float]:
+        self, query: str, documents: list[VectorDocument]
+    ) -> list[float]:
         """محاسبه امتیازات شباهت معنایی - بهبود یافته"""
         if not self.model_available:
             logger.debug("CrossEncoder not available, using fallback semantic scoring")
             return await self._fallback_semantic_scores(query, documents)
 
         try:
+            model = self.model
+            if model is None:
+                return await self._fallback_semantic_scores(query, documents)
+
             pairs = [(query, doc.content) for doc in documents]
 
             # Batch processing برای اسناد زیاد
             if len(pairs) > self.batch_size:
                 scores = await self._batch_predict(pairs)
             else:
-                scores = self.model.predict(pairs).tolist()
+                scores = model.predict(pairs).tolist()
 
             return scores
 
@@ -453,8 +467,8 @@ class CrossEncoderReranker:
             return await self._fallback_semantic_scores(query, documents)
 
     async def _fallback_semantic_scores(
-        self, query: str, documents: List[VectorDocument]
-    ) -> List[float]:
+        self, query: str, documents: list[VectorDocument]
+    ) -> list[float]:
         """Fallback semantic scoring بدون CrossEncoder"""
         try:
             query_words = set(query.lower().split())
@@ -475,17 +489,18 @@ class CrossEncoderReranker:
             return [0.0 for _ in documents]
 
     async def _calculate_metadata_scores(
-        self, documents: List[VectorDocument]
-    ) -> List[float]:
+        self, documents: list[VectorDocument]
+    ) -> list[float]:
         """محاسبه امتیازات متادیتا - بهبود یافته"""
         try:
-            scores: List[float] = []
+            scores: list[float] = []
             for doc in documents:
                 meta = getattr(doc, "metadata", {}) or {}
                 s = 0.0
 
                 # نوع سند (قابل تنظیم)
-                doc_type = meta.get("type") or meta.get("file_ext")
+                raw_doc_type = meta.get("type") or meta.get("file_ext")
+                doc_type = str(raw_doc_type) if raw_doc_type is not None else ""
                 type_scores = {
                     "pdf": 0.10,
                     ".pdf": 0.10,
@@ -558,7 +573,7 @@ class CrossEncoderReranker:
             logger.warning(f"Metadata scoring failed: {e}")
             return [0.0 for _ in documents]
 
-    def get_reranker_info(self) -> Dict[str, any]:
+    def get_reranker_info(self) -> dict[str, Any]:
         """اطلاعات reranker برای health check"""
         return {
             "model_name": self.model_name,
@@ -573,7 +588,7 @@ class CrossEncoderReranker:
             "cache_max_size": self._cache_max_size,
         }
 
-    def health_check(self) -> Dict[str, any]:
+    def health_check(self) -> dict[str, Any]:
         """بررسی سلامت reranker"""
         try:
             # بررسی مدل
@@ -604,8 +619,8 @@ class CrossEncoderReranker:
     def _record_reranker_metrics(
         self,
         query: str,
-        input_documents: List[VectorDocument],
-        output_documents: List[VectorDocument],
+        input_documents: list[VectorDocument],
+        output_documents: list[VectorDocument],
         duration: float,
         cache_hit: bool = False,
         timeout: bool = False,

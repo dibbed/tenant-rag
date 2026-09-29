@@ -8,7 +8,7 @@ from .st_embedder import STEmbedder
 __all__ = [
     "BaseEmbedder",
     "Embedder",
-    "OpenAIEmbedder",
     "HuggingFaceEmbedder",
+    "OpenAIEmbedder",
     "STEmbedder",
 ]

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import gc
 import json
 import os
@@ -23,7 +24,7 @@ import platform
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import psutil
 
@@ -40,23 +41,20 @@ def get_rss_mb() -> float:
     return round(process.memory_info().rss / (1024 * 1024), 2)
 
 
-async def run_benchmark_async(chunk_count: int) -> Dict[str, Any]:
-    stages: Dict[str, float] = {}
+async def run_benchmark_async(chunk_count: int) -> dict[str, Any]:
+    stages: dict[str, float] = {}
 
     stages["01_baseline_idle_mb"] = get_rss_mb()
 
     # Import heavy packages
-    import faiss
-    import torch
-    from sentence_transformers import SentenceTransformer
     from ragbot.multi_tenant.tenant_manager import TenantManager
-    from ragbot.rag.store.faiss_store import FAISSVectorStore
     from ragbot.rag.store.base import VectorDocument
+    from ragbot.rag.store.faiss_store import FAISSVectorStore
 
     stages["02_after_imports_mb"] = get_rss_mb()
 
     # Initialize TenantManager
-    tm = TenantManager(db_path=Path("data/tenants/bench_tenants.db"))
+    _tm = TenantManager(db_path=Path("data/tenants/bench_tenants.db"))
     store = FAISSVectorStore(dimension=384, store_path="data/vector_stores/bench_mem")
 
     stages["03_after_init_empty_store_mb"] = get_rss_mb()
@@ -83,10 +81,8 @@ async def run_benchmark_async(chunk_count: int) -> Dict[str, Any]:
     )
 
     # Cleanup temporary benchmark store
-    try:
+    with contextlib.suppress(Exception):
         store.reset()
-    except Exception:
-        pass
 
     return {
         "metadata": {

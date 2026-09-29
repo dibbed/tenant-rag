@@ -14,20 +14,26 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from typing import List, Optional
+from typing import TYPE_CHECKING, Any
 
 from ragbot.outputs.logger import logger
-from ragbot.services.integration_service import get_integration_service
+from ragbot.rag import AdvancedFilter, QueryAggregator, QueryOptimizer
 from ragbot.security import EncryptionManager, KeyManager, SecureBackupManager
-from ragbot.rag import QueryAggregator, AdvancedFilter, QueryOptimizer
+from ragbot.services.integration_service import get_integration_service
 from ragbot.utils.config_migration import migrate_env_file
 from ragbot.utils.migration import migrate_stores, verify_migration
 from ragbot.utils.vector_store_migration import migrate_store_command
 
+if TYPE_CHECKING:
+    from ragbot.services.rag_service import RAGService
 
-async def _get_rag_service():
+
+async def _get_rag_service() -> RAGService:
     integration = await get_integration_service()
-    return await integration.get_rag_service()
+    rag_service = integration.get_rag_service()
+    if rag_service is None:
+        raise RuntimeError("RAG service is not available")
+    return rag_service
 
 
 async def cmd_status(_args: argparse.Namespace) -> int:
@@ -136,11 +142,13 @@ async def cmd_query(args: argparse.Namespace) -> int:
 
 async def cmd_ingest(args: argparse.Namespace) -> int:
     rag = await _get_rag_service()
-    source: Optional[str] = None
-    source_type: Optional[str] = None
+    source: str | None = None
+    source_type: str | None = None
     if args.file:
-        source = args.file
-        source_type = args.type or "pdf" if source.lower().endswith(".pdf") else None
+        source = str(args.file)
+        source_type = args.type or (
+            "pdf" if source.lower().endswith(".pdf") else None
+        )
     elif args.url:
         source = args.url
         source_type = args.type or "url"
@@ -151,6 +159,7 @@ async def cmd_ingest(args: argparse.Namespace) -> int:
         print("Provide one of --file/--url/--text")
         return 2
 
+    assert source is not None
     tenant_id = getattr(args, "tenant_id", None)
     if tenant_id:
         res = await rag.ingest_document(
@@ -173,7 +182,7 @@ async def cmd_batch_ingest(args: argparse.Namespace) -> int:
     rag = await _get_rag_service()
     # Build default patterns: only PDF unless flags are provided
     if args.pattern:
-        patterns: Optional[List[str]] = args.pattern
+        patterns: list[str] | None = args.pattern
     else:
         patterns = ["*.pdf"]
         if getattr(args, "include_txt", False):
@@ -188,18 +197,18 @@ async def cmd_batch_ingest(args: argparse.Namespace) -> int:
         source_type=args.type,
         max_concurrency=args.max_concurrency,
     )
-    print("total:", summary["total"])  # type: ignore
-    print("succeeded:", summary["succeeded"])  # type: ignore
-    print("failed:", summary["failed"])  # type: ignore
-    print("duration:", f"{summary['duration']:.2f}s")  # type: ignore
+    print("total:", summary["total"])
+    print("succeeded:", summary["succeeded"])
+    print("failed:", summary["failed"])
+    print("duration:", f"{summary['duration']:.2f}s")
     # Show a brief table
-    for r in summary["results"][:10]:  # type: ignore
+    for r in summary["results"][:10]:
         status = "ok" if r.get("success") else "fail"
         src = r.get("source") or r.get("document_metadata", {}).get("source")
         print(f"- {status} {r.get('document_id')}  src={src}")
-    if summary["total"] > 10:  # type: ignore
+    if summary["total"] > 10:
         print("... (showing first 10)")
-    return 0 if summary["failed"] == 0 else 1  # type: ignore
+    return 0 if summary["failed"] == 0 else 1
 
 
 async def cmd_migrate(args: argparse.Namespace) -> int:
@@ -209,7 +218,7 @@ async def cmd_migrate(args: argparse.Namespace) -> int:
         tgt = (args.target or "chromadb").lower()
 
         # Progress printer
-        def _progress(ev):
+        def _progress(ev: dict[str, Any]) -> None:
             total = ev.get("total") or 0
             mig = ev.get("migrated") or 0
             fail = ev.get("failed") or 0
@@ -230,7 +239,7 @@ async def cmd_migrate(args: argparse.Namespace) -> int:
         print("migrated:", summary.get("migrated", 0))
         print("failed:", summary.get("failed", 0))
         if "target_count" in summary:
-            print("target_count:", summary["target_count"])  # type: ignore
+            print("target_count:", summary["target_count"])
         if summary.get("rolled_back"):
             print("rolled_back:", summary.get("rolled_back"))
         return 0 if summary.get("status") == "ok" else 1
@@ -317,16 +326,16 @@ def cmd_config_migrate(args: argparse.Namespace) -> int:
     """Migrate .env vector-store keys to the new schema."""
     try:
         summary = migrate_env_file(args.input, args.output)
-        print("input:", summary["input"])  # type: ignore
-        print("output:", summary["output"])  # type: ignore
-        print("changed_keys:", summary["changed_keys"])  # type: ignore
+        print("input:", summary["input"])
+        print("output:", summary["output"])
+        print("changed_keys:", summary["changed_keys"])
         return 0
     except Exception as e:
         print("error:", str(e))
         return 1
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_legacy_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="ragbot-cli", description="RAG Assistant CLI")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -525,35 +534,38 @@ async def cmd_security(args: argparse.Namespace) -> int:
 
         elif args.rotate_keys:
             encryption_manager = EncryptionManager()
-            result = await encryption_manager.rotate_encryption_keys()
-            if result.success:
+            rotation_result = await encryption_manager.rotate_encryption_keys()
+            if rotation_result.success:
                 print(
-                    f"Key rotation successful: {result.old_key_id} -> {result.new_key_id}"
+                    "Key rotation successful: "
+                    f"{rotation_result.old_key_id} -> {rotation_result.new_key_id}"
                 )
                 return 0
             else:
-                print(f"Key rotation failed: {result.errors}")
+                print(f"Key rotation failed: {rotation_result.errors}")
                 return 1
 
         elif args.backup:
             rag = await _get_rag_service()
             backup_manager = SecureBackupManager()
-            result = await backup_manager.create_encrypted_backup([rag.vector_store])
-            if result.status.value == "completed":
-                print(f"Backup created: {result.backup_id}")
+            backup_result = await backup_manager.create_encrypted_backup(
+                [rag.vector_store]
+            )
+            if backup_result.status.value == "completed":
+                print(f"Backup created: {backup_result.backup_id}")
                 return 0
             else:
-                print(f"Backup failed: {result.errors}")
+                print(f"Backup failed: {backup_result.errors}")
                 return 1
 
         elif args.restore:
             backup_manager = SecureBackupManager()
-            result = await backup_manager.restore_from_backup(args.restore)
-            if result.status == "completed":
-                print(f"Restore completed: {result.restore_id}")
+            restore_result = await backup_manager.restore_from_backup(args.restore)
+            if restore_result.status == "completed":
+                print(f"Restore completed: {restore_result.restore_id}")
                 return 0
             else:
-                print(f"Restore failed: {result.errors}")
+                print(f"Restore failed: {restore_result.errors}")
                 return 1
 
         else:
@@ -569,29 +581,33 @@ async def cmd_query_advanced(args: argparse.Namespace) -> int:
     """Advanced query features"""
     try:
         rag = await _get_rag_service()
+        vector_store = rag.get_vector_store()
+        if vector_store is None:
+            print("Vector store is not available")
+            return 1
 
         if args.aggregate:
-            aggregator = QueryAggregator()
+            aggregator = QueryAggregator(vector_store)
             # Example aggregation query
-            result = await aggregator.group_by_metadata(
-                rag.vector_store, group_by="category", filters={"status": "active"}
+            aggregation_result = await aggregator.group_by_metadata(
+                field="category", filters={"status": "active"}
             )
-            print(f"Aggregation result: {result}")
+            print(f"Aggregation result: {aggregation_result}")
             return 0
 
         elif args.filter:
-            advanced_filter = AdvancedFilter()
+            advanced_filter = AdvancedFilter(vector_store)
             # Example advanced filter
-            result = await advanced_filter.range_filter(
-                rag.vector_store, field="score", min_value=0.8, max_value=1.0
+            filtered_documents = await advanced_filter.range_filter(
+                field="score", min_val=0.8, max_val=1.0
             )
-            print(f"Filtered documents: {len(result)}")
+            print(f"Filtered documents: {len(filtered_documents)}")
             return 0
 
         elif args.optimize:
-            optimizer = QueryOptimizer()
+            optimizer = QueryOptimizer(vector_store)
             # Example query optimization
-            stats = optimizer.get_optimization_statistics()
+            stats = await optimizer.get_optimization_statistics()
             print(f"Optimization statistics: {stats}")
             return 0
 
@@ -863,8 +879,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 # Analytics command functions
-async def cmd_ml_insights(args) -> int:
+async def cmd_ml_insights(args: argparse.Namespace) -> int:
     """Get ML insights"""
+    del args
     try:
         service = await _get_rag_service()
         insights = await service.get_ml_insights()
@@ -877,8 +894,9 @@ async def cmd_ml_insights(args) -> int:
         return 1
 
 
-async def cmd_predictive_analytics(args) -> int:
+async def cmd_predictive_analytics(args: argparse.Namespace) -> int:
     """Get predictive analytics"""
+    del args
     try:
         service = await _get_rag_service()
         analytics = await service.get_predictive_analytics()
@@ -891,7 +909,7 @@ async def cmd_predictive_analytics(args) -> int:
         return 1
 
 
-async def cmd_user_analytics(args) -> int:
+async def cmd_user_analytics(args: argparse.Namespace) -> int:
     """Get user analytics"""
     try:
         service = await _get_rag_service()
@@ -905,7 +923,7 @@ async def cmd_user_analytics(args) -> int:
         return 1
 
 
-async def cmd_comprehensive_analytics(args) -> int:
+async def cmd_comprehensive_analytics(args: argparse.Namespace) -> int:
     """Get comprehensive analytics report"""
     try:
         service = await _get_rag_service()
@@ -1017,7 +1035,7 @@ async def cmd_plugin(args: argparse.Namespace) -> int:
 
 
 # Multi-tenant command functions
-async def cmd_create_tenant(args) -> int:
+async def cmd_create_tenant(args: argparse.Namespace) -> int:
     """Create a new tenant"""
     try:
         service = await _get_rag_service()
@@ -1045,7 +1063,7 @@ async def cmd_create_tenant(args) -> int:
         return 1
 
 
-async def cmd_tenant_info(args) -> int:
+async def cmd_tenant_info(args: argparse.Namespace) -> int:
     """Get tenant information"""
     try:
         service = await _get_rag_service()
@@ -1063,7 +1081,7 @@ async def cmd_tenant_info(args) -> int:
         return 1
 
 
-async def cmd_tenant_analytics(args) -> int:
+async def cmd_tenant_analytics(args: argparse.Namespace) -> int:
     """Get tenant analytics"""
     try:
         service = await _get_rag_service()
@@ -1081,7 +1099,7 @@ async def cmd_tenant_analytics(args) -> int:
         return 1
 
 
-async def cmd_tenant_trends(args) -> int:
+async def cmd_tenant_trends(args: argparse.Namespace) -> int:
     """Get tenant usage trends"""
     try:
         service = await _get_rag_service()
@@ -1101,7 +1119,7 @@ async def cmd_tenant_trends(args) -> int:
         return 1
 
 
-async def cmd_tenant_security(args) -> int:
+async def cmd_tenant_security(args: argparse.Namespace) -> int:
     """Get tenant security report"""
     try:
         service = await _get_rag_service()
@@ -1119,7 +1137,7 @@ async def cmd_tenant_security(args) -> int:
         return 1
 
 
-async def cmd_create_tenant_user(args) -> int:
+async def cmd_create_tenant_user(args: argparse.Namespace) -> int:
     """Create a tenant user"""
     try:
         service = await _get_rag_service()
@@ -1143,7 +1161,7 @@ async def cmd_create_tenant_user(args) -> int:
         return 1
 
 
-async def cmd_authenticate_tenant_user(args) -> int:
+async def cmd_authenticate_tenant_user(args: argparse.Namespace) -> int:
     """Authenticate a tenant user"""
     try:
         service = await _get_rag_service()
@@ -1165,7 +1183,7 @@ async def cmd_authenticate_tenant_user(args) -> int:
         return 1
 
 
-async def cmd_create_tenant_api_key(args) -> int:
+async def cmd_create_tenant_api_key(args: argparse.Namespace) -> int:
     """Create a tenant API key"""
     try:
         service = await _get_rag_service()
@@ -1187,7 +1205,7 @@ async def cmd_create_tenant_api_key(args) -> int:
         return 1
 
 
-async def cmd_revoke_tenant_api_key(args) -> int:
+async def cmd_revoke_tenant_api_key(args: argparse.Namespace) -> int:
     """Revoke a tenant API key"""
     try:
         service = await _get_rag_service()
@@ -1206,7 +1224,7 @@ async def cmd_revoke_tenant_api_key(args) -> int:
         return 1
 
 
-async def cmd_list_tenant_api_keys(args) -> int:
+async def cmd_list_tenant_api_keys(args: argparse.Namespace) -> int:
     """List tenant API keys"""
     try:
         service = await _get_rag_service()

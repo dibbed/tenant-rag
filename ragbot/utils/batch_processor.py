@@ -3,7 +3,8 @@ Batch processing utilities optimized for throughput and memory usage.
 """
 
 import asyncio
-from typing import Any, Awaitable, Callable, Iterable, List, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
+from typing import Any
 
 from loguru import logger
 
@@ -11,8 +12,8 @@ from loguru import logger
 async def process_in_batches(
     items: Sequence[Any],
     batch_size: int,
-    handler: Callable[[List[Any]], Awaitable[List[Any]]],
-) -> List[Any]:
+    handler: Callable[[list[Any]], Awaitable[list[Any]]],
+) -> list[Any]:
     """Process items in batches using an async handler.
 
     Args:
@@ -23,7 +24,7 @@ async def process_in_batches(
     Returns:
         List of results from all batches in order
     """
-    results: List[Any] = []
+    results: list[Any] = []
     try:
         for start in range(0, len(items), batch_size):
             batch = list(items[start : start + batch_size])
@@ -39,10 +40,10 @@ async def map_concurrent(
     items: Iterable[Any],
     mapper: Callable[[Any], Awaitable[Any]],
     concurrency: int = 10,
-) -> List[Any]:
+) -> list[Any]:
     """Map items concurrently with semaphore-limited concurrency."""
     semaphore = asyncio.Semaphore(max(1, concurrency))
-    results: List[Any] = []
+    results: list[Any] = []
 
     async def _run(item: Any) -> None:
         async with semaphore:

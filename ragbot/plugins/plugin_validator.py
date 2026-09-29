@@ -7,9 +7,10 @@ including security checks, compatibility validation, and dependency verification
 
 import ast
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from ragbot.outputs.logger import logger
+
 from .base_plugin import BasePlugin, PluginType
 
 
@@ -33,8 +34,8 @@ class PluginValidator:
 
     def __init__(
         self,
-        allowed_imports: Optional[List[str]] = None,
-        banned_functions: Optional[List[str]] = None,
+        allowed_imports: list[str] | None = None,
+        banned_functions: list[str] | None = None,
     ):
         """
         Initialize plugin validator
@@ -70,7 +71,7 @@ class PluginValidator:
             "apply",
         ]
 
-    async def validate_plugin_file(self, plugin_path: str) -> Dict[str, Any]:
+    async def validate_plugin_file(self, plugin_path: str) -> dict[str, Any]:
         """
         Validate a plugin file
 
@@ -80,7 +81,7 @@ class PluginValidator:
         Returns:
             Validation results dictionary
         """
-        results = {
+        results: dict[str, Any] = {
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -89,20 +90,20 @@ class PluginValidator:
         }
 
         try:
-            plugin_path = Path(plugin_path)
+            plugin_file = Path(plugin_path)
 
-            if not plugin_path.exists():
-                results["errors"].append(f"Plugin file does not exist: {plugin_path}")
+            if not plugin_file.exists():
+                results["errors"].append(f"Plugin file does not exist: {plugin_file}")
                 results["valid"] = False
                 return results
 
             # Basic file validation
-            if plugin_path.suffix != ".py":
+            if plugin_file.suffix != ".py":
                 results["errors"].append("Plugin file must be a Python file (.py)")
                 results["valid"] = False
 
             # Read and parse file
-            with open(plugin_path, "r", encoding="utf-8") as f:
+            with open(plugin_file, encoding="utf-8") as f:
                 content = f.read()
 
             # AST analysis
@@ -114,7 +115,7 @@ class PluginValidator:
                 return results
 
             # Security validation
-            security_issues = await self._validate_security(tree, plugin_path.name)
+            security_issues = await self._validate_security(tree, plugin_file.name)
             results["errors"].extend(security_issues)
             results["security_score"] = max(0, 100 - len(security_issues) * 20)
 
@@ -146,7 +147,7 @@ class PluginValidator:
 
         return results
 
-    async def validate_plugin_instance(self, plugin: BasePlugin) -> Dict[str, Any]:
+    async def validate_plugin_instance(self, plugin: BasePlugin) -> dict[str, Any]:
         """
         Validate a plugin instance
 
@@ -156,7 +157,7 @@ class PluginValidator:
         Returns:
             Validation results dictionary
         """
-        results = {"valid": True, "errors": [], "warnings": [], "metadata_valid": True}
+        results: dict[str, Any] = {"valid": True, "errors": [], "warnings": [], "metadata_valid": True}
 
         try:
             # Check metadata
@@ -225,7 +226,7 @@ class PluginValidator:
 
         return results
 
-    async def _validate_security(self, tree: ast.AST, filename: str) -> List[str]:
+    async def _validate_security(self, tree: ast.AST, filename: str) -> list[str]:
         """
         Validate plugin security
 
@@ -246,10 +247,10 @@ class PluginValidator:
                     if not self._is_import_allowed(module_name):
                         issues.append(f"Banned import: {module_name}")
 
-            elif isinstance(node, ast.ImportFrom):
-                module_name = node.module
-                if not self._is_import_allowed(module_name):
-                    issues.append(f"Banned import from: {module_name}")
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                imported_module = node.module
+                if not self._is_import_allowed(imported_module):
+                    issues.append(f"Banned import from: {imported_module}")
 
         # Check for dangerous function calls
         for node in ast.walk(tree):
@@ -265,22 +266,27 @@ class PluginValidator:
                     issues.append(f"Dangerous function call: {func_name}")
 
         # Check for file system access
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == "open":
-                    issues.append("Direct file access detected - use approved methods")
+        issues.extend(
+            "Direct file access detected - use approved methods"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "open"
+        )
 
         # Check for network operations (example - customize as needed)
         network_modules = ["socket", "urllib", "requests", "http"]
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name in network_modules:
-                        issues.append(f"Network access detected: {alias.name}")
+        issues.extend(
+            f"Network access detected: {alias.name}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name in network_modules
+        )
 
         return issues
 
-    async def _validate_code_quality(self, tree: ast.AST) -> List[str]:
+    async def _validate_code_quality(self, tree: ast.AST) -> list[str]:
         """
         Validate code quality
 
@@ -306,7 +312,7 @@ class PluginValidator:
         total_functions = 0
 
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 total_functions += 1
                 if not ast.get_docstring(node):
                     functions_without_docstrings += 1
@@ -320,7 +326,7 @@ class PluginValidator:
 
         return issues
 
-    async def _validate_structure(self, tree: ast.AST) -> List[str]:
+    async def _validate_structure(self, tree: ast.AST) -> list[str]:
         """
         Validate plugin structure
 
@@ -348,7 +354,7 @@ class PluginValidator:
 
         return issues
 
-    async def _validate_dependencies(self, tree: ast.AST) -> List[str]:
+    async def _validate_dependencies(self, tree: ast.AST) -> list[str]:
         """
         Validate dependencies
 
@@ -367,22 +373,22 @@ class PluginValidator:
                 for alias in node.names:
                     imports.add(alias.name)
 
-            elif isinstance(node, ast.ImportFrom):
-                if node.module:
-                    imports.add(node.module)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module)
 
         # Check for external dependencies
-        external_deps = []
-        for imp in imports:
-            if imp not in self.allowed_imports and not imp.startswith("ragbot"):
-                external_deps.append(imp)
+        external_deps = [
+            imp
+            for imp in imports
+            if imp not in self.allowed_imports and not imp.startswith("ragbot")
+        ]
 
         if external_deps:
             issues.append(f"External dependencies detected: {', '.join(external_deps)}")
 
         return issues
 
-    async def _validate_required_components(self, tree: ast.AST) -> List[str]:
+    async def _validate_required_components(self, tree: ast.AST) -> list[str]:
         """
         Validate required components exist
 
@@ -400,14 +406,16 @@ class PluginValidator:
         has_cleanup = False
 
         for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.name in ["execute", "initialize", "cleanup"]:
-                    if "execute" == node.name:
-                        has_execute = True
-                    elif "initialize" == node.name:
-                        has_initialize = True
-                    elif "cleanup" == node.name:
-                        has_cleanup = True
+            if (
+                isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                and node.name in ["execute", "initialize", "cleanup"]
+            ):
+                if node.name == "execute":
+                    has_execute = True
+                elif node.name == "initialize":
+                    has_initialize = True
+                elif node.name == "cleanup":
+                    has_cleanup = True
 
         if not has_execute:
             issues.append("Required method 'execute' not found")
@@ -445,9 +453,7 @@ class PluginValidator:
         complexity = 1
 
         for child in ast.walk(node):
-            if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor)):
-                complexity += 1
-            elif isinstance(child, ast.ExceptHandler):
+            if isinstance(child, ast.If | ast.While | ast.For | ast.AsyncFor | ast.ExceptHandler):
                 complexity += 1
             elif isinstance(child, ast.BoolOp):
                 complexity += len(child.values) - 1

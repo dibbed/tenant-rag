@@ -15,20 +15,21 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import platform
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Ensure project root in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from ragbot.rag.store.faiss_store import FAISSVectorStore
-from ragbot.rag.store.base import VectorDocument
+from ragbot.rag.store.base import VectorDocument  # noqa: E402,I001  # Import after source-tree path bootstrap.
+from ragbot.rag.store.faiss_store import FAISSVectorStore  # noqa: E402  # Import after source-tree path bootstrap.
 
 
 async def worker_task(
@@ -36,8 +37,8 @@ async def worker_task(
     tenant_id: str,
     store: FAISSVectorStore,
     operations: int,
-    results: List[float],
-    errors: List[str],
+    results: list[float],
+    errors: list[str],
 ) -> None:
     dim = store.embedding_dimension
     for op_i in range(operations):
@@ -61,12 +62,12 @@ async def worker_task(
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             results.append(elapsed_ms)
         except Exception as exc:
-            errors.append(f"Worker {worker_id} on {tenant_id}: {type(exc).__name__}: {str(exc)}")
+            errors.append(f"Worker {worker_id} on {tenant_id}: {type(exc).__name__}: {exc!s}")
 
 
-async def run_benchmark(concurrency: int, tenant_count: int, ops_per_worker: int) -> Dict[str, Any]:
+async def run_benchmark(concurrency: int, tenant_count: int, ops_per_worker: int) -> dict[str, Any]:
     tenants = [f"tenant_bench_{i:02d}" for i in range(tenant_count)]
-    stores: Dict[str, FAISSVectorStore] = {}
+    stores: dict[str, FAISSVectorStore] = {}
 
     for t in tenants:
         store_path = Path(f"data/vector_stores/bench_concurrent_{t}")
@@ -81,8 +82,8 @@ async def run_benchmark(concurrency: int, tenant_count: int, ops_per_worker: int
             )
         ])
 
-    latencies: List[float] = []
-    errors: List[str] = []
+    latencies: list[float] = []
+    errors: list[str] = []
 
     tasks = []
     t_start = time.perf_counter()
@@ -98,11 +99,9 @@ async def run_benchmark(concurrency: int, tenant_count: int, ops_per_worker: int
     total_duration = time.perf_counter() - t_start
 
     # Clean up test stores
-    for t, s in stores.items():
-        try:
+    for s in stores.values():
+        with contextlib.suppress(Exception):
             s.reset()
-        except Exception:
-            pass
 
     sorted_l = sorted(latencies) if latencies else [0.0]
     total_ops = len(latencies)

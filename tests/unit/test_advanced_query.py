@@ -4,23 +4,24 @@ Unit tests for Advanced Query Features
 Tests for aggregation, filtering, scoring, and optimization capabilities.
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from ragbot.rag.query import (
-    QueryAggregator,
-    AggregationType,
+    AdvancedFilter,
     AggregationQuery,
     AggregationResult,
-    AdvancedFilter,
-    FilterOperator,
-    FilterCondition,
+    AggregationType,
     CustomScorer,
-    ScoredDocument,
+    FilterCondition,
+    FilterOperator,
+    OptimizationResult,
+    QueryAggregator,
     QueryOptimizer,
     QueryPlan,
-    OptimizationResult,
+    ScoredDocument,
 )
 
 

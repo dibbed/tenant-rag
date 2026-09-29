@@ -6,7 +6,7 @@ using OpenAI's tiktoken library for accurate token counting.
 """
 
 import hashlib
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 try:
     import tiktoken
@@ -50,18 +50,19 @@ class TokenChunker(BaseChunker):
         # Allow fallback when tiktoken isn't available (tests may run without it)
         self._fallback_encoding = not TIKTOKEN_AVAILABLE
 
-        self.chunk_size = kwargs.get("chunk_size", settings.rag.chunk_size)
+        self.chunk_size = int(kwargs.get("chunk_size", settings.rag.chunk_size))
         # Support both 'chunk_overlap' and 'overlap' for compatibility
-        self.chunk_overlap = kwargs.get(
-            "chunk_overlap", kwargs.get("overlap", settings.rag.chunk_overlap)
+        self.chunk_overlap = int(
+            kwargs.get("chunk_overlap", kwargs.get("overlap", settings.rag.chunk_overlap))
         )
         self.encoding_name = kwargs.get(
             "encoding_name", "cl100k_base"
         )  # GPT-3.5/4 encoding
         self.preserve_sentences = kwargs.get("preserve_sentences", True)
-        self.min_chunk_size = kwargs.get("min_chunk_size", 50)
+        self.min_chunk_size = int(kwargs.get("min_chunk_size", 50))
 
         # Initialize tokenizer
+        self.encoding: tiktoken.Encoding | None
         if not self._fallback_encoding:
             try:
                 self.encoding = tiktoken.get_encoding(self.encoding_name)
@@ -100,11 +101,11 @@ class TokenChunker(BaseChunker):
         """Compatibility property for overlap."""
         return self.chunk_overlap
 
-    async def chunk_text(self, text: str, **kwargs: Any) -> List[TextChunk]:
+    async def chunk_text(self, text: str, **kwargs: Any) -> list[TextChunk]:
         """Async compatibility method for chunk_text."""
         return self.chunk(text, **kwargs)
 
-    async def chunk_texts(self, texts: List[str], **kwargs: Any) -> List[str]:
+    async def chunk_texts(self, texts: list[str], **kwargs: Any) -> list[str]:
         """Chunk multiple texts and return flattened list of string chunks.
 
         Args:
@@ -120,7 +121,7 @@ class TokenChunker(BaseChunker):
             all_chunks.extend([chunk.content for chunk in chunks])
         return all_chunks
 
-    async def chunk_document(self, document: "Document") -> List["Document"]:
+    async def chunk_document(self, document: "Document") -> list["Document"]:
         """Chunk a document into smaller documents.
 
         Args:
@@ -169,7 +170,7 @@ class TokenChunker(BaseChunker):
         except Exception as e:
             from ragbot.rag.exceptions import DocumentProcessingError
 
-            raise DocumentProcessingError(f"Failed to chunk document: {str(e)}") from e
+            raise DocumentProcessingError(f"Failed to chunk document: {e!s}") from e
 
     def _count_tokens(self, text: str) -> int:
         """Compatibility method that delegates to unified count_tokens."""
@@ -189,7 +190,7 @@ class TokenChunker(BaseChunker):
             logger.warning(f"Error counting tokens: {e}")
             return len(text.split())
 
-    def chunk(self, text: str, **kwargs: Any) -> List[TextChunk]:
+    def chunk(self, text: str, **kwargs: Any) -> list[TextChunk]:
         """
         Split text into token-based chunks.
 
@@ -219,14 +220,20 @@ class TokenChunker(BaseChunker):
             logger.debug(f"Chunking text: {len(text)} characters")
 
             # Override settings if provided
-            chunk_size = kwargs.get("chunk_size", self.chunk_size)
-            chunk_overlap = kwargs.get("chunk_overlap", self.chunk_overlap)
-            document_id = kwargs.get("document_id", "unknown")
+            chunk_size = int(kwargs.get("chunk_size", self.chunk_size))
+            chunk_overlap = int(kwargs.get("chunk_overlap", self.chunk_overlap))
+            document_id = str(kwargs.get("document_id", "unknown"))
+            encoding = self.encoding
+            if not self._fallback_encoding and encoding is None:
+                raise DocumentProcessingError(
+                    "Tokenizer encoding unavailable",
+                    details=f"Encoding {self.encoding_name} is not initialized",
+                )
 
             # Structural hints from loaders (docx/pdf/html/markdown)
-            metadata_in: Dict[str, Any] = kwargs.get("metadata", {}) or {}
+            metadata_in: dict[str, Any] = kwargs.get("metadata", {}) or {}
             headings = metadata_in.get("headings") or []
-            protected_spans: List[tuple[int, int]] = []
+            protected_spans: list[tuple[int, int]] = []
             # Protect headings text occurrences
             try:
                 cursor = 0
@@ -246,15 +253,17 @@ class TokenChunker(BaseChunker):
             # Protect tables and fenced code blocks and tab-lines
             import re as _re
 
-            for m in _re.finditer(
-                r"(^\s*\[Table\].*$)|(^\s*```[\s\S]*?```)|(^.*\t.*$)",
-                text,
-                _re.MULTILINE,
-            ):
-                protected_spans.append((m.start(), m.end()))
+            protected_spans.extend(
+                (m.start(), m.end())
+                for m in _re.finditer(
+                    r"(^\s*\[Table\].*$)|(^\s*```[\s\S]*?```)|(^.*\t.*$)",
+                    text,
+                    _re.MULTILINE,
+                )
+            )
             if protected_spans:
                 protected_spans.sort(key=lambda x: x[0])
-                merged: List[tuple[int, int]] = []
+                merged: list[tuple[int, int]] = []
                 for s, e in protected_spans:
                     if not merged or s > merged[-1][1]:
                         merged.append((s, e))
@@ -263,11 +272,12 @@ class TokenChunker(BaseChunker):
                 protected_spans = merged
 
             # Tokenize the entire text
+            tokens: list[int] = []
+            words: list[str] = []
+            word_offsets: list[int] = []
             if self._fallback_encoding:
-                tokens = None
                 # Position-aware fallback: precompute word offsets
                 words = text.split()
-                word_offsets = []
                 idx = 0
                 for w in words:
                     # find next occurrence from idx to handle repeated words
@@ -278,7 +288,8 @@ class TokenChunker(BaseChunker):
                     idx = at + len(w)
                 total_tokens = len(words)
             else:
-                tokens = self.encoding.encode(text)
+                assert encoding is not None
+                tokens = encoding.encode(text)
                 total_tokens = len(tokens)
 
             if total_tokens <= chunk_size:
@@ -335,14 +346,16 @@ class TokenChunker(BaseChunker):
                 )
 
                 # Extract tokens for this chunk
+                chunk_tokens: list[int] = []
+                chunk_words: list[str] = []
                 if self._fallback_encoding:
-                    chunk_tokens = None
                     chunk_words = words[start_token_idx:end_token_idx]
                     chunk_text = " ".join(chunk_words)
                 else:
+                    assert encoding is not None
                     chunk_tokens = tokens[start_token_idx:end_token_idx]
                     # Decode tokens back to text
-                    chunk_text = self.encoding.decode(chunk_tokens)
+                    chunk_text = encoding.decode(chunk_tokens)
 
                 # Try to preserve sentence boundaries if enabled
                 if self.preserve_sentences and end_token_idx < total_tokens:
@@ -359,7 +372,8 @@ class TokenChunker(BaseChunker):
                         start_char_idx = len(text)
                     end_char_idx = min(len(text), start_char_idx + len(chunk_text))
                 else:
-                    start_char_idx = len(self.encoding.decode(tokens[:start_token_idx]))
+                    assert encoding is not None
+                    start_char_idx = len(encoding.decode(tokens[:start_token_idx]))
                     end_char_idx = start_char_idx + len(chunk_text)
 
                 # Adjust boundaries to avoid cutting inside protected spans
@@ -374,7 +388,7 @@ class TokenChunker(BaseChunker):
 
                 # Prefer ending at a heading/paragraph boundary when near
                 if headings and end_char_idx - start_char_idx > 20:
-                    boundary_candidates: List[int] = []
+                    boundary_candidates: list[int] = []
                     try:
                         # paragraph break
                         prev_para = text.rfind("\n\n", start_char_idx, end_char_idx)
@@ -485,7 +499,7 @@ class TokenChunker(BaseChunker):
         except Exception as e:
             logger.error(f"Error during token chunking: {e}")
             raise DocumentProcessingError(
-                f"Failed to chunk text: {str(e)}", details=str(e)
+                f"Failed to chunk text: {e!s}", details=str(e)
             ) from e
 
     def _adjust_chunk_boundary(
@@ -507,11 +521,12 @@ class TokenChunker(BaseChunker):
             # Find the last sentence ending in the chunk
             last_sentence_end = -1
             for i in range(len(chunk_text) - 1, -1, -1):
-                if chunk_text[i] in self.sentence_endings:
+                if chunk_text[i] in self.sentence_endings and (
+                    i == len(chunk_text) - 1 or chunk_text[i + 1].isspace()
+                ):
                     # Check if this is followed by whitespace or end of text
-                    if i == len(chunk_text) - 1 or chunk_text[i + 1].isspace():
-                        last_sentence_end = i + 1
-                        break
+                    last_sentence_end = i + 1
+                    break
 
             # If we found a sentence boundary and it's not too close to the start
             if last_sentence_end > len(chunk_text) * 0.7:  # At least 70% of the chunk
@@ -567,9 +582,9 @@ class TokenChunker(BaseChunker):
         estimated_chunks = max(
             1, (total_tokens - self.chunk_overlap) // effective_chunk_size
         )
-        return estimated_chunks
+        return int(estimated_chunks)
 
-    def get_chunk_overlap_info(self) -> Dict[str, Any]:
+    def get_chunk_overlap_info(self) -> dict[str, Any]:
         """Get information about chunk overlap settings."""
         return {
             "has_overlap": self.chunk_overlap > 0,

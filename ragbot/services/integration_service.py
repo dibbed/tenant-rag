@@ -9,34 +9,40 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from ragbot.configs.settings import Settings
-from ragbot.outputs.logger import logger
 from ragbot.analytics.analytics_dashboard import AnalyticsDashboard
+from ragbot.caching import CacheManager
+from ragbot.configs.settings import Settings
 from ragbot.outputs.health import HealthChecker
+from ragbot.outputs.logger import logger
 from ragbot.outputs.metrics import MetricsManager
-from ragbot.outputs.performance_dashboard import PerformanceDashboard
 from ragbot.outputs.optimization_engine import OptimizationEngine
+from ragbot.outputs.performance_dashboard import PerformanceDashboard
+from ragbot.rag.chunkers import AdaptiveChunker
+from ragbot.rag.embeddings import HuggingFaceEmbedder, OpenAIEmbedder, STEmbedder
 from ragbot.rag.loaders import (
     AdvancedDocumentLoader,
+    BaseLoader,
     HTMLLoader,
     PDFLoader,
     TextLoader,
 )
-from ragbot.rag.chunkers import AdaptiveChunker
-from ragbot.rag.embeddings import OpenAIEmbedder, HuggingFaceEmbedder, STEmbedder
-from ragbot.rag.store import VectorStoreFactory
 from ragbot.rag.qa import QAChain
 from ragbot.rag.retrieve import AdvancedRetriever
-from ragbot.caching import CacheManager
+from ragbot.rag.store import VectorStoreFactory
 from ragbot.services.document_service import DocumentService
 from ragbot.services.graceful_degradation import graceful_degradation
 from ragbot.services.rag_service import RAGService
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
+_T = TypeVar("_T")
+
 # Global instance
-_integration_service: Optional[IntegrationService] = None
-_global_metrics_manager: Optional[MetricsManager] = None
+_integration_service: IntegrationService | None = None
+_global_metrics_manager: MetricsManager | None = None
 
 
 def get_global_metrics_manager() -> MetricsManager:
@@ -52,7 +58,7 @@ class IntegrationService:
     Main integration service that wires all components together
     """
 
-    def __init__(self, config: Optional[Settings] = None):
+    def __init__(self, config: Settings | None = None):
         """Initialize integration service with all components"""
         if config is not None:
             self.settings = config
@@ -67,7 +73,7 @@ class IntegrationService:
         # Validate critical settings before initialization
         self._validate_settings()
 
-        self.components: Dict[str, Any] = {}
+        self.components: dict[str, Any] = {}
         self.health_checker = HealthChecker()
         # Use global metrics manager to prevent duplicate initialization
         self.metrics = get_global_metrics_manager()
@@ -75,7 +81,7 @@ class IntegrationService:
         self.performance_dashboard = PerformanceDashboard(self.settings)
         self.analytics_dashboard = AnalyticsDashboard(self.settings)
         self._initialized = False
-        self.optimization_engine: Optional[OptimizationEngine] = None
+        self.optimization_engine: OptimizationEngine | None = None
 
     def _validate_settings(self) -> None:
         """Validate critical settings before initialization."""
@@ -111,9 +117,10 @@ class IntegrationService:
                         validation_warnings.append("OpenAI API key not configured")
                 except ImportError:
                     validation_warnings.append("OpenAI not available")
-        elif llm_provider == "anthropic":
-            if not getattr(self.settings, "anthropic_api_key", None):
-                validation_warnings.append("Anthropic API key not configured")
+        elif llm_provider == "anthropic" and not getattr(
+            self.settings, "anthropic_api_key", None
+        ):
+            validation_warnings.append("Anthropic API key not configured")
 
 
         # Log validation results
@@ -129,7 +136,7 @@ class IntegrationService:
         if not validation_errors:
             logger.success("Settings validation completed successfully")
 
-    def _get_api_key_for_provider(self) -> Optional[str]:
+    def _get_api_key_for_provider(self) -> str | None:
         """Get API key for the current provider."""
         try:
             llm_provider = getattr(self.settings.llm, "provider", "openai")
@@ -153,7 +160,7 @@ class IntegrationService:
             logger.info("Initializing RAG system components...", trace_id=trace_id)
 
             # Initialize core components
-            async def _timed(name: str, coro):
+            async def _timed(name: str, coro: Awaitable[_T]) -> _T:
                 import time as _t
 
                 t0 = _t.time()
@@ -355,12 +362,15 @@ class IntegrationService:
             performance_monitor = getattr(self, "metrics", None)
 
             # RAG expects loaders dict: {"text": TextLoader(), "pdf": PDFLoader(), ...}
-            rag_loaders = {
-                "text": self.components.get("text_loader"),
-                "pdf": self.components.get("pdf_loader"),
-                "html": self.components.get("html_loader"),
-            }
-            rag_loaders = {k: v for k, v in rag_loaders.items() if v is not None}
+            rag_loaders: dict[str, BaseLoader] = {}
+            for loader_name, component_name in (
+                ("text", "text_loader"),
+                ("pdf", "pdf_loader"),
+                ("html", "html_loader"),
+            ):
+                loader = self.components.get(component_name)
+                if isinstance(loader, BaseLoader):
+                    rag_loaders[loader_name] = loader
 
             # Initialize Document Service
             self.components["document_service"] = DocumentService(
@@ -453,7 +463,7 @@ class IntegrationService:
                         logger.warning(f"⚠️ {component_name} - Degraded")
                 else:
                     logger.info(f"✅ {component_name} - No health check available")
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.warning(f"⚠️ {component_name} - Health check failed: {e}")
 
     async def _health_check_optional_loaders(self) -> None:
@@ -476,7 +486,7 @@ class IntegrationService:
         if degraded_components:
             logger.warning(
                 "Graceful degradation summary",
-                degraded_components=list(degraded_components.keys()),
+                degraded_components=degraded_components,
                 trace_id=trace_id,
             )
         else:
@@ -522,7 +532,7 @@ class IntegrationService:
                         await asyncio.wait_for(component.shutdown(), timeout=2.0)
                     elif hasattr(component, "close"):
                         await asyncio.wait_for(component.close(), timeout=2.0)
-                except asyncio.TimeoutError:
+                except asyncio.TimeoutError:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.warning(f"Component {component_name} shutdown timeout")
                 except Exception as e:
                     logger.warning(f"Error shutting down {component_name}: {e}")
@@ -533,9 +543,9 @@ class IntegrationService:
         finally:
             self._initialized = False
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform comprehensive health check"""
-        health_status = {
+        health_status: dict[str, Any] = {
             "status": "healthy",
             "timestamp": time.time(),
             "components": {},
@@ -586,9 +596,7 @@ class IntegrationService:
                 health_status["issues"].append(f"{component_name}: Component missing")
 
         # More lenient health determination - consider system healthy if rag_service is healthy
-        if health_status["components"].get("rag_service", {}).get("status") == "healthy":
-            health_status["status"] = "healthy"
-        elif healthy_count >= len(required_components) * 0.75:  # 75% of components healthy
+        if health_status["components"].get("rag_service", {}).get("status") == "healthy" or healthy_count >= len(required_components) * 0.75:
             health_status["status"] = "healthy"
         elif healthy_count >= len(required_components) * 0.5:  # 50% of components healthy
             health_status["status"] = "degraded"
@@ -597,17 +605,29 @@ class IntegrationService:
 
         return health_status
 
-    def get_component(self, name: str) -> Optional[Any]:
+    def get_component(self, name: str) -> Any | None:
         """Get a component by name"""
         return self.components.get(name)
 
-    def get_rag_service(self) -> Optional[RAGService]:
+    def get_rag_service(self) -> RAGService | None:
         """Get the RAG service"""
         return self.components.get("rag_service")
 
-    async def get_metrics_summary(self) -> Dict[str, Any]:
+    async def get_performance_summary(self) -> dict[str, Any]:
+        """Get performance summary from the performance dashboard."""
+        return await self.performance_dashboard.get_performance_summary()
+
+    async def get_resource_summary(self) -> dict[str, Any]:
+        """Get resource summary from the performance dashboard."""
+        return await self.performance_dashboard.get_resource_summary()
+
+    async def get_metrics_summary(self) -> dict[str, Any]:
         """Get metrics summary from all components"""
-        summary = {"timestamp": time.time(), "system": {}, "components": {}}
+        summary: dict[str, Any] = {
+            "timestamp": time.time(),
+            "system": {},
+            "components": {},
+        }
 
         # System-level metrics
         if hasattr(self.metrics, "get_metrics_summary"):
@@ -620,13 +640,17 @@ class IntegrationService:
                     summary["components"][
                         component_name
                     ] = await component.get_metrics_summary()
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.warning(f"Error getting metrics for {component_name}: {e}")
 
         return summary
 
+    async def record_document_type(self, doc_type: str) -> None:
+        """Record an ingested document type in analytics."""
+        await self.analytics_dashboard.record_document_type(doc_type)
+
     async def track_user_action(
-        self, user_id: str, action: str, metadata: Optional[Dict[str, Any]] = None
+        self, user_id: str, action: str, metadata: dict[str, Any] | None = None
     ) -> None:
         """Track user action in analytics dashboard"""
         if self.analytics_dashboard:
@@ -638,7 +662,7 @@ class IntegrationService:
         query: str,
         answer: str,
         rating: int,
-        feedback_text: Optional[str] = None,
+        feedback_text: str | None = None,
     ) -> None:
         """Record user satisfaction feedback"""
         if self.analytics_dashboard:
@@ -646,13 +670,13 @@ class IntegrationService:
                 user_id, query, answer, rating, feedback_text
             )
 
-    async def get_user_analytics(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_analytics(self, user_id: str) -> dict[str, Any]:
         """Get analytics for specific user"""
         if self.analytics_dashboard:
             return await self.analytics_dashboard.get_user_analytics(user_id)
         return {"user_id": user_id, "behavior_insights": {}, "satisfaction_profile": {}}
 
-    async def get_analytics_report(self, days: int = 30) -> Dict[str, Any]:
+    async def get_analytics_report(self, days: int = 30) -> dict[str, Any]:
         """Get analytics report"""
         if self.analytics_dashboard:
             return await self.analytics_dashboard.get_analytics_report(days=days)

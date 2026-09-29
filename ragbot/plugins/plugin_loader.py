@@ -7,13 +7,14 @@ hot-swapping, dependency resolution, and runtime plugin management.
 
 import importlib
 import importlib.util
-import sys
-from pathlib import Path
-from typing import Dict, List, Optional, Type, Any
 import inspect
+import sys
 import traceback
+from pathlib import Path
+from typing import Any
 
 from ragbot.outputs.logger import logger
+
 from .base_plugin import BasePlugin
 from .plugin_registry import PluginRegistry
 
@@ -35,7 +36,7 @@ class PluginLoader:
     def __init__(
         self,
         plugin_directory: str = "plugins",
-        registry: Optional[PluginRegistry] = None,
+        registry: PluginRegistry | None = None,
     ):
         """
         Initialize plugin loader
@@ -46,15 +47,15 @@ class PluginLoader:
         """
         self.plugin_directory = Path(plugin_directory)
         self.registry = registry or PluginRegistry()
-        self.loaded_modules: Dict[str, Any] = {}
-        self.plugin_classes: Dict[str, Type[BasePlugin]] = {}
+        self.loaded_modules: dict[str, Any] = {}
+        self.plugin_classes: dict[str, type[BasePlugin]] = {}
 
         # Ensure plugin directory exists
         self.plugin_directory.mkdir(parents=True, exist_ok=True)
 
     async def load_plugin(
-        self, plugin_path: str, config: Optional[Dict[str, Any]] = None
-    ) -> Optional[BasePlugin]:
+        self, plugin_path: str, config: dict[str, Any] | None = None
+    ) -> BasePlugin | None:
         """
         Load a plugin from file or directory
 
@@ -66,22 +67,22 @@ class PluginLoader:
             Loaded plugin instance or None if failed
         """
         try:
-            plugin_path = Path(plugin_path)
+            path = Path(plugin_path)
 
-            if not plugin_path.exists():
-                raise PluginLoadError(f"Plugin path does not exist: {plugin_path}")
+            if not path.exists():
+                raise PluginLoadError(f"Plugin path does not exist: {path}")
 
             # Determine plugin ID from path
-            plugin_id = plugin_path.stem
+            plugin_id = path.stem
 
             # Load the plugin module
-            module = await self._load_module(plugin_path, plugin_id)
+            module = await self._load_module(path, plugin_id)
 
             # Find plugin class in module
             plugin_class = self._find_plugin_class(module)
 
             if not plugin_class:
-                raise PluginLoadError(f"No valid plugin class found in {plugin_path}")
+                raise PluginLoadError(f"No valid plugin class found in {path}")
 
             # Create plugin instance
             plugin_instance = plugin_class(plugin_id, config)
@@ -124,8 +125,8 @@ class PluginLoader:
 
             # Remove from loaded modules
             if plugin_id in self.loaded_modules:
-                # Clean up module from sys.modules
-                module_name = plugin_id
+                # Clean up the fully-qualified module name used by _load_module.
+                module_name = f"plugins.{plugin_id}"
                 if module_name in sys.modules:
                     del sys.modules[module_name]
 
@@ -142,7 +143,7 @@ class PluginLoader:
             logger.error(f"Failed to unload plugin {plugin_id}: {e}")
             return False
 
-    async def reload_plugin(self, plugin_id: str) -> Optional[BasePlugin]:
+    async def reload_plugin(self, plugin_id: str) -> BasePlugin | None:
         """
         Reload a plugin without interrupting service
 
@@ -160,17 +161,22 @@ class PluginLoader:
                 return None
 
             config = plugin.config.copy()
+            loaded_module = self.loaded_modules.get(plugin_id)
+            module_file = getattr(loaded_module, "__file__", None)
+            if not isinstance(module_file, str):
+                raise PluginLoadError(f"Could not determine module path for {plugin_id}")
+            module_path = Path(module_file)
 
             # Unload current plugin
             await self.unload_plugin(plugin_id)
 
             # Reload module
-            module = await self._load_module(plugin_id, plugin_id, reload=True)
+            module = await self._load_module(module_path, plugin_id, reload=True)
 
             # Find new plugin class
             new_plugin_class = self._find_plugin_class(module)
             if not new_plugin_class:
-                raise PluginLoadError(f"No valid plugin class found in reloaded module")
+                raise PluginLoadError("No valid plugin class found in reloaded module")
 
             # Create new instance
             new_plugin_instance = new_plugin_class(plugin_id, config)
@@ -190,8 +196,8 @@ class PluginLoader:
             return None
 
     async def load_plugins_from_directory(
-        self, directory: Optional[str] = None
-    ) -> List[BasePlugin]:
+        self, directory: str | None = None
+    ) -> list[BasePlugin]:
         """
         Load all plugins from a directory
 
@@ -201,17 +207,19 @@ class PluginLoader:
         Returns:
             List of successfully loaded plugins
         """
-        directory = directory or self.plugin_directory
-        directory_path = Path(directory)
+        directory_value: str | Path = (
+            directory if directory is not None else self.plugin_directory
+        )
+        directory_path = Path(directory_value)
 
         if not directory_path.exists():
             logger.warning(f"Plugin directory does not exist: {directory_path}")
             return []
 
-        loaded_plugins = []
+        loaded_plugins: list[BasePlugin] = []
 
         # Scan for Python files and directories
-        plugin_candidates = []
+        plugin_candidates: list[Path] = []
 
         for item in directory_path.iterdir():
             if (
@@ -232,20 +240,20 @@ class PluginLoader:
                 plugin = await self.load_plugin(str(candidate))
                 if plugin:
                     loaded_plugins.append(plugin)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.warning(f"Skipping {candidate}: {e}")
 
         logger.info(f"Loaded {len(loaded_plugins)} plugins from {directory_path}")
         return loaded_plugins
 
-    async def list_available_plugins(self) -> List[Dict[str, Any]]:
+    async def list_available_plugins(self) -> list[dict[str, Any]]:
         """
         List all available plugins that can be loaded
 
         Returns:
             List of plugin information dictionaries
         """
-        available_plugins = []
+        available_plugins: list[dict[str, Any]] = []
 
         if not self.plugin_directory.exists():
             return available_plugins
@@ -283,7 +291,7 @@ class PluginLoader:
             # Load module from file path
             spec = importlib.util.spec_from_file_location(full_module_name, path)
 
-            if not spec:
+            if not spec or spec.loader is None:
                 raise PluginLoadError(f"Could not create spec for {path}")
 
             module = importlib.util.module_from_spec(spec)
@@ -301,9 +309,9 @@ class PluginLoader:
             return module
 
         except Exception as e:
-            raise PluginLoadError(f"Failed to load module from {path}: {e}")
+            raise PluginLoadError(f"Failed to load module from {path}: {e}") from e
 
-    def _find_plugin_class(self, module: Any) -> Optional[Type[BasePlugin]]:
+    def _find_plugin_class(self, module: Any) -> type[BasePlugin] | None:
         """
         Find BasePlugin subclass in module
 
@@ -361,7 +369,7 @@ class PluginLoader:
             if not metadata or not metadata.name:
                 raise PluginLoadError("Plugin metadata is invalid")
         except Exception as e:
-            raise PluginLoadError(f"Plugin metadata validation failed: {e}")
+            raise PluginLoadError(f"Plugin metadata validation failed: {e}") from e
 
         # Check configuration validation
         try:
@@ -371,9 +379,9 @@ class PluginLoader:
                     f"Plugin {plugin.plugin_id} config issues: {config_errors}"
                 )
         except Exception as e:
-            raise PluginLoadError(f"Plugin config validation failed: {e}")
+            raise PluginLoadError(f"Plugin config validation failed: {e}") from e
 
-    def _get_plugin_info(self, path: str) -> Optional[Dict[str, Any]]:
+    def _get_plugin_info(self, path: str) -> dict[str, Any] | None:
         """
         Get plugin information without fully loading it
 
@@ -386,7 +394,7 @@ class PluginLoader:
         try:
             import ast
 
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 content = f.read()
 
             tree = ast.parse(content)

@@ -5,8 +5,9 @@ This module provides functionality to load and process plain text content
 with proper validation and metadata extraction.
 """
 
+import contextlib
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -252,7 +253,7 @@ class TextLoader(BaseLoader):
         except Exception as e:
             logger.error(f"Unexpected error loading text: {e}")
             raise DocumentProcessingError(
-                f"Failed to load text content: {str(e)}",
+                f"Failed to load text content: {e!s}",
                 document_type="text",
                 source=source[:100] + "..." if len(source) > 100 else source,
                 details=str(e),
@@ -260,7 +261,7 @@ class TextLoader(BaseLoader):
 
     async def _load_from_file(
         self, file_path: str, encoding: str
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Load text content from file.
 
@@ -297,14 +298,14 @@ class TextLoader(BaseLoader):
 
             # Read file content
             try:
-                with open(path, "r", encoding=encoding) as f:
+                with open(path, encoding=encoding) as f:
                     content = f.read()
             except UnicodeDecodeError as e:
                 # Try with different encodings
                 for fallback_encoding in ["utf-8", "latin-1", "cp1252"]:
                     if fallback_encoding != encoding:
                         try:
-                            with open(path, "r", encoding=fallback_encoding) as f:
+                            with open(path, encoding=fallback_encoding) as f:
                                 content = f.read()
                             logger.warning(
                                 f"Used fallback encoding {fallback_encoding} for {file_path}",
@@ -339,15 +340,15 @@ class TextLoader(BaseLoader):
             raise
         except Exception as e:
             raise DocumentProcessingError(
-                f"Error reading file {file_path}: {str(e)}",
+                f"Error reading file {file_path}: {e!s}",
                 document_type="text_file",
                 source=file_path,
                 details=str(e),
             ) from e
 
     def _extract_metadata(
-        self, text_content: str, file_metadata: Dict[str, Any], source_identifier: str
-    ) -> Dict[str, Any]:
+        self, text_content: str, file_metadata: dict[str, Any], source_identifier: str
+    ) -> dict[str, Any]:
         """
         Extract metadata from text content.
 
@@ -377,7 +378,7 @@ class TextLoader(BaseLoader):
 
         return metadata
 
-    def _extract_text_stats(self, text: str) -> Dict[str, Any]:
+    def _extract_text_stats(self, text: str) -> dict[str, Any]:
         """
         Extract statistical information from text.
 
@@ -420,9 +421,9 @@ class TextLoader(BaseLoader):
             logger.warning(f"Error extracting text statistics: {e}")
             return {"stats_error": str(e)}
 
-    def _detect_language_voted(self, text: str) -> Optional[str]:
+    def _detect_language_voted(self, text: str) -> str | None:
         try:
-            from langdetect import detect  # type: ignore
+            from langdetect import detect
         except Exception:
             return None
         try:
@@ -434,24 +435,22 @@ class TextLoader(BaseLoader):
                 text[max(0, n // 2 - 1000) : min(n, n // 2 + 1000)],
                 text[max(0, n - 2000) :],
             ]
-            votes = []
+            votes: list[str] = []
             for ch in chunks:
-                try:
+                with contextlib.suppress(Exception):
                     if ch.strip():
                         votes.append(detect(ch))
-                except Exception:
-                    continue
             if not votes:
                 return None
             from collections import Counter
 
-            return Counter(votes).most_common(1)[0][0]
+            return str(Counter(votes).most_common(1)[0][0])
         except Exception:
             return None
 
     def _estimate_tokens(self, text: str) -> int:
         try:
-            import tiktoken  # type: ignore
+            import tiktoken
 
             try:
                 enc = tiktoken.get_encoding("cl100k_base")
@@ -489,7 +488,7 @@ def load_text_content(content: str, **kwargs: Any) -> Document:
             return asyncio.run(loader.load(content, source_type="string"))
     except Exception as e:
         raise DocumentProcessingError(
-            f"Failed to load text content: {str(e)}",
+            f"Failed to load text content: {e!s}",
             document_type="text",
             source=content[:100] + "..." if len(content) > 100 else content,
         ) from e

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +26,9 @@ from ragbot.services.integration_service import (
     get_integration_service,
     shutdown_integration_service,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 @asynccontextmanager
@@ -53,11 +56,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             from ragbot.configs.settings import settings
 
             plugins_cfg = getattr(settings, "plugins", object())
-            if getattr(plugins_cfg, "enabled", False) or getattr(
+            if (getattr(plugins_cfg, "enabled", False) or getattr(
                 settings, "auto_load_plugins", False
-            ):
-                if hasattr(app.state.rag_service, "initialize_plugin_system"):
-                    await app.state.rag_service.initialize_plugin_system()
+            )) and hasattr(app.state.rag_service, "initialize_plugin_system"):
+                await app.state.rag_service.initialize_plugin_system()
 
         logger.info("RAGBot application services initialized successfully")
     except Exception as exc:

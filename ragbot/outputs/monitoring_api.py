@@ -7,10 +7,11 @@ Persian developer notes:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
-from ragbot.monitoring.health_checker import HealthChecker
-from ragbot.monitoring.real_time_monitor import RealTimeMonitor
+if TYPE_CHECKING:
+    from ragbot.monitoring.health_checker import HealthChecker
+    from ragbot.monitoring.real_time_monitor import RealTimeMonitor
 
 
 class MonitoringAPI:
@@ -20,11 +21,11 @@ class MonitoringAPI:
         self._monitor = monitor
         self._checker = checker
 
-    async def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> dict[str, Any]:
         return await self._monitor.get_current_status()
 
-    async def get_metrics(self, hours: int = 24) -> List[Dict[str, Any]]:
+    async def get_metrics(self, hours: int = 24) -> list[dict[str, Any]]:
         return await self._monitor.get_metrics_history(hours=hours)
 
-    async def get_health(self) -> Dict[str, Any]:
+    async def get_health(self) -> dict[str, Any]:
         return await self._checker.get_health_status()

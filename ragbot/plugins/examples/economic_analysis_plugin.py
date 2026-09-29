@@ -5,22 +5,21 @@ This plugin provides economic data analysis, financial metrics calculation,
 and market trends analysis capabilities for economic reports.
 """
 
-from typing import Dict, Any, Optional, List
 import asyncio
-import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from statistics import mean, median, stdev
+from typing import Any
 
+from ragbot.outputs.logger import logger
 from ragbot.plugins.base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
     PluginResult,
-    PluginType,
     PluginStatus,
-    HookType,
+    PluginType,
 )
-from ragbot.outputs.logger import logger
 
 
 class EconomicAnalysisPlugin(BasePlugin):
@@ -36,7 +35,7 @@ class EconomicAnalysisPlugin(BasePlugin):
     - Exchange rate correlations
     """
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str, config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
 
         # Default configuration
@@ -57,9 +56,9 @@ class EconomicAnalysisPlugin(BasePlugin):
         self.config.update(self.default_config)
 
         # Data storage for analysis
-        self.economic_data: Dict[str, List[float]] = {}
-        self.financial_metrics: Dict[str, Dict[str, Any]] = {}
-        self.trend_analysis: Dict[str, Dict[str, Any]] = {}
+        self.economic_data: dict[str, list[float]] = {}
+        self.financial_metrics: dict[str, dict[str, Any]] = {}
+        self.trend_analysis: dict[str, dict[str, Any]] = {}
 
     @property
     def plugin_name(self) -> str:
@@ -107,7 +106,7 @@ class EconomicAnalysisPlugin(BasePlugin):
 
         except Exception as e:
             logger.error(f"Failed to initialize Economic Analysis Plugin: {e}")
-            self.set_status(PluginStatus.REQUESTED)
+            self.set_status(PluginStatus.ERROR)
             return False
 
     async def execute(self, context: PluginContext) -> PluginResult:
@@ -153,7 +152,7 @@ class EconomicAnalysisPlugin(BasePlugin):
         except Exception as e:
             logger.error(f"Economic analysis execution error: {e}")
             return PluginResult(
-                success=False, error_message=f"Economic analysis error: {str(e)}"
+                success=False, error_message=f"Economic analysis error: {e!s}"
             )
 
     async def cleanup(self) -> bool:
@@ -173,10 +172,10 @@ class EconomicAnalysisPlugin(BasePlugin):
             logger.error(f"Plugin cleanup error: {e}")
             return False
 
-    async def _extract_financial_data(self, text: str) -> Dict[str, Any]:
+    async def _extract_financial_data(self, text: str) -> dict[str, Any]:
         """Extract financial data from text"""
         try:
-            extracted_data = {
+            extracted_data: dict[str, Any] = {
                 "currencies": [],
                 "percentages": [],
                 "numbers": [],
@@ -202,7 +201,7 @@ class EconomicAnalysisPlugin(BasePlugin):
 
             # Extract economic indicators
             for indicator in self.config["economic_indicators"]:
-                pattern = f"{indicator}[:\s]+(\d+(?:\.\d+)?)"
+                pattern = rf"{indicator}[:\s]+(\d+(?:\.\d+)?)"
                 matches = re.findall(pattern, text, re.IGNORECASE)
                 if matches:
                     extracted_data["indicators"][indicator] = matches
@@ -237,7 +236,7 @@ class EconomicAnalysisPlugin(BasePlugin):
             logger.error(f"Financial data extraction error: {e}")
             return {"error": str(e)}
 
-    async def _analyze_trends(self, data: str) -> Dict[str, Any]:
+    async def _analyze_trends(self, data: str) -> dict[str, Any]:
         """Analyze economic trends"""
         try:
             trends = {
@@ -283,10 +282,10 @@ class EconomicAnalysisPlugin(BasePlugin):
             logger.error(f"Trend analysis error: {e}")
             return {"error": str(e)}
 
-    async def _calculate_financial_ratios(self, data: str) -> Dict[str, Any]:
+    async def _calculate_financial_ratios(self, data: str) -> dict[str, Any]:
         """Calculate financial ratios"""
         try:
-            ratios = {
+            ratios: dict[str, list[float]] = {
                 "profit_margin": [],
                 "debt_to_equity": [],
                 "return_on_investment": [],
@@ -322,10 +321,10 @@ class EconomicAnalysisPlugin(BasePlugin):
             logger.error(f"Financial ratio calculation error: {e}")
             return {"error": str(e)}
 
-    async def _generate_predictions(self, data: str) -> Dict[str, Any]:
+    async def _generate_predictions(self, data: str) -> dict[str, Any]:
         """Generate economic predictions"""
         try:
-            predictions = {
+            predictions: dict[str, Any] = {
                 "short_term_forecast": {},
                 "long_term_projection": {},
                 "risk_assessment": {},
@@ -341,9 +340,10 @@ class EconomicAnalysisPlugin(BasePlugin):
                 recent_values = numeric_values[-5:]
 
                 # Calculate trend
-                trend = []
-                for i in range(1, len(recent_values)):
-                    trend.append(recent_values[i] - recent_values[i - 1])
+                trend = [
+                    recent_values[i] - recent_values[i - 1]
+                    for i in range(1, len(recent_values))
+                ]
 
                 avg_trend = mean(trend) if trend else 0
 
@@ -369,7 +369,7 @@ class EconomicAnalysisPlugin(BasePlugin):
             logger.error(f"Prediction generation error: {e}")
             return {"error": str(e)}
 
-    async def _comprehensive_analysis(self, data: str) -> Dict[str, Any]:
+    async def _comprehensive_analysis(self, data: str) -> dict[str, Any]:
         """Perform comprehensive economic analysis"""
         try:
             comprehensive_results = {
@@ -382,7 +382,7 @@ class EconomicAnalysisPlugin(BasePlugin):
 
             # Generate overall assessment
             trend_data = comprehensive_results["trend_analysis"]
-            financial_data = comprehensive_results["financial_ratios"]
+            _financial_data = comprehensive_results["financial_ratios"]
 
             assessment = {
                 "economic_health": "good",
@@ -414,7 +414,7 @@ class EconomicAnalysisPlugin(BasePlugin):
 
     async def _analyze_document_content(
         self, context: PluginContext
-    ) -> List[PluginResult]:
+    ) -> list[PluginResult]:
         """Hook: Analyze document for economic data during ingestion"""
         try:
             content = context.data.get("content", "") if context.data else ""
@@ -442,7 +442,7 @@ class EconomicAnalysisPlugin(BasePlugin):
 
     async def _analyze_query_context(
         self, context: PluginContext
-    ) -> List[PluginResult]:
+    ) -> list[PluginResult]:
         """Hook: Analyze query context for economic intent"""
         try:
             query = context.data.get("query", "") if context.data else ""
@@ -490,7 +490,7 @@ class EconomicAnalysisPlugin(BasePlugin):
             logger.error(f"Query context analysis error: {e}")
             return [PluginResult(success=False, error_message=str(e))]
 
-    def get_economic_stats(self) -> Dict[str, Any]:
+    def get_economic_stats(self) -> dict[str, Any]:
         """Get economic analysis statistics"""
         return {
             "supported_currencies": self.config["supported_currencies"],

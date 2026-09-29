@@ -1,9 +1,11 @@
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ragbot.rag import DOCXLoader
+from ragbot.rag import Document, DOCXLoader
+from ragbot.rag.exceptions import DocumentProcessingError
 
 
 class _Run:
@@ -111,19 +113,6 @@ async def test_docx_headings_markers_and_table(
     assert "c1 \t c2" in text
 
 
-"""
-Tests for DOCX loader functionality.
-"""
-
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-from ragbot.rag.exceptions import DocumentProcessingError
-from ragbot.rag import Document
-
-
 class TestDOCXLoaderBasic:
     """Test basic DOCX loader functionality."""
 
@@ -225,17 +214,19 @@ class TestDOCXLoaderLoad:
         test_file = tmp_path / "test.docx"
         test_file.write_bytes(b"fake docx content")
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                mock_settings.security.max_file_size_mb = 0.000001  # Very small limit
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 0.000001  # Very small limit
 
-                with patch("docx.Document") as mock_docx:
-                    mock_docx.side_effect = Exception("Should not reach here")
+            with patch("docx.Document") as mock_docx:
+                mock_docx.side_effect = Exception("Should not reach here")
 
-                    loader = DOCXLoader()
+                loader = DOCXLoader()
 
-                    with pytest.raises(DocumentProcessingError, match="DOCX too large"):
-                        await loader.load(str(test_file))
+                with pytest.raises(DocumentProcessingError, match="DOCX too large"):
+                    await loader.load(str(test_file))
 
     @pytest.mark.asyncio
     async def test_load_successful_simple_document(self, tmp_path):
@@ -257,20 +248,22 @@ class TestDOCXLoaderLoad:
         mock_doc.paragraphs = [mock_para1, mock_para2, mock_para3]
         mock_doc.tables = []  # No tables
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    assert isinstance(result, Document)
-                    assert result.content == "First paragraph\nSecond paragraph"
-                    assert result.source == str(test_file)
-                    assert result.document_type == "docx"
-                    assert result.metadata["file_name"] == "test.docx"
-                    assert result.metadata["loader"] == "DOCXLoader"
+            assert isinstance(result, Document)
+            assert result.content == "First paragraph\nSecond paragraph"
+            assert result.source == str(test_file)
+            assert result.document_type == "docx"
+            assert result.metadata["file_name"] == "test.docx"
+            assert result.metadata["loader"] == "DOCXLoader"
 
     @pytest.mark.asyncio
     async def test_load_document_with_tables(self, tmp_path):
@@ -302,16 +295,18 @@ class TestDOCXLoaderLoad:
 
         mock_doc.tables = [mock_table]
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    expected_content = "Document with table\nCell 1 \t Cell 2"
-                    assert result.content == expected_content
+            expected_content = "Document with table\nCell 1 \t Cell 2"
+            assert result.content == expected_content
 
     @pytest.mark.asyncio
     async def test_load_empty_document(self, tmp_path):
@@ -324,16 +319,18 @@ class TestDOCXLoaderLoad:
         mock_doc.paragraphs = []
         mock_doc.tables = []
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    assert result.content == ""
-                    assert result.metadata["approx_chars"] == 0
+            assert result.content == ""
+            assert result.metadata["approx_chars"] == 0
 
     @pytest.mark.asyncio
     async def test_load_document_processing_error(self, tmp_path):
@@ -341,19 +338,21 @@ class TestDOCXLoaderLoad:
         test_file = tmp_path / "test.docx"
         test_file.write_bytes(b"fake docx content")
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document") as mock_docx:
-                mock_docx.side_effect = DocumentProcessingError(
-                    "Test error", document_type="docx"
-                )
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document") as mock_docx,
+        ):
+            mock_docx.side_effect = DocumentProcessingError(
+                "Test error", document_type="docx"
+            )
 
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+            with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
+                mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
+                loader = DOCXLoader()
 
-                    with pytest.raises(DocumentProcessingError, match="Test error"):
-                        await loader.load(str(test_file))
+                with pytest.raises(DocumentProcessingError, match="Test error"):
+                    await loader.load(str(test_file))
 
     @pytest.mark.asyncio
     async def test_load_generic_exception(self, tmp_path):
@@ -361,24 +360,26 @@ class TestDOCXLoaderLoad:
         test_file = tmp_path / "test.docx"
         test_file.write_bytes(b"fake docx content")
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document") as mock_docx:
-                mock_docx.side_effect = Exception("Generic error")
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document") as mock_docx,
+        ):
+            mock_docx.side_effect = Exception("Generic error")
 
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+            with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
+                mock_settings.security.max_file_size_mb = 50
 
-                    with patch("ragbot.rag.loaders.docx.logger") as mock_logger:
-                        loader = DOCXLoader()
+                with patch("ragbot.rag.loaders.docx.logger") as mock_logger:
+                    loader = DOCXLoader()
 
-                        with pytest.raises(
-                            DocumentProcessingError, match="Generic error"
-                        ):
-                            await loader.load(str(test_file))
+                    with pytest.raises(
+                        DocumentProcessingError, match="Generic error"
+                    ):
+                        await loader.load(str(test_file))
 
-                        mock_logger.error.assert_called_once_with(
-                            "Failed to read DOCX: Generic error"
-                        )
+                    mock_logger.error.assert_called_once_with(
+                        "Failed to read DOCX: Generic error"
+                    )
 
     @pytest.mark.asyncio
     async def test_load_with_cell_without_text_attribute(self, tmp_path):
@@ -405,16 +406,18 @@ class TestDOCXLoaderLoad:
 
         mock_doc.tables = [mock_table]
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    # Should only include the cell with text
-                    assert result.content == "Valid cell"
+            # Should only include the cell with text
+            assert result.content == "Valid cell"
 
     @pytest.mark.asyncio
     async def test_load_metadata_content(self, tmp_path):
@@ -429,20 +432,22 @@ class TestDOCXLoaderLoad:
         mock_doc.paragraphs = [mock_para]
         mock_doc.tables = []
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    # Check metadata fields
-                    assert result.metadata["file_name"] == "test.docx"
-                    assert result.metadata["file_ext"] == ".docx"
-                    assert result.metadata["source_path"] == str(test_file)
-                    assert result.metadata["loader"] == "DOCXLoader"
-                    assert result.metadata["approx_chars"] == len("Test content")
+            # Check metadata fields
+            assert result.metadata["file_name"] == "test.docx"
+            assert result.metadata["file_ext"] == ".docx"
+            assert result.metadata["source_path"] == str(test_file)
+            assert result.metadata["loader"] == "DOCXLoader"
+            assert result.metadata["approx_chars"] == len("Test content")
 
     @pytest.mark.asyncio
     async def test_load_size_check_exception(self, tmp_path):
@@ -457,19 +462,21 @@ class TestDOCXLoaderLoad:
         mock_doc.paragraphs = [mock_para]
         mock_doc.tables = []
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    # Mock Path.stat() to raise exception
-                    with patch.object(
-                        Path, "stat", side_effect=Exception("Stat error")
-                    ):
-                        loader = DOCXLoader()
-                        # Should not raise exception, just continue
-                        result = await loader.load(str(test_file))
-                        assert result.content == "Test content"
+            # Mock Path.stat() to raise exception
+            with patch.object(
+                Path, "stat", side_effect=Exception("Stat error")
+            ):
+                loader = DOCXLoader()
+                # Should not raise exception, just continue
+                result = await loader.load(str(test_file))
+                assert result.content == "Test content"
 
 
 class TestDOCXLoaderEdgeCases:
@@ -497,16 +504,18 @@ class TestDOCXLoaderEdgeCases:
         mock_doc.paragraphs = [mock_para1, mock_para2, mock_para3, mock_para4]
         mock_doc.tables = []
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    # Should only include valid content
-                    assert result.content == "Valid content"
+            # Should only include valid content
+            assert result.content == "Valid content"
 
     @pytest.mark.asyncio
     async def test_load_with_complex_table_structure(self, tmp_path):
@@ -541,17 +550,19 @@ class TestDOCXLoaderEdgeCases:
 
         mock_doc.tables = [mock_table]
 
-        with patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True):
-            with patch("docx.Document", return_value=mock_doc):
-                with patch("ragbot.rag.loaders.docx.settings") as mock_settings:
-                    mock_settings.security.max_file_size_mb = 50
+        with (
+            patch("ragbot.rag.loaders.docx.DOCX_AVAILABLE", True),
+            patch("docx.Document", return_value=mock_doc),
+            patch("ragbot.rag.loaders.docx.settings") as mock_settings,
+        ):
+            mock_settings.security.max_file_size_mb = 50
 
-                    loader = DOCXLoader()
-                    result = await loader.load(str(test_file))
+            loader = DOCXLoader()
+            result = await loader.load(str(test_file))
 
-                    expected_lines = [
-                        "Row1 Cell1 \t Row1 Cell2 \t Row1 Cell3",
-                        "Row2 Cell1 \t Row2 Cell2 \t Row2 Cell3",
-                    ]
-                    expected_content = "\n".join(expected_lines)
-                    assert result.content == expected_content
+            expected_lines = [
+                "Row1 Cell1 \t Row1 Cell2 \t Row1 Cell3",
+                "Row2 Cell1 \t Row2 Cell2 \t Row2 Cell3",
+            ]
+            expected_content = "\n".join(expected_lines)
+            assert result.content == expected_content

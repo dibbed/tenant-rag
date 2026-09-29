@@ -7,7 +7,7 @@ Persian developer notes:
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from ragbot.monitoring.alert_manager import AlertManager, NotificationChannel
 
@@ -19,7 +19,7 @@ class AlertingSystem:
         self.manager = manager
 
     async def configure_from_settings(
-        self, settings_dict: Dict[str, Dict[str, Any]]
+        self, settings_dict: dict[str, dict[str, Any]]
     ) -> None:
         for channel_type, cfg in settings_dict.items():
             enabled = bool(cfg.get("enabled", False))

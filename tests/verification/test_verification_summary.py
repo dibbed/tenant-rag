@@ -38,12 +38,26 @@ def reports(tmp_path, monkeypatch) -> Path:
     for version in VERSIONS:
         _write(directory, f"tests-py{version}.json", _tests(version))
         _write(directory, f"security-py{version}.json", _security(version))
-    for tool in ("ruff", "mypy"):
-        _write(
-            directory,
-            f"static-{tool}.json",
-            {"check": f"static-{tool}", "mode": "report-only", "status": "findings", "summary": f"12 {tool} findings"},
-        )
+    _write(
+        directory,
+        "static-ruff.json",
+        {
+            "check": "static-ruff",
+            "mode": "blocking",
+            "status": "pass",
+            "summary": "0 ruff findings",
+        },
+    )
+    _write(
+        directory,
+        "static-mypy.json",
+        {
+            "check": "static-mypy",
+            "mode": "blocking",
+            "status": "pass",
+            "summary": "0 mypy findings",
+        },
+    )
     _write(
         directory,
         "static-bandit.json",
@@ -141,9 +155,29 @@ def test_every_check_is_listed_and_the_gate_passes(summary, reports):
         "Container Build Check",
     ):
         assert f"| {title} |" in markdown
-    assert "| Report-only | Findings | 12 ruff findings |" in markdown
+    assert "| Blocking | Passed | 0 ruff findings |" in markdown
+    assert "| Blocking | Passed | 0 mypy findings |" in markdown
     assert "Accepted exceptions: none." in markdown
     assert "Runtime user: UID 10001 (USER appuser)." in markdown
+
+
+def test_a_failed_mypy_check_fails_the_gate(summary, reports):
+    _write(
+        reports,
+        "static-mypy.json",
+        {
+            "check": "static-mypy",
+            "mode": "blocking",
+            "status": "fail",
+            "summary": "1 mypy finding",
+            "problems": ["ragbot/example.py:1: error: incompatible type"],
+        },
+    )
+    code, markdown = _run(summary, reports)
+    assert code == 1
+    assert "**Result: FAILED.**" in markdown
+    assert "Type check (MyPy)" in markdown
+    assert "ragbot/example.py:1: error: incompatible type" in markdown
 
 
 def test_a_failed_security_test_fails_the_gate_and_is_named(summary, reports):

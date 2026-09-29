@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 import psutil
 
@@ -23,14 +23,14 @@ class HealthCheck:
     status: str  # healthy, unhealthy, warning
     message: str
     timestamp: datetime
-    details: Dict[str, Any] | None = None
+    details: dict[str, Any] | None = None
 
 
 class HealthChecker:
     """Runs periodic health checks and aggregates results."""
 
     def __init__(self) -> None:
-        self.health_checks: List[HealthCheck] = []
+        self.health_checks: list[HealthCheck] = []
         self.check_interval: int = 60
         self.checking_active = False
 
@@ -52,7 +52,7 @@ class HealthChecker:
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for res in results:
-            if isinstance(res, Exception):
+            if isinstance(res, BaseException):
                 # Log and continue; avoid raising in background loop
                 print(f"❌ Health check error: {res}")
             else:
@@ -161,10 +161,10 @@ class HealthChecker:
                 timestamp=datetime.now(),
             )
 
-    async def get_health_status(self) -> Dict[str, Any]:
+    async def get_health_status(self) -> dict[str, Any]:
         if not self.health_checks:
             return {"no_data": True}
-        latest: Dict[str, Any] = {}
+        latest: dict[str, Any] = {}
         for check in self.health_checks[-10:]:
             latest[check.name] = {
                 "status": check.status,

@@ -66,34 +66,33 @@ class TestIntegrationServiceE2E:
             "DATA_DIR": str(data_dir),
             "BOT_TOKEN": "123:test",  # Required for Settings
         }
-        with patch.dict(os.environ, env_overrides, clear=False):
-            with patch(
-                "ragbot.rag.embeddings.openai_embedder.AsyncOpenAI"
-            ) as mock_client:
-                mock_instance = AsyncMock()
-                mock_client.return_value = mock_instance
-                mock_instance.embeddings.create = AsyncMock(
-                    return_value=MagicMock(
-                        data=[MagicMock(embedding=[0.1] * 1536)]
-                    )
+        with patch.dict(os.environ, env_overrides, clear=False), patch(
+            "ragbot.rag.embeddings.openai_embedder.AsyncOpenAI"
+        ) as mock_client:
+            mock_instance = AsyncMock()
+            mock_client.return_value = mock_instance
+            mock_instance.embeddings.create = AsyncMock(
+                return_value=MagicMock(
+                    data=[MagicMock(embedding=[0.1] * 1536)]
                 )
-                try:
-                    from ragbot.services.integration_service import (
-                        IntegrationService,
-                    )
+            )
+            try:
+                from ragbot.services.integration_service import (
+                    IntegrationService,
+                )
 
-                    service = IntegrationService()
-                    await service.initialize()
+                service = IntegrationService()
+                await service.initialize()
 
-                    assert service._initialized is True
-                    assert "vector_store" in service.components
-                    assert "rag_service" in service.components
-                    assert "embedder" in service.components
-                    assert "loaders" in service.components
-                except Exception as e:
-                    pytest.skip(
-                        f"IntegrationService init may need full config: {e}"
-                    )
+                assert service._initialized is True
+                assert "vector_store" in service.components
+                assert "rag_service" in service.components
+                assert "embedder" in service.components
+                assert "loaders" in service.components
+            except Exception as e:
+                pytest.skip(
+                    f"IntegrationService init may need full config: {e}"
+                )
 
 
 class TestVectorStoreE2E:
@@ -168,13 +167,13 @@ class TestQueryComponentsE2E:
     @pytest.mark.asyncio
     async def test_query_aggregator_with_faiss(self, temp_workspace):
         """QueryAggregator works with FAISS store (uses documents in memory)."""
-        from ragbot.rag.store.base import VectorDocument
-        from ragbot.rag.store.faiss_store import FAISSVectorStore
         from ragbot.rag.query.aggregation import (
-            QueryAggregator,
             AggregationQuery,
             AggregationType,
+            QueryAggregator,
         )
+        from ragbot.rag.store.base import VectorDocument
+        from ragbot.rag.store.faiss_store import FAISSVectorStore
 
         store_path = temp_workspace / "agg_index"
         store_path.mkdir(exist_ok=True)
@@ -206,14 +205,14 @@ class TestQueryComponentsE2E:
         )
         agg_result = await aggregator.execute_aggregation_query(query)
         assert agg_result.total_count == 5
-        assert isinstance(agg_result.data, (int, float, dict)) or agg_result.data is not None
+        assert isinstance(agg_result.data, int | float | dict) or agg_result.data is not None
 
     @pytest.mark.asyncio
     async def test_advanced_filter_with_faiss(self, temp_workspace):
         """AdvancedFilter works with FAISS store when store provides document iteration."""
+        from ragbot.rag.query.filters import AdvancedFilter
         from ragbot.rag.store.base import VectorDocument
         from ragbot.rag.store.faiss_store import FAISSVectorStore
-        from ragbot.rag.query.filters import AdvancedFilter
 
         store_path = temp_workspace / "filter_index"
         store_path.mkdir(exist_ok=True)
@@ -252,70 +251,61 @@ class TestRAGServiceE2E:
         store_path.mkdir(exist_ok=True)
         (temp_workspace / "data").mkdir(exist_ok=True)
 
-        with patch.dict(
-            os.environ,
-            {
-                "STORE_PATH": str(store_path),
-                "DATA_DIR": str(temp_workspace / "data"),
-                "EMBED_PROVIDER": "openai",
-                "VECTOR_STORE_EMBEDDING_PROVIDER": "openai",
-            },
-            clear=False,
+        with (
+            patch.dict(os.environ, {"STORE_PATH": str(store_path), "DATA_DIR": str(temp_workspace / "data"), "EMBED_PROVIDER": "openai", "VECTOR_STORE_EMBEDDING_PROVIDER": "openai"}, clear=False),
+            patch("ragbot.rag.embeddings.openai_embedder.AsyncOpenAI") as mock_client,
         ):
+            mock_instance = AsyncMock()
+            mock_client.return_value = mock_instance
+            mock_instance.embeddings.create = AsyncMock(
+                return_value=MagicMock(
+                    data=[MagicMock(embedding=[0.1] * 1536) for _ in range(10)]
+                )
+            )
+
             with patch(
-                "ragbot.rag.embeddings.openai_embedder.AsyncOpenAI"
-            ) as mock_client:
-                mock_instance = AsyncMock()
-                mock_client.return_value = mock_instance
-                mock_instance.embeddings.create = AsyncMock(
-                    return_value=MagicMock(
-                        data=[MagicMock(embedding=[0.1] * 1536) for _ in range(10)]
-                    )
+                "ragbot.rag.qa.chain.AsyncOpenAI",
+                mock_client,
+            ):
+                from ragbot.services.integration_service import (
+                    IntegrationService,
                 )
 
-                with patch(
-                    "ragbot.rag.qa.chain.AsyncOpenAI",
-                    mock_client,
+                service = IntegrationService()
+                await service.initialize()
+                rag = service.components["rag_service"]
+
+                # Ingest sample text
+                sample_text = "Machine learning is a subset of AI. RAG combines retrieval with generation."
+                ingest_result = await rag.ingest_document(
+                    source=sample_text, source_type="text"
+                )
+                assert ingest_result is not None
+                assert ingest_result.success
+                assert ingest_result.chunks_created >= 0
+
+                # Query (LLM mocked via instructor/openai)
+                mock_response = MagicMock()
+                mock_response.choices = [
+                    MagicMock(
+                        message=MagicMock(
+                            content="Machine learning is a subset of artificial intelligence."
+                        )
+                    )
+                ]
+                with patch.object(
+                    getattr(rag, "qa_chain", rag),
+                    "answer",
+                    AsyncMock(return_value={"answer": "ML is a subset of AI."}),
                 ):
-                    from ragbot.services.integration_service import (
-                        IntegrationService,
+                    # Use internal retriever + mock answer
+                    result = await rag.query_documents(
+                        question="What is machine learning?",
+                        lang="en",
                     )
-
-                    service = IntegrationService()
-                    await service.initialize()
-                    rag = service.components["rag_service"]
-
-                    # Ingest sample text
-                    sample_text = "Machine learning is a subset of AI. RAG combines retrieval with generation."
-                    ingest_result = await rag.ingest_document(
-                        source=sample_text, source_type="text"
-                    )
-                    assert ingest_result is not None
-                    assert ingest_result.success
-                    assert ingest_result.chunks_created >= 0
-
-                    # Query (LLM mocked via instructor/openai)
-                    mock_response = MagicMock()
-                    mock_response.choices = [
-                        MagicMock(
-                            message=MagicMock(
-                                content="Machine learning is a subset of artificial intelligence."
-                            )
-                        )
-                    ]
-                    with patch.object(
-                        getattr(rag, "qa_chain", rag),
-                        "answer",
-                        AsyncMock(return_value={"answer": "ML is a subset of AI."}),
-                    ):
-                        # Use internal retriever + mock answer
-                        result = await rag.query_documents(
-                            question="What is machine learning?",
-                            lang="en",
-                        )
-                        assert result is not None
-                        assert hasattr(result, "answer")
-                        assert len(result.answer) > 0
+                    assert result is not None
+                    assert hasattr(result, "answer")
+                    assert len(result.answer) > 0
 
 
 class TestHealthCheckE2E:
@@ -380,45 +370,44 @@ class TestFullPipelineE2E:
                 "DATA_DIR": str(data_dir),
             },
             clear=False,
-        ):
-            with patch(
-                "ragbot.rag.embeddings.openai_embedder.AsyncOpenAI"
-            ) as mock_openai:
-                mock_instance = AsyncMock()
-                mock_openai.return_value = mock_instance
-                mock_instance.embeddings.create = AsyncMock(
-                    return_value=MagicMock(
-                        data=[MagicMock(embedding=[0.1] * 1536)]
-                    )
+        ), patch(
+            "ragbot.rag.embeddings.openai_embedder.AsyncOpenAI"
+        ) as mock_openai:
+            mock_instance = AsyncMock()
+            mock_openai.return_value = mock_instance
+            mock_instance.embeddings.create = AsyncMock(
+                return_value=MagicMock(
+                    data=[MagicMock(embedding=[0.1] * 1536)]
                 )
+            )
 
-                from ragbot.rag.store.faiss_store import FAISSStore
-                from ragbot.rag import TokenChunker
+            from ragbot.rag import TokenChunker
+            from ragbot.rag.store.faiss_store import FAISSStore
 
-                # 1. Create store and add documents directly
-                store = FAISSStore(store_path=str(store_path))
-                chunker = TokenChunker(chunk_size=128, chunk_overlap=16)
-                chunks = await chunker.chunk_texts(
-                    ["RAG combines retrieval with generation for accurate answers."]
-                )
-                embeddings = [[0.1] * 768 for _ in chunks]
-                await store.upsert(
-                    texts=chunks,
-                    embeddings=embeddings,
-                    metadata=[{"chunk_index": i} for i in range(len(chunks))],
-                )
-                assert store.count() >= 1
+            # 1. Create store and add documents directly
+            store = FAISSStore(store_path=str(store_path))
+            chunker = TokenChunker(chunk_size=128, chunk_overlap=16)
+            chunks = await chunker.chunk_texts(
+                ["RAG combines retrieval with generation for accurate answers."]
+            )
+            embeddings = [[0.1] * 768 for _ in chunks]
+            await store.upsert(
+                texts=chunks,
+                embeddings=embeddings,
+                metadata=[{"chunk_index": i} for i in range(len(chunks))],
+            )
+            assert store.count() >= 1
 
-                # 2. Query (sync method)
-                results = store.query([0.1] * 768, top_k=3)
-                assert isinstance(results, list)
-                assert len(results) >= 1
+            # 2. Query (sync method)
+            results = store.query([0.1] * 768, top_k=3)
+            assert isinstance(results, list)
+            assert len(results) >= 1
 
-                # 3. Reset (clear returns awaitable)
-                clear_result = store.clear()
-                if hasattr(clear_result, "__await__"):
-                    await clear_result
-                assert store.count() == 0
+            # 3. Reset (clear returns awaitable)
+            clear_result = store.clear()
+            if hasattr(clear_result, "__await__"):
+                await clear_result
+            assert store.count() == 0
 
 
 if __name__ == "__main__":

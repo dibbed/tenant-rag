@@ -9,7 +9,7 @@ Persian developer notes:
 
 import platform
 import time
-from typing import Any, Dict
+from typing import Any
 
 import psutil
 
@@ -20,7 +20,7 @@ from ragbot.outputs.metrics import metrics_manager, system_performance_monitor
 class SystemResourceMonitor:
     """مانیتور منابع سیستم برای RAG system."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize system resource monitor."""
         self.is_monitoring = False
         self.monitoring_thread = None
@@ -30,7 +30,7 @@ class SystemResourceMonitor:
     def get_cpu_usage(self) -> float:
         """Get current CPU usage percentage."""
         try:
-            return psutil.cpu_percent(interval=0.1)
+            return float(psutil.cpu_percent(interval=0.1))
         except Exception as e:
             logger.warning(f"Failed to get CPU usage: {e}")
             return 0.0
@@ -130,7 +130,7 @@ class SystemResourceMonitor:
 
         return 0.0, 0
 
-    def get_system_info(self) -> Dict[str, Any]:
+    def get_system_info(self) -> dict[str, Any]:
         """Get comprehensive system information."""
         try:
             cpu_count = psutil.cpu_count()
@@ -151,7 +151,7 @@ class SystemResourceMonitor:
             logger.warning(f"Failed to get system info: {e}")
             return {}
 
-    def collect_metrics(self) -> Dict[str, Any]:
+    def collect_metrics(self) -> dict[str, Any]:
         """Collect all system metrics."""
         cpu_percent = self.get_cpu_usage()
         memory_bytes, memory_percent = self.get_memory_usage()
@@ -171,7 +171,7 @@ class SystemResourceMonitor:
             "timestamp": time.time(),
         }
 
-    def record_metrics(self, metrics: Dict[str, Any]) -> None:
+    def record_metrics(self, metrics: dict[str, Any]) -> None:
         """Record metrics to performance monitor and Prometheus."""
         try:
             # Record to performance monitor
@@ -228,7 +228,7 @@ class SystemResourceMonitor:
         self.is_monitoring = False
         logger.info("System monitoring stopped")
 
-    def get_current_status(self) -> Dict[str, Any]:
+    def get_current_status(self) -> dict[str, Any]:
         """Get current system status."""
         metrics = self.collect_metrics()
         performance_summary = system_performance_monitor.get_performance_summary()
@@ -240,7 +240,7 @@ class SystemResourceMonitor:
             "is_monitoring": self.is_monitoring,
         }
 
-    def check_health(self) -> Dict[str, Any]:
+    def check_health(self) -> dict[str, Any]:
         """Check system health and return status."""
         metrics = self.collect_metrics()
         bottlenecks = system_performance_monitor.detect_bottlenecks()

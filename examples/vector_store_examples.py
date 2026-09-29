@@ -8,13 +8,11 @@ including basic operations, advanced features, and best practices.
 
 import asyncio
 import time
-from typing import List, Dict, Any
-from pathlib import Path
+
+from ragbot.configs.settings import VectorStoreConfig, settings
 
 # Import vector store components
-from ragbot.rag import VectorStoreFactory, VectorDocument, SearchResult
-from ragbot.configs.settings import settings, VectorStoreConfig
-from ragbot.outputs.logger import logger
+from ragbot.rag import VectorDocument, VectorStoreFactory
 
 
 class VectorStoreExamples:
@@ -34,7 +32,7 @@ class VectorStoreExamples:
         self.sample_documents = self._create_sample_documents()
         self.settings = settings
 
-    def _create_sample_documents(self) -> List[VectorDocument]:
+    def _create_sample_documents(self) -> list[VectorDocument]:
         """Create sample documents for testing."""
         documents = []
 
@@ -93,7 +91,7 @@ class VectorStoreExamples:
         # Create FAISS store
         store = VectorStoreFactory.create_store("faiss", path="./examples_faiss_db")
 
-        print(f"📊 Created FAISS store")
+        print("📊 Created FAISS store")
         print(f"   Initial document count: {store.get_document_count()}")
 
         # Add documents
@@ -159,7 +157,7 @@ class VectorStoreExamples:
                 enable_hybrid_search=True,
             )
 
-            print(f"📊 Created Chroma store with advanced features")
+            print("📊 Created Chroma store with advanced features")
 
             # Add documents with rich metadata
             print("\n📝 Adding documents with rich metadata...")
@@ -231,7 +229,7 @@ class VectorStoreExamples:
                 enable_hnsw_index=True,
             )
 
-            print(f"📊 Created Qdrant store for production use")
+            print("📊 Created Qdrant store for production use")
 
             # Add documents in batches (production pattern)
             print("\n📝 Adding documents in production batches...")
@@ -262,7 +260,7 @@ class VectorStoreExamples:
 
             # Performance monitoring
             print("\n📈 Performance monitoring...")
-            start_time = time.time()
+            _start_time = time.time()
 
             # Multiple searches to measure performance
             search_times = []
@@ -350,7 +348,7 @@ class VectorStoreExamples:
                 print(f"   ❌ Failed: {e}")
 
         # Print comparison table
-        print(f"\n📊 Comparison Results:")
+        print("\n📊 Comparison Results:")
         print(
             f"{'Store':<10} {'Setup(s)':<10} {'Search(ms)':<12} {'Docs':<6} {'Features':<15}"
         )
@@ -406,10 +404,9 @@ class VectorStoreExamples:
 
             # Get all documents from source
             if hasattr(source_store, "documents") and source_store.documents:
-                source_docs = []
-                for doc_id, doc in source_store.documents.items():
-                    if hasattr(doc, "id"):
-                        source_docs.append(doc)
+                source_docs = [
+                    doc for doc in source_store.documents.values() if hasattr(doc, "id")
+                ]
 
                 # Add to target
                 if source_docs:
@@ -498,9 +495,9 @@ class VectorStoreExamples:
             batch_size=100,
         )
 
-        print(f"   ✅ Environment-based config")
+        print("   ✅ Environment-based config")
         print(f"   ✅ Metrics enabled: {config.enable_metrics}")
-        print(f"   ✅ Optimal batch size: 100")
+        print("   ✅ Optimal batch size: 100")
 
         # 5. Performance monitoring
         print("\n5. 📊 Performance Monitoring:")

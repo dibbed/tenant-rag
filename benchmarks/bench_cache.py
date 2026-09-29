@@ -20,17 +20,17 @@ import platform
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Ensure project root in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from ragbot.caching.semantic_cache import SemanticCache
+from ragbot.caching.semantic_cache import SemanticCache  # noqa: E402,I001  # Import after source-tree path bootstrap.
 
 
-async def run_benchmark(iterations: int, tenant_id: str) -> Dict[str, Any]:
+async def run_benchmark(iterations: int, tenant_id: str) -> dict[str, Any]:
     cache = SemanticCache(similarity_threshold=0.85, max_size=1000)
 
     sample_queries = [
@@ -52,9 +52,9 @@ async def run_benchmark(iterations: int, tenant_id: str) -> Dict[str, Any]:
         )
 
     # Warm hit benchmark
-    hit_total_lats: List[float] = []
-    hit_embed_lats: List[float] = []
-    hit_lookup_lats: List[float] = []
+    hit_total_lats: list[float] = []
+    hit_embed_lats: list[float] = []
+    hit_lookup_lats: list[float] = []
 
     for _ in range(iterations):
         for q, _ in sample_queries:
@@ -72,9 +72,9 @@ async def run_benchmark(iterations: int, tenant_id: str) -> Dict[str, Any]:
             hit_total_lats.append(t_emb + t_lookup)
 
     # Miss benchmark (novel queries)
-    miss_total_lats: List[float] = []
-    miss_embed_lats: List[float] = []
-    miss_lookup_lats: List[float] = []
+    miss_total_lats: list[float] = []
+    miss_embed_lats: list[float] = []
+    miss_lookup_lats: list[float] = []
 
     for i in range(iterations):
         novel_query = f"Novel benchmark query number {i} with completely distinct semantics {time.time()}"
@@ -93,7 +93,7 @@ async def run_benchmark(iterations: int, tenant_id: str) -> Dict[str, Any]:
 
     await cache.clear_cache()
 
-    def calc_stats(lats: List[float]) -> Dict[str, float]:
+    def calc_stats(lats: list[float]) -> dict[str, float]:
         sorted_l = sorted(lats)
         n = len(sorted_l)
         return {

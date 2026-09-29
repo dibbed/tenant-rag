@@ -7,9 +7,8 @@ Usage programmatically or via CLI: generate a migrated .env with new keys.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Tuple
 
-ENV_MAPPINGS: Dict[str, str] = {
+ENV_MAPPINGS: dict[str, str] = {
     # Provider
     "VECTOR_STORE_DEFAULT_STORE": "VECTOR_DB",
     # Chroma
@@ -31,7 +30,7 @@ ENV_MAPPINGS: Dict[str, str] = {
 }
 
 
-def migrate_env_content(content: str) -> Tuple[str, int]:
+def migrate_env_content(content: str) -> tuple[str, int]:
     """Return migrated .env content and number of keys changed."""
     changed = 0
     lines = content.splitlines()
@@ -52,7 +51,7 @@ def migrate_env_content(content: str) -> Tuple[str, int]:
     return ("\n".join(out_lines) + ("\n" if content.endswith("\n") else ""), changed)
 
 
-def migrate_env_file(in_path: str, out_path: str) -> Dict[str, int | str]:
+def migrate_env_file(in_path: str, out_path: str) -> dict[str, int | str]:
     """Migrate an env file writing output to out_path and return a summary."""
     src = Path(in_path)
     dst = Path(out_path)

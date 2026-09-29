@@ -37,7 +37,6 @@ import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 API_KEY_PREFIX = "rgb_"
 
@@ -82,14 +81,14 @@ class ParsedApiKey:
     secret: str
 
 
-def generate_api_key() -> Tuple[str, str]:
+def generate_api_key() -> tuple[str, str]:
     """Create a new key id and raw API key. Returns ``(key_id, raw_key)``."""
     key_id = uuid.uuid4().hex
     secret = secrets.token_urlsafe(32)
     return key_id, f"{API_KEY_PREFIX}{key_id}_{secret}"
 
 
-def parse_api_key(raw_key: object) -> Optional[ParsedApiKey]:
+def parse_api_key(raw_key: object) -> ParsedApiKey | None:
     """Parse a current-format key. Returns None for any other input."""
     if not isinstance(raw_key, str):
         return None
@@ -152,7 +151,7 @@ def legacy_sha256_digest(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
 
-def _parse_stored(stored: str) -> Optional[Tuple[int, int, int, bytes, bytes]]:
+def _parse_stored(stored: str) -> tuple[int, int, int, bytes, bytes] | None:
     parts = stored.split("$")
     if len(parts) != 6 or parts[0] != _SCHEME:
         return None

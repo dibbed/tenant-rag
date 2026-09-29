@@ -8,7 +8,7 @@ supporting multiple notification channels and escalation policies.
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.health import ComponentHealth, HealthStatus, SystemHealth
@@ -44,10 +44,10 @@ class Alert:
     message: str
     timestamp: datetime
     resolved: bool = False
-    resolved_at: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    resolved_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert alert to dictionary."""
         return {
             "id": self.id,
@@ -68,8 +68,8 @@ class AlertRule:
 
     component: str
     severity: AlertSeverity
-    channels: List[AlertChannel]
-    conditions: Dict[str, Any]
+    channels: list[AlertChannel]
+    conditions: dict[str, Any]
     cooldown_minutes: int = 5
     max_alerts_per_hour: int = 10
 
@@ -84,17 +84,17 @@ class AlertManager:
 
     def __init__(self) -> None:
         """Initialize alert manager."""
-        self.active_alerts: Dict[str, Alert] = {}
-        self.alert_history: List[Alert] = []
-        self.alert_counts: Dict[str, int] = {}
-        self.last_alert_times: Dict[str, datetime] = {}
+        self.active_alerts: dict[str, Alert] = {}
+        self.alert_history: list[Alert] = []
+        self.alert_counts: dict[str, int] = {}
+        self.last_alert_times: dict[str, datetime] = {}
 
         # Default alert rules
         self.alert_rules = self._setup_default_alert_rules()
 
         logger.info("Alert manager initialized", rules_count=len(self.alert_rules))
 
-    def _setup_default_alert_rules(self) -> List[AlertRule]:
+    def _setup_default_alert_rules(self) -> list[AlertRule]:
         """Setup default alert rules for components."""
         return [
             # Critical components
@@ -156,7 +156,7 @@ class AlertManager:
             ),
         ]
 
-    async def process_health_status(self, system_health: SystemHealth) -> List[Alert]:
+    async def process_health_status(self, system_health: SystemHealth) -> list[Alert]:
         """
         Process system health status and generate alerts.
 
@@ -168,7 +168,7 @@ class AlertManager:
         """
         generated_alerts = []
 
-        for component_name, component_health in system_health.components.items():
+        for component_health in system_health.components.values():
             alerts = await self._check_component_alerts(component_health)
             generated_alerts.extend(alerts)
 
@@ -179,7 +179,7 @@ class AlertManager:
 
     async def _check_component_alerts(
         self, component_health: ComponentHealth
-    ) -> List[Alert]:
+    ) -> list[Alert]:
         """Check if component health triggers any alerts."""
         generated_alerts = []
 
@@ -201,19 +201,26 @@ class AlertManager:
     ) -> bool:
         """Check if alert should be triggered based on rule conditions."""
         # Check status condition
-        if "status" in rule.conditions:
-            if component_health.status not in rule.conditions["status"]:
-                return False
+        if (
+            "status" in rule.conditions
+            and component_health.status not in rule.conditions["status"]
+        ):
+            return False
 
         # Check error count condition
-        if "min_error_count" in rule.conditions:
-            if component_health.error_count < rule.conditions["min_error_count"]:
-                return False
+        if (
+            "min_error_count" in rule.conditions
+            and component_health.error_count < rule.conditions["min_error_count"]
+        ):
+            return False
 
         # Check response time condition
-        if "max_response_time" in rule.conditions and component_health.response_time:
-            if component_health.response_time < rule.conditions["max_response_time"]:
-                return False
+        if (
+            "max_response_time" in rule.conditions
+            and component_health.response_time
+            and component_health.response_time < rule.conditions["max_response_time"]
+        ):
+            return False
 
         # Check cooldown period
         alert_key = f"{rule.component}_{rule.severity.value}"
@@ -229,14 +236,11 @@ class AlertManager:
             return False
 
         # Check if alert is already active
-        if alert_key in self.active_alerts:
-            return False
-
-        return True
+        return alert_key not in self.active_alerts
 
     async def _create_alert(
         self, component_health: ComponentHealth, rule: AlertRule
-    ) -> Optional[Alert]:
+    ) -> Alert | None:
         """Create and process a new alert."""
         alert_id = (
             f"{rule.component}_{rule.severity.value}_{int(datetime.now().timestamp())}"
@@ -306,7 +310,7 @@ class AlertManager:
         return base_message
 
     async def _send_alert_notifications(
-        self, alert: Alert, channels: List[AlertChannel]
+        self, alert: Alert, channels: list[AlertChannel]
     ) -> None:
         """Send alert notifications through specified channels."""
         for channel in channels:
@@ -319,7 +323,7 @@ class AlertManager:
                     await self._send_email_notification(alert)
                 elif channel == AlertChannel.WEBHOOK:
                     await self._send_webhook_notification(alert)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.error(
                     f"Failed to send alert via {channel.value}: {e}", alert_id=alert.id
                 )
@@ -341,6 +345,9 @@ class AlertManager:
     async def _send_telegram_notification(self, alert: Alert) -> None:
         """Send alert notification via Telegram."""
         if not getattr(settings, "bot_token", None):
+            return
+
+        if alert.resolved_at is None:
             return
 
         try:
@@ -366,7 +373,7 @@ class AlertManager:
                     await bot.send_message(
                         chat_id=user_id, text=message, parse_mode="Markdown"
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(
                         f"Failed to send Telegram alert to user {user_id}: {e}"
                     )
@@ -415,7 +422,7 @@ class AlertManager:
         logger.info(f"Webhook alert notification (not implemented): {alert.id}")
 
     async def _check_resolved_alerts(
-        self, components: Dict[str, ComponentHealth]
+        self, components: dict[str, ComponentHealth]
     ) -> None:
         """Check if any active alerts should be resolved."""
         resolved_alerts = []
@@ -455,6 +462,10 @@ class AlertManager:
         if not getattr(settings, "bot_token", None):
             return
 
+        resolved_at = alert.resolved_at
+        if resolved_at is None:
+            return
+
         try:
             try:
                 from telegram import Bot
@@ -470,10 +481,10 @@ class AlertManager:
                 message += f"*Component:* {alert.component}\n"
                 message += f"*Severity:* {alert.severity.value.upper()}\n"
                 message += (
-                    f"*Resolved:* {alert.resolved_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"*Resolved:* {resolved_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
                 )
 
-                duration = alert.resolved_at - alert.timestamp
+                duration = resolved_at - alert.timestamp
                 message += f"*Duration:* {duration.total_seconds() / 60:.1f} minutes"
 
                 for user_id in admin_users:
@@ -481,7 +492,7 @@ class AlertManager:
                         await bot.send_message(
                             chat_id=user_id, text=message, parse_mode="Markdown"
                         )
-                    except Exception as e:
+                    except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                         logger.error(
                             f"Failed to send resolution notification to user {user_id}: {e}"
                         )
@@ -489,11 +500,11 @@ class AlertManager:
         except Exception as e:
             logger.error(f"Failed to send resolution notification: {e}")
 
-    def get_active_alerts(self) -> List[Dict[str, Any]]:
+    def get_active_alerts(self) -> list[dict[str, Any]]:
         """Get list of active alerts."""
         return [alert.to_dict() for alert in self.active_alerts.values()]
 
-    def get_alert_history(self, hours: int = 24) -> List[Dict[str, Any]]:
+    def get_alert_history(self, hours: int = 24) -> list[dict[str, Any]]:
         """Get alert history for specified time period."""
         cutoff_time = datetime.now() - timedelta(hours=hours)
 
@@ -503,7 +514,7 @@ class AlertManager:
 
         return [alert.to_dict() for alert in recent_alerts]
 
-    def get_alert_statistics(self) -> Dict[str, Any]:
+    def get_alert_statistics(self) -> dict[str, Any]:
         """Get alert statistics."""
         now = datetime.now()
         last_24h = now - timedelta(hours=24)
@@ -525,7 +536,7 @@ class AlertManager:
             },
             "alerts_by_component_24h": {
                 comp: len([a for a in recent_alerts if a.component == comp])
-                for comp in set(a.component for a in recent_alerts)
+                for comp in {a.component for a in recent_alerts}
             },
         }
 
