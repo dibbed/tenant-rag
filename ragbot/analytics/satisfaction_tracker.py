@@ -5,7 +5,7 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -18,20 +18,20 @@ class SatisfactionFeedback:
     query: str
     answer: str
     rating: int  # 1-5
-    feedback_text: Optional[str]
+    feedback_text: str | None
     timestamp: datetime
 
 
 class SatisfactionTracker:
     """ردیابی رضایت کاربران"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize satisfaction tracker"""
-        self.feedback_history = []
-        self.user_satisfaction = defaultdict(list)
-        self.query_satisfaction = defaultdict(list)
-        self.rating_distribution = Counter()
-        self.satisfaction_trends = []
+        self.feedback_history: list[SatisfactionFeedback] = []
+        self.user_satisfaction: defaultdict[str, list[int]] = defaultdict(list)
+        self.query_satisfaction: defaultdict[str, list[int]] = defaultdict(list)
+        self.rating_distribution: Counter[int] = Counter()
+        self.satisfaction_trends: list[dict[str, Any]] = []
 
     async def record_feedback(
         self,
@@ -39,8 +39,8 @@ class SatisfactionTracker:
         query: str,
         answer: str,
         rating: int,
-        feedback_text: str = None,
-    ):
+        feedback_text: str | None = None,
+    ) -> None:
         """ثبت بازخورد رضایت"""
         try:
             if not (1 <= rating <= 5):
@@ -71,7 +71,7 @@ class SatisfactionTracker:
         except Exception as e:
             logger.error(f"Error recording feedback: {e}")
 
-    async def get_satisfaction_metrics(self) -> Dict[str, Any]:
+    async def get_satisfaction_metrics(self) -> dict[str, Any]:
         """دریافت متریک‌های رضایت"""
         try:
             if not self.feedback_history:
@@ -124,7 +124,7 @@ class SatisfactionTracker:
             logger.error(f"Error getting satisfaction metrics: {e}")
             return {"error": str(e)}
 
-    async def _calculate_user_trend(self, ratings: List[int]) -> str:
+    async def _calculate_user_trend(self, ratings: list[int]) -> str:
         """محاسبه روند رضایت کاربر"""
         try:
             if len(ratings) < 3:
@@ -145,7 +145,7 @@ class SatisfactionTracker:
             logger.error(f"Error calculating user trend: {e}")
             return "unknown"
 
-    async def _calculate_satisfaction_trend(self) -> Dict[str, Any]:
+    async def _calculate_satisfaction_trend(self) -> dict[str, Any]:
         """محاسبه روند رضایت"""
         try:
             if len(self.feedback_history) < 10:
@@ -183,7 +183,7 @@ class SatisfactionTracker:
             logger.error(f"Error calculating satisfaction trend: {e}")
             return {"error": str(e)}
 
-    async def _categorize_satisfaction_levels(self) -> Dict[str, Any]:
+    async def _categorize_satisfaction_levels(self) -> dict[str, Any]:
         """طبقه‌بندی سطوح رضایت"""
         try:
             if not self.feedback_history:
@@ -236,7 +236,7 @@ class SatisfactionTracker:
             logger.error(f"Error categorizing satisfaction levels: {e}")
             return {"error": str(e)}
 
-    async def get_user_satisfaction_profile(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_satisfaction_profile(self, user_id: str) -> dict[str, Any]:
         """دریافت پروفایل رضایت کاربر"""
         try:
             user_ratings = self.user_satisfaction.get(user_id, [])
@@ -287,13 +287,13 @@ class SatisfactionTracker:
         else:
             return "very_dissatisfied"
 
-    async def get_query_satisfaction_analysis(self) -> Dict[str, Any]:
+    async def get_query_satisfaction_analysis(self) -> dict[str, Any]:
         """تحلیل رضایت بر اساس پرسش‌ها"""
         try:
             if not self.query_satisfaction:
                 return {"no_data": True}
 
-            query_analysis = {}
+            query_analysis: dict[str, dict[str, Any]] = {}
             for query, ratings in self.query_satisfaction.items():
                 if ratings:
                     avg_rating = sum(ratings) / len(ratings)
@@ -308,7 +308,7 @@ class SatisfactionTracker:
             # مرتب‌سازی بر اساس رضایت
             sorted_queries = sorted(
                 query_analysis.items(),
-                key=lambda x: x[1]["average_rating"],
+                key=lambda x: float(x[1]["average_rating"]),
                 reverse=True,
             )
 
@@ -322,7 +322,7 @@ class SatisfactionTracker:
             logger.error(f"Error getting query satisfaction analysis: {e}")
             return {"error": str(e)}
 
-    async def get_satisfaction_insights(self) -> Dict[str, Any]:
+    async def get_satisfaction_insights(self) -> dict[str, Any]:
         """دریافت بینش‌های رضایت"""
         try:
             metrics = await self.get_satisfaction_metrics()
@@ -344,7 +344,7 @@ class SatisfactionTracker:
             logger.error(f"Error getting satisfaction insights: {e}")
             return {"error": str(e)}
 
-    async def _assess_overall_health(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+    async def _assess_overall_health(self, metrics: dict[str, Any]) -> dict[str, Any]:
         """ارزیابی سلامت کلی رضایت"""
         try:
             overall_satisfaction = metrics.get("overall_satisfaction", 0)
@@ -367,7 +367,7 @@ class SatisfactionTracker:
             logger.error(f"Error assessing overall health: {e}")
             return {"error": str(e)}
 
-    async def _identify_improvement_areas(self) -> List[str]:
+    async def _identify_improvement_areas(self) -> list[str]:
         """شناسایی زمینه‌های بهبود"""
         try:
             areas = []
@@ -391,7 +391,7 @@ class SatisfactionTracker:
             logger.error(f"Error identifying improvement areas: {e}")
             return []
 
-    async def _identify_success_factors(self) -> List[str]:
+    async def _identify_success_factors(self) -> list[str]:
         """شناسایی عوامل موفقیت"""
         try:
             factors = []
@@ -411,8 +411,8 @@ class SatisfactionTracker:
             return []
 
     async def _generate_satisfaction_recommendations(
-        self, metrics: Dict[str, Any]
-    ) -> List[str]:
+        self, metrics: dict[str, Any]
+    ) -> list[str]:
         """تولید توصیه‌های رضایت"""
         try:
             recommendations = []
@@ -440,7 +440,7 @@ class SatisfactionTracker:
             logger.error(f"Error generating satisfaction recommendations: {e}")
             return []
 
-    async def get_satisfaction_summary(self) -> Dict[str, Any]:
+    async def get_satisfaction_summary(self) -> dict[str, Any]:
         """دریافت خلاصه رضایت"""
         try:
             return {

@@ -5,18 +5,19 @@ This module provides plugin registration and discovery functionality,
 including versioning, compatibility checks, and dependency management.
 """
 
-from collections import defaultdict
-from typing import Dict, List, Optional, Set, Any
-from pathlib import Path
 import json
 import time
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
 from ragbot.outputs.logger import logger
+
 from .base_plugin import (
     BasePlugin,
     PluginMetadata,
-    PluginType,
     PluginStatus,
+    PluginType,
 )
 
 
@@ -28,7 +29,7 @@ class PluginRegistry:
     of plugins in the RAG Bot system.
     """
 
-    def __init__(self, registry_file: Optional[str] = None):
+    def __init__(self, registry_file: str | None = None):
         """
         Initialize plugin registry
 
@@ -36,11 +37,11 @@ class PluginRegistry:
             registry_file: Path to registry persistence file
         """
         self.registry_file = registry_file or "plugins/registry.json"
-        self.plugins: Dict[str, BasePlugin] = {}
-        self.plugin_metadata: Dict[str, PluginMetadata] = {}
-        self.dependency_graph: Dict[str, Set[str]] = defaultdict(set)
-        self.plugin_types: Dict[PluginType, Set[str]] = defaultdict(set)
-        self.status_queue: Dict[str, PluginStatus] = {}
+        self.plugins: dict[str, BasePlugin] = {}
+        self.plugin_metadata: dict[str, PluginMetadata] = {}
+        self.dependency_graph: dict[str, set[str]] = defaultdict(set)
+        self.plugin_types: dict[PluginType, set[str]] = defaultdict(set)
+        self.status_queue: dict[str, PluginStatus] = {}
 
     async def register_plugin(self, plugin: BasePlugin) -> str:
         """
@@ -156,7 +157,7 @@ class PluginRegistry:
             logger.error(f"Failed to unregister plugin {plugin_id}: {e}")
             return False
 
-    async def get_plugin(self, plugin_id: str) -> Optional[BasePlugin]:
+    async def get_plugin(self, plugin_id: str) -> BasePlugin | None:
         """
         Get plugin instance by ID
 
@@ -168,7 +169,7 @@ class PluginRegistry:
         """
         return self.plugins.get(plugin_id)
 
-    async def get_plugins_by_type(self, plugin_type: PluginType) -> List[BasePlugin]:
+    async def get_plugins_by_type(self, plugin_type: PluginType) -> list[BasePlugin]:
         """
         Get all plugins of a specific type
 
@@ -181,7 +182,7 @@ class PluginRegistry:
         plugin_ids = self.plugin_types.get(plugin_type, set())
         return [self.plugins[pid] for pid in plugin_ids if pid in self.plugins]
 
-    async def get_active_plugins(self) -> List[BasePlugin]:
+    async def get_active_plugins(self) -> list[BasePlugin]:
         """
         Get all active plugins
 
@@ -194,7 +195,7 @@ class PluginRegistry:
             if plugin.get_status() == PluginStatus.ACTIVE
         ]
 
-    async def get_plugin_metadata(self, plugin_id: str) -> Optional[PluginMetadata]:
+    async def get_plugin_metadata(self, plugin_id: str) -> PluginMetadata | None:
         """
         Get metadata for a plugin
 
@@ -207,8 +208,8 @@ class PluginRegistry:
         return self.plugin_metadata.get(plugin_id)
 
     async def list_plugins(
-        self, status_filter: Optional[PluginStatus] = None
-    ) -> Dict[str, Any]:
+        self, status_filter: PluginStatus | None = None
+    ) -> dict[str, Any]:
         """
         List all registered plugins with optional status filter
 
@@ -237,7 +238,7 @@ class PluginRegistry:
 
         return plugins_info
 
-    async def validate_plugin_compatibility(self, plugin: BasePlugin) -> List[str]:
+    async def validate_plugin_compatibility(self, plugin: BasePlugin) -> list[str]:
         """
         Validate plugin compatibility with current system
 
@@ -271,7 +272,7 @@ class PluginRegistry:
                 issues.extend([f"Missing dependency: {dep}" for dep in missing_deps])
 
         except Exception as e:
-            issues.append(f"Validation error: {str(e)}")
+            issues.append(f"Validation error: {e!s}")
 
         return issues
 
@@ -305,7 +306,7 @@ class PluginRegistry:
             logger.error(f"Failed to reload plugin {plugin_id}: {e}")
             return False
 
-    async def _validate_plugin(self, plugin: BasePlugin) -> List[str]:
+    async def _validate_plugin(self, plugin: BasePlugin) -> list[str]:
         """
         Validate plugin implementation
 
@@ -315,14 +316,16 @@ class PluginRegistry:
         Returns:
             List of validation errors
         """
-        errors = []
+        errors: list[str] = []
 
         try:
             # Check required methods exist
             required_methods = ["initialize", "execute", "cleanup"]
-            for method_name in required_methods:
-                if not hasattr(plugin, method_name):
-                    errors.append(f"Missing required method: {method_name}")
+            errors.extend(
+                f"Missing required method: {method_name}"
+                for method_name in required_methods
+                if not hasattr(plugin, method_name)
+            )
 
             # Validate configuration
             config_errors = plugin.validate_config()
@@ -334,14 +337,14 @@ class PluginRegistry:
                 if not metadata.name or not metadata.version:
                     errors.append("Plugin metadata incomplete")
             except Exception as e:
-                errors.append(f"Metadata validation failed: {str(e)}")
+                errors.append(f"Metadata validation failed: {e!s}")
 
         except Exception as e:
-            errors.append(f"Plugin validation failed: {str(e)}")
+            errors.append(f"Plugin validation failed: {e!s}")
 
         return errors
 
-    async def _check_dependencies(self, plugin: BasePlugin) -> List[str]:
+    async def _check_dependencies(self, plugin: BasePlugin) -> list[str]:
         """
         Check if plugin dependencies are satisfied
 
@@ -351,15 +354,11 @@ class PluginRegistry:
         Returns:
             List of missing dependencies
         """
-        missing = []
-
-        for dep in plugin.dependencies:
-            if dep not in self.plugins:
-                missing.append(dep)
+        missing = [dep for dep in plugin.dependencies if dep not in self.plugins]
 
         return missing
 
-    def _get_dependent_plugins(self, plugin_id: str) -> List[str]:
+    def _get_dependent_plugins(self, plugin_id: str) -> list[str]:
         """
         Get plugins that depend on the given plugin
 
@@ -410,7 +409,7 @@ class PluginRegistry:
     async def _save_registry(self) -> None:
         """Persist registry state to file"""
         try:
-            registry_data = {
+            registry_data: dict[str, Any] = {
                 "plugins": {},
                 "metadata": {},
                 "dependency_graph": dict(self.dependency_graph),
@@ -447,7 +446,7 @@ class PluginRegistry:
                 logger.info("No registry file found, starting with empty registry")
                 return
 
-            with open(registry_path, "r") as f:
+            with open(registry_path) as f:
                 registry_data = json.load(f)
 
             # Reconstruct metadata

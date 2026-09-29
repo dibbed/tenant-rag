@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class ContentType(Enum):
@@ -29,8 +29,8 @@ class FilterResult:
     is_safe: bool
     content_type: ContentType
     confidence: float
-    reasons: List[str]
-    filtered_content: Optional[str] = None
+    reasons: list[str]
+    filtered_content: str | None = None
 
 
 class ContentFilter:
@@ -70,10 +70,10 @@ class ContentFilter:
 
         # Sensitive words removed to avoid false positives for educational content
         # Keep empty by default; can be populated via runtime config if needed
-        self.sensitive_words = set()
+        self.sensitive_words: set[str] = set()
 
     async def filter_content(
-        self, text: str, user_id: Optional[str] = None
+        self, text: str, user_id: str | None = None
     ) -> FilterResult:
         """فیلتر محتوای نامناسب
 
@@ -85,8 +85,8 @@ class ContentFilter:
             نتیجه فیلتر
         """
 
-        reasons: List[str] = []
-        confidence_scores: List[float] = []
+        reasons: list[str] = []
+        confidence_scores: list[float] = []
 
         toxicity_result = await self._check_toxicity(text)
         if toxicity_result["is_toxic"]:
@@ -122,7 +122,7 @@ class ContentFilter:
         overall_confidence = max(confidence_scores) if confidence_scores else 0.0
         is_safe = len(reasons) == 0
 
-        filtered_content: Optional[str] = None
+        filtered_content: str | None = None
         if not is_safe:
             filtered_content = await self._filter_text(text, content_type)
 
@@ -134,7 +134,7 @@ class ContentFilter:
             filtered_content=filtered_content,
         )
 
-    async def _check_toxicity(self, text: str) -> Dict[str, Any]:
+    async def _check_toxicity(self, text: str) -> dict[str, Any]:
         """بررسی محتوای سمی"""
 
         text_lower = text.lower()
@@ -149,7 +149,7 @@ class ContentFilter:
             "toxic_count": total_toxic,
         }
 
-    async def _check_spam(self, text: str) -> Dict[str, Any]:
+    async def _check_spam(self, text: str) -> dict[str, Any]:
         """بررسی spam"""
 
         spam_score = 0.0
@@ -168,7 +168,7 @@ class ContentFilter:
         confidence = float(min(spam_score, 1.0))
         return {"is_spam": is_spam, "confidence": confidence, "spam_score": spam_score}
 
-    async def _check_sensitive_content(self, text: str) -> Dict[str, Any]:
+    async def _check_sensitive_content(self, text: str) -> dict[str, Any]:
         """بررسی محتوای حساس"""
 
         text_lower = text.lower()
@@ -181,7 +181,7 @@ class ContentFilter:
             "sensitive_count": sensitive_count,
         }
 
-    async def _check_inappropriate_content(self, text: str) -> Dict[str, Any]:
+    async def _check_inappropriate_content(self, text: str) -> dict[str, Any]:
         """بررسی محتوای نامناسب"""
 
         inappropriate_patterns = [

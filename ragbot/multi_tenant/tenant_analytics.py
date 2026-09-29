@@ -1,10 +1,11 @@
 """Tenant-specific analytics and reporting system."""
 
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
 from dataclasses import asdict
+from datetime import date, datetime, timedelta
+from typing import Any
 
-from ..outputs.logger import logger
+from ragbot.outputs.logger import logger
+
 from .models import (
     TenantConfig,
     TenantTier,
@@ -14,13 +15,13 @@ from .models import (
 class TenantAnalytics:
     """سیستم تحلیل و گزارش‌دهی tenant"""
 
-    def __init__(self, tenant_manager=None):
+    def __init__(self, tenant_manager: Any = None) -> None:
         self.tenant_manager = tenant_manager
-        self.analytics_cache: Dict[str, Dict[str, Any]] = {}
+        self.analytics_cache: dict[str, dict[str, Any]] = {}
 
         logger.info("TenantAnalytics initialized")
 
-    async def get_tenant_dashboard(self, tenant_id: str) -> Dict[str, Any]:
+    async def get_tenant_dashboard(self, tenant_id: str) -> dict[str, Any]:
         """دریافت داشبورد tenant"""
         try:
             tenant = await self.tenant_manager.get_tenant(tenant_id)
@@ -82,7 +83,7 @@ class TenantAnalytics:
         tenant_id: str,
         days: int = 30,
         metric: str = "queries",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """دریافت روند استفاده"""
         try:
             tenant = await self.tenant_manager.get_tenant(tenant_id)
@@ -148,7 +149,7 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         days: int = 7,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """گزارش فعالیت کاربران"""
         try:
             tenant = await self.tenant_manager.get_tenant(tenant_id)
@@ -257,7 +258,7 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         months: int = 12,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """گزارش صورتحساب"""
         try:
             tenant = await self.tenant_manager.get_tenant(tenant_id)
@@ -265,7 +266,7 @@ class TenantAnalytics:
                 return {"error": "Tenant not found"}
 
             # محاسبه هزینه‌های ماهانه
-            monthly_costs = []
+            monthly_costs: list[dict[str, Any]] = []
             current_date = datetime.now()
 
             for i in range(months):
@@ -273,7 +274,7 @@ class TenantAnalytics:
 
                 # دریافت آمار استفاده ماه
                 month_usage = await self._get_period_usage(
-                    tenant_id, 30, month_start.date()
+                    tenant_id, 30, month_start
                 )
 
                 # محاسبه هزینه
@@ -320,7 +321,7 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """گزارش امنیتی"""
         try:
             tenant = await self.tenant_manager.get_tenant(tenant_id)
@@ -397,7 +398,7 @@ class TenantAnalytics:
             logger.error(f"Error getting security report: {e}")
             return {"error": str(e)}
 
-    async def _get_daily_usage(self, tenant_id: str, date) -> Dict[str, Any]:
+    async def _get_daily_usage(self, tenant_id: str, date: date) -> dict[str, Any]:
         """دریافت آمار استفاده روزانه"""
         try:
             usage_records = self.tenant_manager.tenant_usage.get(tenant_id, [])
@@ -434,8 +435,8 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         days: int,
-        start_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """دریافت آمار استفاده برای دوره"""
         try:
             if not start_date:
@@ -483,7 +484,7 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         days: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """محاسبه معیارهای عملکرد"""
         try:
             usage = await self._get_period_usage(tenant_id, days)
@@ -504,7 +505,7 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         limit: int,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """دریافت آخرین فعالیت‌ها"""
         try:
             audit_logs = self.tenant_manager.tenant_audit_logs.get(tenant_id, [])
@@ -512,18 +513,17 @@ class TenantAnalytics:
             # مرتب‌سازی بر اساس زمان
             sorted_logs = sorted(audit_logs, key=lambda x: x.timestamp, reverse=True)
 
-            activities = []
-            for log in sorted_logs[:limit]:
-                activities.append(
-                    {
-                        "action": log.action,
-                        "resource": log.resource,
-                        "timestamp": log.timestamp.isoformat(),
-                        "success": log.success,
-                        "user_id": log.user_id,
-                        "details": log.details,
-                    }
-                )
+            activities = [
+                {
+                    "action": log.action,
+                    "resource": log.resource,
+                    "timestamp": log.timestamp.isoformat(),
+                    "success": log.success,
+                    "user_id": log.user_id,
+                    "details": log.details,
+                }
+                for log in sorted_logs[:limit]
+            ]
 
             return activities
 
@@ -535,7 +535,7 @@ class TenantAnalytics:
         self,
         tenant_id: str,
         days: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """تحلیل هزینه‌ها"""
         try:
             usage = await self._get_period_usage(tenant_id, days)
@@ -566,8 +566,8 @@ class TenantAnalytics:
     async def _calculate_usage_percentages(
         self,
         tenant: TenantConfig,
-        usage: Dict[str, Any],
-    ) -> Dict[str, float]:
+        usage: dict[str, Any],
+    ) -> dict[str, float]:
         """محاسبه درصد استفاده از محدودیت‌ها"""
         try:
             limits = tenant.limits
@@ -597,7 +597,7 @@ class TenantAnalytics:
             logger.error(f"Error calculating usage percentages: {e}")
             return {}
 
-    async def _calculate_trend(self, daily_data: List[Dict[str, Any]]) -> str:
+    async def _calculate_trend(self, daily_data: list[dict[str, Any]]) -> str:
         """محاسبه روند"""
         try:
             if len(daily_data) < 2:
@@ -624,12 +624,15 @@ class TenantAnalytics:
             logger.error(f"Error calculating trend: {e}")
             return "stable"
 
-    async def _calculate_success_rate(self, user_activities: Dict[str, Any]) -> float:
+    async def _calculate_success_rate(self, user_activities: dict[str, Any]) -> float:
         """محاسبه نرخ موفقیت"""
         try:
-            total_actions = sum(ua["actions"] for ua in user_activities.values())
+            total_actions = sum(
+                int(ua.get("actions", 0)) for ua in user_activities.values()
+            )
             successful_actions = sum(
-                ua["successful_actions"] for ua in user_activities.values()
+                int(ua.get("successful_actions", 0))
+                for ua in user_activities.values()
             )
 
             if total_actions == 0:
@@ -644,12 +647,12 @@ class TenantAnalytics:
     async def _calculate_monthly_cost(
         self,
         tenant: TenantConfig,
-        usage: Dict[str, Any],
+        usage: dict[str, Any],
     ) -> float:
         """محاسبه هزینه ماهانه"""
         try:
             base_cost = await self._get_base_cost(tenant.tier)
-            usage_cost = usage.get("cost_usd", 0)
+            usage_cost = float(usage.get("cost_usd", 0.0))
             return round(base_cost + usage_cost, 2)
 
         except Exception as e:
@@ -666,7 +669,7 @@ class TenantAnalytics:
         }
         return base_costs.get(tier, 0.0)
 
-    async def _calculate_cost_trend(self, monthly_costs: List[Dict[str, Any]]) -> str:
+    async def _calculate_cost_trend(self, monthly_costs: list[dict[str, Any]]) -> str:
         """محاسبه روند هزینه"""
         try:
             if len(monthly_costs) < 2:
@@ -693,7 +696,7 @@ class TenantAnalytics:
             logger.error(f"Error calculating cost trend: {e}")
             return "stable"
 
-    async def _compare_tier_costs(self, current_tier: TenantTier) -> Dict[str, Any]:
+    async def _compare_tier_costs(self, current_tier: TenantTier) -> dict[str, Any]:
         """مقایسه هزینه‌های tier های مختلف"""
         try:
             tiers = [
@@ -752,7 +755,7 @@ class TenantAnalytics:
         failed_logins: int,
         suspicious_activities: int,
         risk_score: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """تولید توصیه‌های امنیتی"""
         try:
             recommendations = []
@@ -778,13 +781,16 @@ class TenantAnalytics:
             logger.error(f"Error generating security recommendations: {e}")
             return ["خطا در تولید توصیه‌های امنیتی"]
 
-    async def _calculate_performance_score(self, usage: Dict[str, Any]) -> float:
+    async def _calculate_performance_score(self, usage: dict[str, Any]) -> float:
         """محاسبه امتیاز عملکرد"""
         try:
             # امتیاز بر اساس معیارهای مختلف
-            response_time_score = max(0, 100 - usage.get("avg_response_time", 0) * 10)
-            error_rate_score = max(0, 100 - usage.get("error_rate", 0) * 100)
-            satisfaction_score = usage.get("satisfaction_score", 0) * 20
+            avg_response_time = float(usage.get("avg_response_time", 0.0))
+            error_rate = float(usage.get("error_rate", 0.0))
+            satisfaction = float(usage.get("satisfaction_score", 0.0))
+            response_time_score = max(0.0, 100.0 - avg_response_time * 10.0)
+            error_rate_score = max(0.0, 100.0 - error_rate * 100.0)
+            satisfaction_score = satisfaction * 20.0
 
             performance_score = (
                 response_time_score + error_rate_score + satisfaction_score

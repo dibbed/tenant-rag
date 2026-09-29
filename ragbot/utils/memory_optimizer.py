@@ -3,9 +3,10 @@
 """
 
 import asyncio
+import contextlib
 import gc
 import time
-from typing import Any, Dict
+from typing import Any
 
 import psutil
 from loguru import logger
@@ -14,7 +15,7 @@ from loguru import logger
 class MemoryOptimizer:
     """بهینه‌سازی حافظه"""
 
-    def __init__(self, settings=None, max_memory_usage: float = 0.8):
+    def __init__(self, settings: Any | None = None, max_memory_usage: float = 0.8) -> None:
         """Initialize memory optimizer"""
         self.settings = settings
 
@@ -26,27 +27,27 @@ class MemoryOptimizer:
             self.max_memory_usage = max_memory_usage
             self.optimization_interval = 60
 
-        self.optimization_history = []
+        self.optimization_history: list[dict[str, Any]] = []
 
         # Background optimization
-        self._optimization_task = None
+        self._optimization_task: asyncio.Task[None] | None = None
         self._start_optimization()
 
-    def _start_optimization(self):
+    def _start_optimization(self) -> None:
         """شروع بهینه‌سازی پس‌زمینه"""
 
-        async def optimization_loop():
+        async def optimization_loop() -> None:
             while True:
                 try:
                     await self._check_and_optimize()
                     await asyncio.sleep(self.optimization_interval)
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(f"Error in memory optimization loop: {e}")
                     await asyncio.sleep(60)
 
         self._optimization_task = asyncio.create_task(optimization_loop())
 
-    async def _check_and_optimize(self):
+    async def _check_and_optimize(self) -> None:
         """بررسی و بهینه‌سازی"""
         try:
             memory_usage = psutil.virtual_memory().percent / 100
@@ -60,7 +61,7 @@ class MemoryOptimizer:
         except Exception as e:
             logger.error(f"Error checking memory usage: {e}")
 
-    async def _optimize_memory(self):
+    async def _optimize_memory(self) -> None:
         """بهینه‌سازی حافظه"""
         try:
             optimization_start = time.time()
@@ -93,7 +94,7 @@ class MemoryOptimizer:
         except Exception as e:
             logger.error(f"Error optimizing memory: {e}")
 
-    async def _compact_memory(self):
+    async def _compact_memory(self) -> None:
         """فشرده‌سازی حافظه"""
         try:
             # اجرای garbage collection چندین بار
@@ -103,7 +104,7 @@ class MemoryOptimizer:
         except Exception as e:
             logger.error(f"Error compacting memory: {e}")
 
-    async def _clear_old_caches(self):
+    async def _clear_old_caches(self) -> None:
         """حذف کش‌های قدیمی"""
         try:
             # اینجا باید با cache manager ارتباط برقرار شود
@@ -113,7 +114,7 @@ class MemoryOptimizer:
         except Exception as e:
             logger.error(f"Error clearing old caches: {e}")
 
-    async def get_memory_stats(self) -> Dict[str, Any]:
+    async def get_memory_stats(self) -> dict[str, Any]:
         """دریافت آمار حافظه"""
         try:
             memory = psutil.virtual_memory()
@@ -132,7 +133,7 @@ class MemoryOptimizer:
             logger.error(f"Error getting memory stats: {e}")
             return {"error": str(e)}
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """بررسی سلامت حافظه"""
         try:
             stats = await self.get_memory_stats()
@@ -165,11 +166,9 @@ class MemoryOptimizer:
             logger.error(f"Error in memory health check: {e}")
             return {"status": "unhealthy", "error": str(e)}
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """خاموش کردن بهینه‌سازی"""
         if self._optimization_task:
             self._optimization_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._optimization_task
-            except asyncio.CancelledError:
-                pass

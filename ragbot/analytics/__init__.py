@@ -3,49 +3,49 @@
 """
 
 from .analytics_dashboard import AnalyticsDashboard
-from .satisfaction_tracker import SatisfactionFeedback, SatisfactionTracker
-from .usage_patterns import UsagePatternsAnalyzer
-from .user_behavior import UserBehaviorAnalyzer, UserProfile, UserSession
 from .ml_insights import (
+    AnomalyReport,
+    BehaviorPrediction,
+    ContentSuggestion,
+    EmbeddingOptimization,
     MLInsightsEngine,
     QueryPatternAnalysis,
     Topic,
-    ContentSuggestion,
-    EmbeddingOptimization,
-    BehaviorPrediction,
-    AnomalyReport,
 )
 from .predictive import (
-    PredictiveAnalyzer,
-    LoadPrediction,
-    StoragePrediction,
     Anomaly,
+    LoadPrediction,
+    PredictiveAnalyzer,
     Recommendation,
+    StoragePrediction,
     SystemMetrics,
 )
+from .satisfaction_tracker import SatisfactionFeedback, SatisfactionTracker
+from .usage_patterns import UsagePatternsAnalyzer
+from .user_behavior import UserBehaviorAnalyzer, UserProfile, UserSession
 
 __all__ = [
-    # Core analytics
-    "UserBehaviorAnalyzer",
-    "UserSession",
-    "UserProfile",
-    "UsagePatternsAnalyzer",
-    "SatisfactionTracker",
-    "SatisfactionFeedback",
     "AnalyticsDashboard",
-    # ML Insights
-    "MLInsightsEngine",
-    "QueryPatternAnalysis",
-    "Topic",
+    "Anomaly",
+    "AnomalyReport",
+    "BehaviorPrediction",
     "ContentSuggestion",
     "EmbeddingOptimization",
-    "BehaviorPrediction",
-    "AnomalyReport",
+    "LoadPrediction",
+    # ML Insights
+    "MLInsightsEngine",
     # Predictive Analytics
     "PredictiveAnalyzer",
-    "LoadPrediction",
-    "StoragePrediction",
-    "Anomaly",
+    "QueryPatternAnalysis",
     "Recommendation",
+    "SatisfactionFeedback",
+    "SatisfactionTracker",
+    "StoragePrediction",
     "SystemMetrics",
+    "Topic",
+    "UsagePatternsAnalyzer",
+    # Core analytics
+    "UserBehaviorAnalyzer",
+    "UserProfile",
+    "UserSession",
 ]

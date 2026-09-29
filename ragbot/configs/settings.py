@@ -6,10 +6,11 @@ support, validation, and type safety using Pydantic Settings.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
-from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings as PydanticBaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, ValidationInfo, field_validator
+from pydantic_settings import BaseSettings as PydanticBaseSettings
+from pydantic_settings import SettingsConfigDict
 
 
 class VectorStoreConfig(PydanticBaseSettings):
@@ -17,7 +18,7 @@ class VectorStoreConfig(PydanticBaseSettings):
 
     # Store selection
     default_store: str = Field(default="faiss", description="Default vector store type")
-    available_stores: List[str] = Field(
+    available_stores: list[str] = Field(
         default=["faiss", "chroma", "qdrant"],
         description="Available vector store types",
     )
@@ -158,7 +159,7 @@ class VectorStoreConfig(PydanticBaseSettings):
     weaviate_class_name: str = Field(
         default="RagBot", description="Weaviate class name"
     )
-    weaviate_api_key: Optional[str] = Field(
+    weaviate_api_key: str | None = Field(
         default=None, description="Weaviate API key"
     )
     weaviate_enable_graphql: bool = Field(
@@ -242,8 +243,8 @@ class VectorStoreConfig(PydanticBaseSettings):
     openai_embedding_dimension: int = Field(
         default=1536, description="OpenAI embedding dimension"
     )
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    openai_base_url: Optional[str] = Field(default=None, description="OpenAI base URL")
+    openai_api_key: str | None = Field(default=None, description="OpenAI API key")
+    openai_base_url: str | None = Field(default=None, description="OpenAI base URL")
 
     # HuggingFace embedding settings
     huggingface_model: str = Field(
@@ -337,7 +338,7 @@ class VectorStoreConfig(PydanticBaseSettings):
     )
 
     @field_validator("default_store")
-    def validate_default_store(cls, v):
+    def validate_default_store(cls, v: str) -> str:
         """Validate default store type."""
         valid_stores = ["faiss", "chroma", "qdrant"]
         if v not in valid_stores:
@@ -345,7 +346,7 @@ class VectorStoreConfig(PydanticBaseSettings):
         return v
 
     @field_validator("chunking_strategy")
-    def validate_chunking_strategy(cls, v):
+    def validate_chunking_strategy(cls, v: str) -> str:
         """Validate chunking strategy."""
         valid_strategies = ["semantic", "token", "hierarchical", "adaptive"]
         if v not in valid_strategies:
@@ -353,7 +354,7 @@ class VectorStoreConfig(PydanticBaseSettings):
         return v
 
     @field_validator("embedding_provider")
-    def validate_embedding_provider(cls, v):
+    def validate_embedding_provider(cls, v: str) -> str:
         """Validate embedding provider."""
         valid_providers = ["sentence_transformers", "openai", "huggingface"]
         if v not in valid_providers:
@@ -361,7 +362,7 @@ class VectorStoreConfig(PydanticBaseSettings):
         return v
 
     @field_validator("retrieval_strategy")
-    def validate_retrieval_strategy(cls, v):
+    def validate_retrieval_strategy(cls, v: str) -> str:
         """Validate retrieval strategy."""
         valid_strategies = ["semantic", "keyword", "hybrid"]
         if v not in valid_strategies:
@@ -417,7 +418,7 @@ class PluginSettings(PydanticBaseSettings):
     validate_security: bool = Field(
         default=True, description="Enable plugin security validation"
     )
-    allowed_imports: List[str] = Field(
+    allowed_imports: list[str] = Field(
         default=[
             "ragbot",
             "typing",
@@ -433,7 +434,7 @@ class PluginSettings(PydanticBaseSettings):
         ],
         description="List of allowed Python imports in plugins",
     )
-    banned_functions: List[str] = Field(
+    banned_functions: list[str] = Field(
         default=[
             "eval",
             "exec",
@@ -540,7 +541,7 @@ class SemanticCacheSettings(PydanticBaseSettings):
     monitoring_enabled: bool = Field(
         default=True, description="Enable cache monitoring"
     )
-    alert_thresholds: Dict[str, float] = Field(
+    alert_thresholds: dict[str, float] = Field(
         default={
             "hit_rate_min": 0.6,
             "response_time_max": 0.1,
@@ -661,18 +662,18 @@ class LLMSettings(PydanticBaseSettings):
         Field(default="openrouter", description="LLM provider")
     )
     model: str = Field(default="x-ai/grok-4-fast:free", description="LLM model name")
-    max_tokens: Optional[int] = Field(
+    max_tokens: int | None = Field(
         default=None, description="Maximum tokens in response (None = model decides)"
     )
     temperature: float = Field(default=0.3, description="LLM temperature")
     timeout: float = Field(default=30.0, description="Request timeout in seconds")
     # Optional base URL (e.g., OpenRouter, custom gateways)
-    base_url: Optional[str] = Field(default=None, description="Custom API base URL")
+    base_url: str | None = Field(default=None, description="Custom API base URL")
     # HF local (transformers) options
-    hf_model: Optional[str] = Field(
+    hf_model: str | None = Field(
         default=None, description="Hugging Face local model id"
     )
-    hf_device: Optional[str] = Field(
+    hf_device: str | None = Field(
         default=None, description="Device for HF model (cpu/cuda/auto)"
     )
 
@@ -754,7 +755,7 @@ class StoreSettings(PydanticBaseSettings):
         default=10, description="FAISS IVF nprobe (search probes)"
     )
     faiss_hnsw_m: int = Field(default=16, description="FAISS HNSW M (connections)")
-    faiss_hnsw_ef_search: Optional[int] = Field(
+    faiss_hnsw_ef_search: int | None = Field(
         default=None, description="FAISS HNSW efSearch (search breadth)"
     )
     store_keep_embeddings: bool = Field(
@@ -778,7 +779,7 @@ class StoreSettings(PydanticBaseSettings):
     qdrant_url: str = Field(
         default="http://localhost:6333", description="Qdrant endpoint URL"
     )
-    qdrant_path: Optional[str] = Field(
+    qdrant_path: str | None = Field(
         default="./data/vector_store/qdrant",
         description="Optional local path for Qdrant client",
     )
@@ -794,7 +795,7 @@ class StoreSettings(PydanticBaseSettings):
     weaviate_url: str = Field(
         default="http://localhost:8080", description="Weaviate endpoint URL"
     )
-    weaviate_api_key: Optional[str] = Field(
+    weaviate_api_key: str | None = Field(
         default=None, description="Weaviate API key (if required)"
     )
     weaviate_class_name: str = Field(
@@ -840,7 +841,7 @@ class RAGSettings(PydanticBaseSettings):
         default="none", description="OCR engine to use"
     )
     ocr_lang: str = Field(default="eng", description="OCR language code")
-    google_token_path: Optional[str] = Field(
+    google_token_path: str | None = Field(
         default=None, description="Path to Google OAuth token.json for Drive OCR"
     )
 
@@ -878,7 +879,7 @@ class SecuritySettings(PydanticBaseSettings):
     """Security configuration settings."""
 
     max_file_size_mb: int = Field(default=50, description="Maximum file size in MB")
-    allowed_file_types: List[str] = Field(
+    allowed_file_types: list[str] = Field(
         default=[
             "pdf",
             "txt",
@@ -994,11 +995,11 @@ class MultiFormatSettings(PydanticBaseSettings):
             description="How to choose User-Agent: fixed|random|chrome|firefox|auto (fake-useragent)",
         )
     )
-    html_custom_headers: Optional[str] = Field(
+    html_custom_headers: str | None = Field(
         default=None,
         description="JSON string of extra headers to include in HTTP requests",
     )
-    html_cookies: Optional[str] = Field(
+    html_cookies: str | None = Field(
         default=None,
         description="Cookie header string 'k=v; k2=v2' to include in HTTP requests",
     )
@@ -1055,7 +1056,7 @@ class MultiFormatSettings(PydanticBaseSettings):
         default=True,
         description="Enable automatic multi-signal heading detection (style_id, outlineLvl, font/layout)",
     )
-    docx_heading_font_bins: Optional[str] = Field(
+    docx_heading_font_bins: str | None = Field(
         default=None,
         description="Optional JSON list of absolute font pt thresholds for H1..Hn (e.g., [20,16,14])",
     )
@@ -1142,19 +1143,19 @@ class PerformanceSettings(PydanticBaseSettings):
     resource_check_interval: int = Field(
         default=5, description="Resource check interval in seconds"
     )
-    alert_thresholds: Dict[str, float] = Field(
+    alert_thresholds: dict[str, float] = Field(
         default={"cpu": 80.0, "memory": 85.0, "disk": 90.0},
         description="Resource alert thresholds",
     )
 
     # Optional split env overrides (keep .env_deepseek backward-compatible)
-    alert_thresholds_cpu: Optional[float] = Field(
+    alert_thresholds_cpu: float | None = Field(
         default=None, description="Override CPU alert threshold via env"
     )
-    alert_thresholds_memory: Optional[float] = Field(
+    alert_thresholds_memory: float | None = Field(
         default=None, description="Override Memory alert threshold via env"
     )
-    alert_thresholds_disk: Optional[float] = Field(
+    alert_thresholds_disk: float | None = Field(
         default=None, description="Override Disk alert threshold via env"
     )
 
@@ -1195,7 +1196,9 @@ class PerformanceSettings(PydanticBaseSettings):
 
     @field_validator("alert_thresholds", mode="after")
     @classmethod
-    def compose_alert_thresholds(cls, v: Dict[str, float], info) -> Dict[str, float]:
+    def compose_alert_thresholds(
+        cls, v: dict[str, float], info: ValidationInfo
+    ) -> dict[str, float]:
         """Compose alert thresholds from split env vars if provided (Pydantic v2)."""
         try:
             data = getattr(info, "data", {}) or {}
@@ -1248,7 +1251,7 @@ class MonitoringSettings(PydanticBaseSettings):
     enable_alerting: bool = Field(default=True, description="Enable alerting system")
     alert_check_interval: int = Field(default=30, description="Alert check interval")
     alert_cooldown_minutes: int = Field(default=5, description="Alert cooldown minutes")
-    alert_thresholds: Dict[str, float] = Field(
+    alert_thresholds: dict[str, float] = Field(
         default={
             "cpu_usage": 80.0,
             "memory_usage": 85.0,
@@ -1258,7 +1261,7 @@ class MonitoringSettings(PydanticBaseSettings):
         },
         description="Alert thresholds",
     )
-    notification_channels: Dict[str, Dict[str, Any]] = Field(
+    notification_channels: dict[str, dict[str, Any]] = Field(
         default={
             "email": {
                 "enabled": False,
@@ -1388,11 +1391,11 @@ class AdvancedChunkingSettings(PydanticBaseSettings):
         le=1.0,
     )
     # آستانه‌های ریزسازی توکنی (اختیاری - اگر None باشد از chunk_target_size استفاده می‌شود)
-    hybrid_refine_token_threshold: Optional[int] = Field(
+    hybrid_refine_token_threshold: int | None = Field(
         default=None,
         description="Token threshold to trigger semantic refinement in hybrid mode",
     )
-    full_refine_token_threshold: Optional[int] = Field(
+    full_refine_token_threshold: int | None = Field(
         default=None,
         description="Token threshold to trigger semantic refinement in full mode",
     )
@@ -1419,7 +1422,7 @@ class Settings(PydanticBaseSettings):
     """Main application settings."""
 
     # Telegram Bot (legacy/optional)
-    bot_token: Optional[str] = Field(
+    bot_token: str | None = Field(
         default=None, description="Legacy Telegram bot token"
     )
     allow_users: str = Field(default="", description="Comma-separated user IDs")
@@ -1429,12 +1432,12 @@ class Settings(PydanticBaseSettings):
     )
 
     @property
-    def admin_users_list(self) -> List[int]:
+    def admin_users_list(self) -> list[int]:
         """Parsed admin user IDs. Empty when not set; no one has admin rights."""
         raw = (self.admin_users or "").strip()
         if not raw:
             return []
-        out: List[int] = []
+        out: list[int] = []
         for part in raw.split(","):
             token = part.strip()
             if not token:
@@ -1446,7 +1449,7 @@ class Settings(PydanticBaseSettings):
         return out
 
     @property
-    def allow_users_list(self) -> List[int]:
+    def allow_users_list(self) -> list[int]:
         """Parsed allowlist of user IDs as integers.
 
         Returns empty list when not set; callers can treat empty as "allow all" if desired.
@@ -1454,7 +1457,7 @@ class Settings(PydanticBaseSettings):
         raw = (self.allow_users or "").strip()
         if not raw:
             return []
-        out: List[int] = []
+        out: list[int] = []
         for part in raw.split(","):
             token = part.strip()
             if not token:
@@ -1532,11 +1535,11 @@ class Settings(PydanticBaseSettings):
     )
 
     # API Keys
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    anthropic_api_key: Optional[str] = Field(
+    openai_api_key: str | None = Field(default=None, description="OpenAI API key")
+    anthropic_api_key: str | None = Field(
         default=None, description="Anthropic API key"
     )
-    openrouter_api_key: Optional[str] = Field(
+    openrouter_api_key: str | None = Field(
         default=None, description="OpenRouter API key"
     )
 
@@ -1546,7 +1549,7 @@ class Settings(PydanticBaseSettings):
 
     # Development
     debug: bool = Field(default=False, description="Enable debug mode")
-    log_file: Optional[Path] = Field(
+    log_file: Path | None = Field(
         default=Path("./logs/ragbot.log"), description="Log file path"
     )
 
@@ -1615,7 +1618,7 @@ class Settings(PydanticBaseSettings):
 
     @field_validator("log_file")
     @classmethod
-    def create_log_path(cls, v: Optional[Path]) -> Optional[Path]:
+    def create_log_path(cls, v: Path | None) -> Path | None:
         """Create log file directory if it doesn't exist."""
         if v:
             v.parent.mkdir(parents=True, exist_ok=True)
@@ -1639,14 +1642,14 @@ class Settings(PydanticBaseSettings):
         if self.embedding.provider == "openai" and not self.openai_api_key:
             raise ValueError("OpenAI API key is required when using OpenAI embeddings")
 
-    def validate_all_settings(self) -> Dict[str, Any]:
+    def validate_all_settings(self) -> dict[str, Any]:
         """
         Perform comprehensive validation of all settings.
 
         Returns:
             Dict[str, Any]: Validation result with errors, warnings, and info
         """
-        validation_result = {
+        validation_result: dict[str, Any] = {
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -1659,7 +1662,7 @@ class Settings(PydanticBaseSettings):
             self.validate_api_keys()
             validation_result["components"]["api_keys"] = {"status": "valid"}
         except ValueError as e:
-            validation_result["errors"].append(f"API Keys: {str(e)}")
+            validation_result["errors"].append(f"API Keys: {e!s}")
             validation_result["components"]["api_keys"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1686,7 +1689,7 @@ class Settings(PydanticBaseSettings):
                 "path": str(self.store_path),
             }
         except Exception as e:
-            validation_result["errors"].append(f"Store path error: {str(e)}")
+            validation_result["errors"].append(f"Store path error: {e!s}")
             validation_result["components"]["store_path"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1702,7 +1705,7 @@ class Settings(PydanticBaseSettings):
                     "path": str(self.log_file),
                 }
             except Exception as e:
-                validation_result["warnings"].append(f"Log file path warning: {str(e)}")
+                validation_result["warnings"].append(f"Log file path warning: {e!s}")
                 validation_result["components"]["log_file"] = {
                     "status": "warning",
                     "error": str(e),
@@ -1716,7 +1719,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["errors"].extend(db_validation["errors"])
                 validation_result["valid"] = False
         except Exception as e:
-            validation_result["errors"].append(f"Database validation failed: {str(e)}")
+            validation_result["errors"].append(f"Database validation failed: {e!s}")
             validation_result["components"]["database"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1732,7 +1735,7 @@ class Settings(PydanticBaseSettings):
                     validation_result["warnings"].extend(redis_validation["errors"])
             except Exception as e:
                 validation_result["warnings"].append(
-                    f"Redis validation failed: {str(e)}"
+                    f"Redis validation failed: {e!s}"
                 )
                 validation_result["components"]["redis"] = {
                     "status": "warning",
@@ -1747,7 +1750,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["errors"].extend(llm_validation["errors"])
                 validation_result["valid"] = False
         except Exception as e:
-            validation_result["errors"].append(f"LLM validation failed: {str(e)}")
+            validation_result["errors"].append(f"LLM validation failed: {e!s}")
             validation_result["components"]["llm"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1762,7 +1765,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["errors"].extend(embedding_validation["errors"])
                 validation_result["valid"] = False
         except Exception as e:
-            validation_result["errors"].append(f"Embedding validation failed: {str(e)}")
+            validation_result["errors"].append(f"Embedding validation failed: {e!s}")
             validation_result["components"]["embedding"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1777,7 +1780,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["errors"].extend(rag_validation["errors"])
                 validation_result["valid"] = False
         except Exception as e:
-            validation_result["errors"].append(f"RAG validation failed: {str(e)}")
+            validation_result["errors"].append(f"RAG validation failed: {e!s}")
             validation_result["components"]["rag"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1792,7 +1795,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["errors"].extend(security_validation["errors"])
                 validation_result["valid"] = False
         except Exception as e:
-            validation_result["errors"].append(f"Security validation failed: {str(e)}")
+            validation_result["errors"].append(f"Security validation failed: {e!s}")
             validation_result["components"]["security"] = {
                 "status": "invalid",
                 "error": str(e),
@@ -1807,7 +1810,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["warnings"].extend(monitoring_validation["errors"])
         except Exception as e:
             validation_result["warnings"].append(
-                f"Monitoring validation failed: {str(e)}"
+                f"Monitoring validation failed: {e!s}"
             )
             validation_result["components"]["monitoring"] = {
                 "status": "warning",
@@ -1822,7 +1825,7 @@ class Settings(PydanticBaseSettings):
                 validation_result["warnings"].extend(performance_validation["errors"])
         except Exception as e:
             validation_result["warnings"].append(
-                f"Performance validation failed: {str(e)}"
+                f"Performance validation failed: {e!s}"
             )
             validation_result["components"]["performance"] = {
                 "status": "warning",
@@ -1842,9 +1845,9 @@ class Settings(PydanticBaseSettings):
 
         return validation_result
 
-    def _validate_database_settings(self) -> Dict[str, Any]:
+    def _validate_database_settings(self) -> dict[str, Any]:
         """Validate database configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Basic URL validation
@@ -1874,15 +1877,15 @@ class Settings(PydanticBaseSettings):
             result["info"].append(f"Pool size: {self.database.pool_size}")
 
         except Exception as e:
-            result["errors"].append(f"Database validation error: {str(e)}")
+            result["errors"].append(f"Database validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_redis_settings(self) -> Dict[str, Any]:
+    def _validate_redis_settings(self) -> dict[str, Any]:
         """Validate Redis configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Basic URL validation
@@ -1910,15 +1913,15 @@ class Settings(PydanticBaseSettings):
             result["info"].append(f"Max connections: {self.redis.max_connections}")
 
         except Exception as e:
-            result["errors"].append(f"Redis validation error: {str(e)}")
+            result["errors"].append(f"Redis validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_llm_settings(self) -> Dict[str, Any]:
+    def _validate_llm_settings(self) -> dict[str, Any]:
         """Validate LLM configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Validate provider
@@ -1963,15 +1966,15 @@ class Settings(PydanticBaseSettings):
             result["info"].append(f"Max tokens: {self.llm.max_tokens}")
 
         except Exception as e:
-            result["errors"].append(f"LLM validation error: {str(e)}")
+            result["errors"].append(f"LLM validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_embedding_settings(self) -> Dict[str, Any]:
+    def _validate_embedding_settings(self) -> dict[str, Any]:
         """Validate embedding configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Validate provider
@@ -2005,15 +2008,15 @@ class Settings(PydanticBaseSettings):
             result["info"].append(f"Batch size: {self.embedding.batch_size}")
 
         except Exception as e:
-            result["errors"].append(f"Embedding validation error: {str(e)}")
+            result["errors"].append(f"Embedding validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_rag_settings(self) -> Dict[str, Any]:
+    def _validate_rag_settings(self) -> dict[str, Any]:
         """Validate RAG configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Validate chunk settings
@@ -2057,15 +2060,15 @@ class Settings(PydanticBaseSettings):
             )
 
         except Exception as e:
-            result["errors"].append(f"RAG validation error: {str(e)}")
+            result["errors"].append(f"RAG validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_security_settings(self) -> Dict[str, Any]:
+    def _validate_security_settings(self) -> dict[str, Any]:
         """Validate security configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Validate file size limits
@@ -2100,15 +2103,15 @@ class Settings(PydanticBaseSettings):
             )
 
         except Exception as e:
-            result["errors"].append(f"Security validation error: {str(e)}")
+            result["errors"].append(f"Security validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_monitoring_settings(self) -> Dict[str, Any]:
+    def _validate_monitoring_settings(self) -> dict[str, Any]:
         """Validate monitoring configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Validate metrics port
@@ -2143,15 +2146,15 @@ class Settings(PydanticBaseSettings):
             )
 
         except Exception as e:
-            result["errors"].append(f"Monitoring validation error: {str(e)}")
+            result["errors"].append(f"Monitoring validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def _validate_performance_settings(self) -> Dict[str, Any]:
+    def _validate_performance_settings(self) -> dict[str, Any]:
         """Validate performance configuration."""
-        result = {"valid": True, "errors": [], "info": [], "status": "valid"}
+        result: dict[str, Any] = {"valid": True, "errors": [], "info": [], "status": "valid"}
 
         try:
             # Validate monitoring intervals
@@ -2236,13 +2239,13 @@ class Settings(PydanticBaseSettings):
             )
 
         except Exception as e:
-            result["errors"].append(f"Performance validation error: {str(e)}")
+            result["errors"].append(f"Performance validation error: {e!s}")
             result["valid"] = False
             result["status"] = "invalid"
 
         return result
 
-    def get_environment_info(self) -> Dict[str, Any]:
+    def get_environment_info(self) -> dict[str, Any]:
         """
         Get information about the current environment configuration.
 
@@ -2303,15 +2306,15 @@ class Settings(PydanticBaseSettings):
                 # Convert string to appropriate type
                 field_type = getattr(field, "annotation", getattr(field, "type_", str))
                 try:
-                    if field_type == bool:
+                    if field_type is bool:
                         setattr(
                             self,
                             field_name,
                             env_value.lower() in ("true", "1", "yes", "on"),
                         )
-                    elif field_type == int:
+                    elif field_type is int:
                         setattr(self, field_name, int(env_value))
-                    elif field_type == float:
+                    elif field_type is float:
                         setattr(self, field_name, float(env_value))
                     elif field_type == Path:
                         setattr(self, field_name, Path(env_value))
@@ -2340,6 +2343,7 @@ class Settings(PydanticBaseSettings):
 def _create_settings() -> Settings:
     """Create settings instance with fallback for testing."""
     import os
+
     from dotenv import load_dotenv
 
     if os.getenv("TESTING") == "true" and os.path.exists(".env.test"):

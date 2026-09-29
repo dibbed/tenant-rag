@@ -5,11 +5,13 @@ This module defines the abstract base class that all plugins must implement,
 providing a standardized interface for plugin development and integration.
 """
 
+import contextlib
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Dict, List, Optional, Callable
 from datetime import datetime
+from enum import Enum
+from typing import Any
 
 
 class PluginType(Enum):
@@ -58,11 +60,11 @@ class PluginMetadata:
     description: str
     author: str
     plugin_type: PluginType
-    dependencies: List[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
     required_version: str = "1.0.0"
-    compatibility: List[str] = field(default_factory=list)
+    compatibility: list[str] = field(default_factory=list)
     license: str = "MIT"
-    homepage: Optional[str] = None
+    homepage: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
@@ -72,11 +74,11 @@ class PluginContext:
     """Context passed to plugin methods"""
 
     plugin_id: str
-    user_id: Optional[int] = None
-    session_id: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
-    config: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    user_id: int | None = None
+    session_id: str | None = None
+    data: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -84,10 +86,14 @@ class PluginResult:
     """Result returned by plugin operations"""
 
     success: bool
-    data: Optional[Any] = None
-    error_message: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    execution_time: Optional[float] = None
+    data: Any | None = None
+    error_message: str | None = None
+    metadata: dict[str, Any] | None = None
+    execution_time: float | None = None
+
+
+HookResult = PluginResult | list[PluginResult]
+HookCallback = Callable[[PluginContext], Awaitable[HookResult]]
 
 
 class BasePlugin(ABC):
@@ -98,7 +104,7 @@ class BasePlugin(ABC):
     the required abstract methods.
     """
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str, config: dict[str, Any] | None = None):
         """
         Initialize plugin
 
@@ -108,10 +114,10 @@ class BasePlugin(ABC):
         """
         self.plugin_id = plugin_id
         self.config = config or {}
-        self.metadata: Optional[PluginMetadata] = None
+        self.metadata: PluginMetadata | None = None
         self.status = PluginStatus.INSTALLED
-        self.hooks: Dict[HookType, List[Callable]] = {}
-        self.dependencies: List[str] = []
+        self.hooks: dict[HookType, list[HookCallback]] = {}
+        self.dependencies: list[str] = []
 
     @property
     @abstractmethod
@@ -191,7 +197,7 @@ class BasePlugin(ABC):
             )
         return self.metadata
 
-    def register_hook(self, hook_type: HookType, callback: Callable) -> None:
+    def register_hook(self, hook_type: HookType, callback: HookCallback) -> None:
         """
         Register a hook callback
 
@@ -203,7 +209,7 @@ class BasePlugin(ABC):
             self.hooks[hook_type] = []
         self.hooks[hook_type].append(callback)
 
-    def unregister_hook(self, hook_type: HookType, callback: Callable) -> None:
+    def unregister_hook(self, hook_type: HookType, callback: HookCallback) -> None:
         """
         Unregister a hook callback
 
@@ -212,14 +218,12 @@ class BasePlugin(ABC):
             callback: Function to remove
         """
         if hook_type in self.hooks:
-            try:
+            with contextlib.suppress(ValueError):
                 self.hooks[hook_type].remove(callback)
-            except ValueError:
-                pass
 
     async def execute_hook(
         self, hook_type: HookType, context: PluginContext
-    ) -> List[PluginResult]:
+    ) -> list[PluginResult]:
         """
         Execute all registered hooks for a given type
 
@@ -230,37 +234,42 @@ class BasePlugin(ABC):
         Returns:
             List of results from hook executions
         """
-        results = []
+        results: list[PluginResult] = []
 
         if hook_type in self.hooks:
             for callback in self.hooks[hook_type]:
                 try:
                     if callable(callback):
                         result = await callback(context)
-                        results.append(result)
-                except Exception as e:
+                        if isinstance(result, list):
+                            results.extend(result)
+                        else:
+                            results.append(result)
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     # Log error but continue with other hooks
                     error_result = PluginResult(
-                        success=False, error_message=f"Hook execution failed: {str(e)}"
+                        success=False, error_message=f"Hook execution failed: {e!s}"
                     )
                     results.append(error_result)
 
         return results
 
-    def validate_config(self) -> List[str]:
+    def validate_config(self) -> list[str]:
         """
         Validate plugin configuration
 
         Returns:
             List of validation error messages, empty if valid
         """
-        errors = []
+        errors: list[str] = []
 
         # Basic validation
         required_configs = getattr(self, "required_config_keys", [])
-        for key in required_configs:
-            if key not in self.config:
-                errors.append(f"Required configuration key missing: {key}")
+        errors.extend(
+            f"Required configuration key missing: {key}"
+            for key in required_configs
+            if key not in self.config
+        )
 
         return errors
 
@@ -299,7 +308,7 @@ class BasePlugin(ABC):
         """
         self.config[key] = value
 
-    def get_info(self) -> Dict[str, Any]:
+    def get_info(self) -> dict[str, Any]:
         """
         Get plugin information dictionary
 

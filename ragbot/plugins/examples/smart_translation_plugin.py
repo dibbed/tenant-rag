@@ -5,20 +5,19 @@ This plugin provides intelligent translation capabilities between Persian and En
 with context-aware translation and multilingual support.
 """
 
-from typing import Dict, Any, Optional, List
 import asyncio
-import json
 from datetime import datetime
+from typing import Any
 
+from ragbot.outputs.logger import logger
 from ragbot.plugins.base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
     PluginResult,
-    PluginType,
     PluginStatus,
-    HookType,
+    PluginType,
 )
-from ragbot.outputs.logger import logger
 
 try:
     from googletrans import Translator
@@ -41,7 +40,7 @@ class SmartTranslationPlugin(BasePlugin):
     - Translation caching
     """
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str, config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
 
         # Default configuration
@@ -60,7 +59,7 @@ class SmartTranslationPlugin(BasePlugin):
         self.config.update(self.default_config)
 
         # Translation cache
-        self.translation_cache: Dict[str, str] = {}
+        self.translation_cache: dict[str, str] = {}
 
         # Initialize translator if available
         self.translator = None
@@ -176,7 +175,7 @@ class SmartTranslationPlugin(BasePlugin):
         except Exception as e:
             logger.error(f"Translation execution error: {e}")
             return PluginResult(
-                success=False, error_message=f"Translation execution error: {str(e)}"
+                success=False, error_message=f"Translation execution error: {e!s}"
             )
 
     async def cleanup(self) -> bool:
@@ -235,7 +234,7 @@ class SmartTranslationPlugin(BasePlugin):
         except Exception as e:
             logger.error(f"Query translation error: {e}")
             return PluginResult(
-                success=False, error_message=f"Query translation error: {str(e)}"
+                success=False, error_message=f"Query translation error: {e!s}"
             )
 
     async def translate_response(self, context: PluginContext) -> PluginResult:
@@ -275,12 +274,12 @@ class SmartTranslationPlugin(BasePlugin):
         except Exception as e:
             logger.error(f"Response translation error: {e}")
             return PluginResult(
-                success=False, error_message=f"Response translation error: {str(e)}"
+                success=False, error_message=f"Response translation error: {e!s}"
             )
 
     async def _translate_text(
-        self, text: str, source_lang: Optional[str], target_lang: str
-    ) -> Optional[str]:
+        self, text: str, source_lang: str | None, target_lang: str
+    ) -> str | None:
         """Internal method to translate text"""
         try:
             if not self.translator:
@@ -297,7 +296,7 @@ class SmartTranslationPlugin(BasePlugin):
             result = self.translator.translate(text, dest=target_lang, src=source_lang)
 
             if result and result.text:
-                translated_text = result.text
+                translated_text = str(result.text)
 
                 # Cache the result
                 if self.config.get("cache_translations", True):
@@ -313,7 +312,7 @@ class SmartTranslationPlugin(BasePlugin):
             logger.error(f"Translation error: {e}")
             return None
 
-    async def _detect_language(self, text: str) -> Optional[str]:
+    async def _detect_language(self, text: str) -> str | None:
         """Detect language of text"""
         try:
             if not self.translator:
@@ -329,7 +328,7 @@ class SmartTranslationPlugin(BasePlugin):
                 logger.debug(
                     f"Detected language: {result.lang} (confidence: {result.confidence})"
                 )
-                return result.lang
+                return str(result.lang)
             else:
                 logger.warning(
                     f"Language detection confidence too low: {getattr(result, 'confidence', 0)}"
@@ -340,19 +339,19 @@ class SmartTranslationPlugin(BasePlugin):
             logger.error(f"Language detection error: {e}")
             return None
 
-    async def _translate_user_query(self, context: PluginContext) -> List[PluginResult]:
+    async def _translate_user_query(self, context: PluginContext) -> list[PluginResult]:
         """Hook: Translate user query before processing"""
         return [await self.translate_query(context)]
 
     async def _translate_bot_response(
         self, context: PluginContext
-    ) -> List[PluginResult]:
+    ) -> list[PluginResult]:
         """Hook: Translate bot response before sending"""
         return [await self.translate_response(context)]
 
     async def _translate_document_content(
         self, context: PluginContext
-    ) -> List[PluginResult]:
+    ) -> list[PluginResult]:
         """Hook: Translate document content during ingestion"""
         try:
             if not self.config.get("auto_detect", True):
@@ -381,7 +380,7 @@ class SmartTranslationPlugin(BasePlugin):
             logger.error(f"Document translation hook error: {e}")
             return [PluginResult(success=False, error_message=str(e))]
 
-    def get_translation_stats(self) -> Dict[str, Any]:
+    def get_translation_stats(self) -> dict[str, Any]:
         """Get translation statistics"""
         return {
             "cache_size": len(self.translation_cache),

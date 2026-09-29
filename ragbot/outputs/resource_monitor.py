@@ -3,9 +3,10 @@
 """
 
 import asyncio
+import contextlib
 import time
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 import psutil
 from loguru import logger
@@ -18,14 +19,14 @@ class ResourceUsage:
     cpu_percent: float
     memory_percent: float
     disk_usage: float
-    network_io: Dict[str, int]
+    network_io: dict[str, int]
     process_count: int
 
 
 class ResourceMonitor:
     """نظارت بر منابع"""
 
-    def __init__(self, settings=None, alert_thresholds: Dict[str, float] = None):
+    def __init__(self, settings: Any | None = None, alert_thresholds: dict[str, float] | None = None) -> None:
         """Initialize resource monitor"""
         self.settings = settings
 
@@ -52,17 +53,17 @@ class ResourceMonitor:
             else:
                 self.alert_thresholds = {"cpu": 80.0, "memory": 85.0, "disk": 90.0}
 
-        self.resource_history = []
-        self.alerts = []
+        self.resource_history: list[dict[str, Any]] = []
+        self.alerts: list[dict[str, Any]] = []
 
         # Background monitoring
-        self._monitoring_task = None
+        self._monitoring_task: asyncio.Task[None] | None = None
         self._start_monitoring()
 
-    def _start_monitoring(self):
+    def _start_monitoring(self) -> None:
         """شروع نظارت"""
 
-        async def monitor_loop():
+        async def monitor_loop() -> None:
             while True:
                 try:
                     await self._collect_resource_metrics()
@@ -76,13 +77,13 @@ class ResourceMonitor:
                     if hasattr(interval, "_mock_name"):
                         interval = 5
                     await asyncio.sleep(interval)
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                     logger.error(f"Error in resource monitoring loop: {e}")
                     await asyncio.sleep(5)
 
         self._monitoring_task = asyncio.create_task(monitor_loop())
 
-    async def _collect_resource_metrics(self):
+    async def _collect_resource_metrics(self) -> None:
         """جمع‌آوری متریک‌های منابع"""
         try:
             current_time = time.time()
@@ -130,7 +131,7 @@ class ResourceMonitor:
         except Exception as e:
             logger.error(f"Error collecting resource metrics: {e}")
 
-    async def _check_alerts(self, usage: ResourceUsage):
+    async def _check_alerts(self, usage: ResourceUsage) -> None:
         """بررسی هشدارها"""
         try:
             alerts = []
@@ -177,7 +178,7 @@ class ResourceMonitor:
         except Exception as e:
             logger.error(f"Error checking alerts: {e}")
 
-    async def get_resource_summary(self) -> Dict[str, Any]:
+    async def get_resource_summary(self) -> dict[str, Any]:
         """دریافت خلاصه منابع"""
         try:
             # اگر هنوز دیتایی جمع نشده، همین حالا یک نمونه جمع‌آوری کن
@@ -219,7 +220,7 @@ class ResourceMonitor:
             logger.error(f"Error getting resource summary: {e}")
             return {"error": str(e)}
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """بررسی سلامت منابع"""
         try:
             summary = await self.get_resource_summary()
@@ -257,11 +258,9 @@ class ResourceMonitor:
             logger.error(f"Error in resource health check: {e}")
             return {"status": "unhealthy", "error": str(e)}
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """خاموش کردن نظارت"""
         if self._monitoring_task:
             self._monitoring_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._monitoring_task
-            except asyncio.CancelledError:
-                pass

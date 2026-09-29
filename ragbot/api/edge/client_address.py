@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
-IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
+IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 TRUSTED_PROXIES_ENV = "SECURITY_TRUSTED_PROXIES"
 

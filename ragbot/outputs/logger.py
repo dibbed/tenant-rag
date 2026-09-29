@@ -5,11 +5,16 @@ This module provides comprehensive logging configuration with file rotation,
 structured formats, and multiple output targets for production use.
 """
 
+from __future__ import annotations
+
 import json
 import sys
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger as loguru_logger
+
+if TYPE_CHECKING:
+    import loguru
 
 from ragbot.configs.settings import settings
 
@@ -78,7 +83,7 @@ class StructuredLogger:
                 filter=self._add_caller_info,
             )
 
-    def _add_caller_info(self, record):
+    def _add_caller_info(self, record: loguru.Record) -> bool:
         """Add caller information to log record."""
         import inspect
         import os
@@ -88,9 +93,9 @@ class StructuredLogger:
         try:
             # Go up the stack to find the actual caller
             for _ in range(5):  # Skip logger internal calls
-                frame = frame.f_back
                 if frame is None:
                     break
+                frame = frame.f_back
 
             if frame:
                 caller_file = frame.f_code.co_filename
@@ -123,7 +128,7 @@ class StructuredLogger:
 
         return True
 
-    def _json_formatter(self, record: Dict[str, Any]) -> str:
+    def _json_formatter(self, record: loguru.Record) -> str:
         """Format log record as JSON."""
         log_entry = {
             "timestamp": record["time"].isoformat(),
@@ -175,7 +180,7 @@ class StructuredLogger:
         loguru_logger.bind(**kwargs).exception(message)
 
     def log_structured(
-        self, level: str, event: str, user_id: Optional[int] = None, **kwargs: Any
+        self, level: str, event: str, user_id: int | None = None, **kwargs: Any
     ) -> None:
         """
         Log structured event with additional context.
@@ -221,7 +226,7 @@ class StructuredLogger:
         self,
         error: Exception,
         context: str,
-        user_id: Optional[int] = None,
+        user_id: int | None = None,
         **kwargs: Any,
     ) -> None:
         """

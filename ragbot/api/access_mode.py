@@ -22,7 +22,6 @@ values from ``.env`` apply too. ``ENVIRONMENT`` defaults to ``production``.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from ragbot.outputs.logger import logger
 
@@ -62,7 +61,7 @@ def _multi_tenant_enabled() -> bool:
     return bool(getattr(getattr(settings, "multi_tenant", object()), "enabled", False))
 
 
-def log_access_mode_warnings(multi_tenant_enabled: Optional[bool] = None) -> str:
+def log_access_mode_warnings(multi_tenant_enabled: bool | None = None) -> str:
     """Log the effective authentication mode once at startup.
 
     Returns the mode name: ``authenticated``, ``anonymous`` (insecure

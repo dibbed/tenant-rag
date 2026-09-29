@@ -4,7 +4,7 @@
 
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
 from loguru import logger
 
@@ -12,18 +12,18 @@ from loguru import logger
 class UsagePatternsAnalyzer:
     """تحلیلگر الگوهای استفاده"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize usage patterns analyzer"""
-        self.hourly_usage = defaultdict(int)
-        self.daily_usage = defaultdict(int)
-        self.query_types = Counter()
-        self.document_types = Counter()
-        self.session_lengths = []
-        self.user_activity = defaultdict(list)
+        self.hourly_usage: defaultdict[int, int] = defaultdict(int)
+        self.daily_usage: defaultdict[str, int] = defaultdict(int)
+        self.query_types: Counter[str] = Counter()
+        self.document_types: Counter[str] = Counter()
+        self.session_lengths: list[float] = []
+        self.user_activity: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
 
     async def record_activity(
-        self, user_id: str, activity_type: str, metadata: Dict[str, Any] = None
-    ):
+        self, user_id: str, activity_type: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         """ثبت فعالیت کاربر"""
         try:
             current_time = datetime.now()
@@ -52,7 +52,7 @@ class UsagePatternsAnalyzer:
         except Exception as e:
             logger.error(f"Error recording activity: {e}")
 
-    async def record_session_length(self, duration: float):
+    async def record_session_length(self, duration: float) -> None:
         """ثبت مدت جلسه"""
         try:
             self.session_lengths.append(duration)
@@ -63,7 +63,7 @@ class UsagePatternsAnalyzer:
         except Exception as e:
             logger.error(f"Error recording session length: {e}")
 
-    async def record_document_type(self, doc_type: str):
+    async def record_document_type(self, doc_type: str) -> None:
         """ثبت نوع سند"""
         try:
             self.document_types[doc_type] += 1
@@ -71,8 +71,8 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error recording document type: {e}")
 
     async def analyze_usage_patterns(
-        self, user_data: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
+        self, user_data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """تحلیل الگوهای استفاده"""
         try:
             patterns = {
@@ -89,7 +89,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error analyzing usage patterns: {e}")
             return {"error": str(e)}
 
-    async def _find_peak_hours(self) -> Dict[str, Any]:
+    async def _find_peak_hours(self) -> dict[str, Any]:
         """یافتن ساعات پیک استفاده"""
         try:
             if not self.hourly_usage:
@@ -110,7 +110,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error finding peak hours: {e}")
             return {"error": str(e)}
 
-    async def _analyze_usage_distribution(self) -> Dict[str, Any]:
+    async def _analyze_usage_distribution(self) -> dict[str, Any]:
         """تحلیل توزیع استفاده"""
         try:
             total_usage = sum(self.daily_usage.values())
@@ -148,7 +148,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error analyzing usage distribution: {e}")
             return {"error": str(e)}
 
-    async def _analyze_query_patterns(self) -> Dict[str, Any]:
+    async def _analyze_query_patterns(self) -> dict[str, Any]:
         """تحلیل الگوهای پرسش"""
         try:
             if not self.query_types:
@@ -172,7 +172,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error analyzing query patterns: {e}")
             return {"error": str(e)}
 
-    async def _analyze_document_preferences(self) -> Dict[str, Any]:
+    async def _analyze_document_preferences(self) -> dict[str, Any]:
         """تحلیل ترجیحات اسناد"""
         try:
             if not self.document_types:
@@ -196,7 +196,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error analyzing document preferences: {e}")
             return {"error": str(e)}
 
-    async def _analyze_session_characteristics(self) -> Dict[str, Any]:
+    async def _analyze_session_characteristics(self) -> dict[str, Any]:
         """تحلیل ویژگی‌های جلسه"""
         try:
             if not self.session_lengths:
@@ -232,7 +232,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error analyzing session characteristics: {e}")
             return {"error": str(e)}
 
-    async def _get_session_distribution(self) -> Dict[str, int]:
+    async def _get_session_distribution(self) -> dict[str, int]:
         """توزیع مدت جلسات"""
         try:
             distribution = {
@@ -254,7 +254,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error getting session distribution: {e}")
             return {}
 
-    async def _analyze_user_engagement(self) -> Dict[str, Any]:
+    async def _analyze_user_engagement(self) -> dict[str, Any]:
         """تحلیل درگیری کاربران"""
         try:
             if not self.user_activity:
@@ -269,7 +269,7 @@ class UsagePatternsAnalyzer:
                 # محاسبه آمار کاربر
                 total_activities = len(activities)
                 unique_days = len(
-                    set(activity["timestamp"].date() for activity in activities)
+                    {activity["timestamp"].date() for activity in activities}
                 )
                 avg_activities_per_day = (
                     total_activities / unique_days if unique_days > 0 else 0
@@ -291,7 +291,7 @@ class UsagePatternsAnalyzer:
                 "low": 0,  # کمتر از 3 فعالیت در روز
             }
 
-            for user_id, stats in user_stats.items():
+            for stats in user_stats.values():
                 avg_daily = stats["avg_activities_per_day"]
                 if avg_daily > 10:
                     engagement_levels["high"] += 1
@@ -320,7 +320,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error analyzing user engagement: {e}")
             return {"error": str(e)}
 
-    async def get_trend_analysis(self, days: int = 7) -> Dict[str, Any]:
+    async def get_trend_analysis(self, days: int = 7) -> dict[str, Any]:
         """تحلیل روند استفاده"""
         try:
             cutoff_date = datetime.now() - timedelta(days=days)
@@ -365,7 +365,7 @@ class UsagePatternsAnalyzer:
             logger.error(f"Error getting trend analysis: {e}")
             return {"error": str(e)}
 
-    async def get_usage_summary(self) -> Dict[str, Any]:
+    async def get_usage_summary(self) -> dict[str, Any]:
         """دریافت خلاصه استفاده"""
         try:
             return {

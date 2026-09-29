@@ -7,10 +7,14 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
+from typing import TYPE_CHECKING, Any
 
-from ..outputs.logger import logger
+if TYPE_CHECKING:
+    from .tenant_manager import TenantManager
+
+from ragbot.outputs.logger import logger
+
 from .api_key_hashing import (
     LEGACY_API_KEY_ERROR,
     VERIFIED_KEY_CACHE_MAX_ENTRIES,
@@ -25,12 +29,10 @@ from .api_key_hashing import (
 )
 from .authorization import AuthorizationLevel, authorization_level_for_role
 from .models import (
-    TenantConfig,
-    TenantUser,
-    TenantAuditLog,
-    TenantStatus,
-    TenantApiKey,
     AuthenticatedPrincipal,
+    TenantApiKey,
+    TenantStatus,
+    TenantUser,
 )
 
 
@@ -144,31 +146,39 @@ ROLE_PERMISSIONS = {
 class TenantAuth:
     """سیستم احراز هویت و مجوزدهی tenant"""
 
-    def __init__(self, tenant_manager=None):
+    def __init__(self, tenant_manager: "TenantManager | None" = None) -> None:
         self.tenant_manager = tenant_manager
-        self.user_sessions: Dict[str, Dict[str, Any]] = {}
+        self.user_sessions: dict[str, dict[str, Any]] = {}
         # Key metadata keyed by key_id. Used only when the tenant manager has no
         # persistent key store. Security (C3): it never holds raw keys.
-        self.api_keys: Dict[str, Dict[str, Any]] = {}
+        self.api_keys: dict[str, dict[str, Any]] = {}
         # key_id -> (SHA-256 of the verified raw key, monotonic expiry time).
         # Memory only, never persisted. It avoids running scrypt on every
         # request; revocation and expiry are still checked on every request.
-        self._verified_key_cache: Dict[str, Tuple[str, float]] = {}
+        self._verified_key_cache: dict[str, tuple[str, float]] = {}
 
         logger.info("TenantAuth initialized")
+
+    def _require_tenant_manager(self) -> "TenantManager":
+        """Return the configured tenant manager for manager-backed operations."""
+        manager = self.tenant_manager
+        if manager is None:
+            raise RuntimeError("Tenant manager is required for this operation")
+        return manager
 
     async def authenticate_user(
         self,
         tenant_id: str,
         username: str,
         password: str,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-    ) -> Tuple[bool, Optional[TenantUser], Optional[str]]:
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[bool, TenantUser | None, str | None]:
         """احراز هویت کاربر"""
         try:
+            manager = self._require_tenant_manager()
             # بررسی وجود tenant
-            tenant = await self.tenant_manager.get_tenant(tenant_id)
+            tenant = await manager.get_tenant(tenant_id)
             if not tenant or tenant.status != TenantStatus.ACTIVE:
                 await self._log_auth_attempt(
                     tenant_id,
@@ -181,7 +191,7 @@ class TenantAuth:
                 return False, None, "Tenant is not active"
 
             # بررسی کاربر
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            tenant_users = manager.tenant_users.get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.username == username and u.is_active:
@@ -228,8 +238,8 @@ class TenantAuth:
     async def authenticate_api_key(
         self,
         api_key: str,
-        tenant_id: Optional[str] = None,
-    ) -> Tuple[bool, Optional[TenantUser], Optional[str]]:
+        tenant_id: str | None = None,
+    ) -> tuple[bool, TenantUser | None, str | None]:
         """Authenticate an API key.
 
         Security (C3):
@@ -246,7 +256,7 @@ class TenantAuth:
         ok, user, _record, error = await self._resolve_api_key(api_key, tenant_id)
         return ok, user, error
 
-    def _load_api_key_record(self, key_id: str) -> Optional[Dict[str, Any]]:
+    def _load_api_key_record(self, key_id: str) -> dict[str, Any] | None:
         """Load key metadata by key id: persistent storage first, else memory."""
         manager = self.tenant_manager
         if manager is not None and hasattr(manager, "get_api_key_by_id"):
@@ -305,7 +315,9 @@ class TenantAuth:
             and hmac.compare_digest(cached[0], digest)
         ):
             return True
-        verified = await asyncio.to_thread(verify_api_key_secret, raw_key, stored_hash)
+        verified = bool(
+            await asyncio.to_thread(verify_api_key_secret, raw_key, stored_hash)
+        )
         if verified:
             if len(self._verified_key_cache) >= VERIFIED_KEY_CACHE_MAX_ENTRIES:
                 self._verified_key_cache.clear()
@@ -318,8 +330,8 @@ class TenantAuth:
     async def _resolve_api_key(
         self,
         api_key: str,
-        tenant_id: Optional[str] = None,
-    ) -> Tuple[bool, Optional[TenantUser], Optional[Dict[str, Any]], Optional[str]]:
+        tenant_id: str | None = None,
+    ) -> tuple[bool, TenantUser | None, dict[str, Any] | None, str | None]:
         """Resolve an API key to ``(ok, user, key_record, error)``."""
         try:
             if not api_key or not isinstance(api_key, str):
@@ -340,7 +352,7 @@ class TenantAuth:
                 return False, None, None, "Invalid API key"
 
             stored_hash = record.get("key_hash")
-            if not is_scrypt_hash(stored_hash):
+            if not isinstance(stored_hash, str) or not is_scrypt_hash(stored_hash):
                 # The stored record still uses the legacy scheme.
                 return False, None, None, LEGACY_API_KEY_ERROR
 
@@ -357,6 +369,8 @@ class TenantAuth:
                 return False, None, None, "API key expired"
 
             actual_tenant_id = record.get("tenant_id")
+            if not isinstance(actual_tenant_id, str):
+                return False, None, None, "Invalid API key"
             if tenant_id and actual_tenant_id != tenant_id:
                 return False, None, None, "API key not valid for this tenant"
 
@@ -391,14 +405,17 @@ class TenantAuth:
                     is_active=True,
                 )
 
-            if not await self.has_permission(user, Permission.API_ACCESS):
-                if Permission.API_ACCESS.value not in key_permissions:
-                    return False, None, None, "API access not permitted"
-
-            if record.get("persistent") and hasattr(
-                self.tenant_manager, "update_api_key_last_used"
+            if (
+                not await self.has_permission(user, Permission.API_ACCESS)
+                and Permission.API_ACCESS.value not in key_permissions
             ):
-                self.tenant_manager.update_api_key_last_used(record["key_id"])
+                return False, None, None, "API access not permitted"
+
+            manager = self.tenant_manager
+            if record.get("persistent") and manager is not None and hasattr(
+                manager, "update_api_key_last_used"
+            ):
+                manager.update_api_key_last_used(record["key_id"])
 
             logger.info(f"API key authenticated for tenant {actual_tenant_id}")
             return True, user, record, None
@@ -414,22 +431,23 @@ class TenantAuth:
         email: str,
         password: str,
         role: UserRole = UserRole.USER,
-        created_by: Optional[str] = None,
-    ) -> Tuple[bool, Optional[TenantUser], Optional[str]]:
+        created_by: str | None = None,
+    ) -> tuple[bool, TenantUser | None, str | None]:
         """ایجاد کاربر جدید"""
         try:
+            manager = self._require_tenant_manager()
             # بررسی وجود tenant
-            tenant = await self.tenant_manager.get_tenant(tenant_id)
+            tenant = await manager.get_tenant(tenant_id)
             if not tenant:
                 return False, None, "Tenant not found"
 
             # بررسی محدودیت کاربران
-            current_users = len(self.tenant_manager.tenant_users.get(tenant_id, []))
+            current_users = len(manager.tenant_users.get(tenant_id, []))
             if current_users >= tenant.limits.max_users:
                 return False, None, "User limit exceeded"
 
             # بررسی تکراری بودن username
-            existing_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            existing_users = manager.tenant_users.get(tenant_id, [])
             if any(u.username == username for u in existing_users):
                 return False, None, "Username already exists"
 
@@ -448,20 +466,22 @@ class TenantAuth:
                 email=email,
                 password_hash=hashed_password,
                 role=role.value,
-                permissions=ROLE_PERMISSIONS.get(role, []),
+                permissions=[
+                    permission.value for permission in ROLE_PERMISSIONS.get(role, [])
+                ],
                 is_active=True,
             )
 
             # ذخیره کاربر
-            if hasattr(self.tenant_manager, "save_user"):
-                self.tenant_manager.save_user(user)
+            if hasattr(manager, "save_user"):
+                manager.save_user(user)
             else:
-                if tenant_id not in self.tenant_manager.tenant_users:
-                    self.tenant_manager.tenant_users[tenant_id] = []
-                self.tenant_manager.tenant_users[tenant_id].append(user)
+                if tenant_id not in manager.tenant_users:
+                    manager.tenant_users[tenant_id] = []
+                manager.tenant_users[tenant_id].append(user)
 
             # ثبت audit log
-            await self.tenant_manager._log_audit(
+            await manager._log_audit(
                 tenant_id=tenant_id,
                 action="user_created",
                 resource="user",
@@ -489,7 +509,8 @@ class TenantAuth:
     ) -> bool:
         """به‌روزرسانی نقش کاربر"""
         try:
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            manager = self._require_tenant_manager()
+            tenant_users = manager.tenant_users.get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.user_id == user_id:
@@ -501,10 +522,12 @@ class TenantAuth:
 
             old_role = user.role
             user.role = new_role.value
-            user.permissions = ROLE_PERMISSIONS.get(new_role, [])
+            user.permissions = [
+                permission.value for permission in ROLE_PERMISSIONS.get(new_role, [])
+            ]
 
             # ثبت audit log
-            await self.tenant_manager._log_audit(
+            await manager._log_audit(
                 tenant_id=tenant_id,
                 action="user_role_updated",
                 resource="user",
@@ -533,7 +556,8 @@ class TenantAuth:
     ) -> bool:
         """غیرفعال کردن کاربر"""
         try:
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            manager = self._require_tenant_manager()
+            tenant_users = manager.tenant_users.get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.user_id == user_id:
@@ -549,7 +573,7 @@ class TenantAuth:
             await self._revoke_user_sessions(user_id)
 
             # ثبت audit log
-            await self.tenant_manager._log_audit(
+            await manager._log_audit(
                 tenant_id=tenant_id,
                 action="user_deactivated",
                 resource="user",
@@ -603,11 +627,11 @@ class TenantAuth:
     async def create_api_key(
         self,
         tenant_id: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         name: str = "default",
         expires_days: int = 365,
-        permissions: Optional[List[str]] = None,
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        permissions: list[str] | None = None,
+    ) -> tuple[bool, str | None, str | None]:
         """Create an API key and store only its salted scrypt hash.
 
         Security (C3): the raw key ``rgb_<key_id>_<secret>`` is returned once. It
@@ -670,11 +694,12 @@ class TenantAuth:
                     user_id = user.user_id
 
             # 3. The key must allow API access.
-            if not await self.has_permission(user, Permission.API_ACCESS):
-                if Permission.API_ACCESS.value not in (
-                    permissions or user.permissions or []
-                ):
-                    return False, None, "API access not permitted"
+            if (
+                not await self.has_permission(user, Permission.API_ACCESS)
+                and Permission.API_ACCESS.value
+                not in (permissions or user.permissions or [])
+            ):
+                return False, None, "API access not permitted"
 
             # 4. Generate the key and store only its scrypt hash.
             key_id, raw_key = generate_api_key()
@@ -750,7 +775,7 @@ class TenantAuth:
         self,
         tenant_id: str,
         api_key_or_id: str,
-        revoked_by: Optional[str] = None,
+        revoked_by: str | None = None,
     ) -> bool:
         """Revoke an API key immediately, given the raw key or its key id.
 
@@ -812,14 +837,14 @@ class TenantAuth:
             logger.error(f"Error revoking API key: {e}")
             return False
 
-    async def list_api_keys(self, tenant_id: str) -> List[Dict[str, Any]]:
+    async def list_api_keys(self, tenant_id: str) -> list[dict[str, Any]]:
         """List a tenant's API keys without secrets or hashes.
 
         Each entry has ``hash_scheme`` (``scrypt`` or ``legacy-sha256``) so that
         operators can find keys that must be re-issued (see SECURITY.md).
         """
 
-        def _iso(value: Any) -> Optional[str]:
+        def _iso(value: Any) -> str | None:
             if value is None:
                 return None
             return value.isoformat() if hasattr(value, "isoformat") else str(value)
@@ -870,8 +895,8 @@ class TenantAuth:
     async def authenticate_principal(
         self,
         credential: str,
-        tenant_id: Optional[str] = None,
-    ) -> Tuple[bool, Optional[AuthenticatedPrincipal], Optional[str]]:
+        tenant_id: str | None = None,
+    ) -> tuple[bool, AuthenticatedPrincipal | None, str | None]:
         """Authenticate a session token or an API key and return the principal.
 
         Security (C4): ``is_super_admin`` (system_admin) comes from the user's
@@ -930,9 +955,10 @@ class TenantAuth:
 
     async def validate_session(
         self, session_token: str
-    ) -> Tuple[bool, Optional[TenantUser]]:
+    ) -> tuple[bool, TenantUser | None]:
         """اعتبارسنجی session"""
         try:
+            manager = self._require_tenant_manager()
             if session_token not in self.user_sessions:
                 return False, None
 
@@ -948,7 +974,7 @@ class TenantAuth:
 
             # دریافت کاربر
             tenant_id = session_info["tenant_id"]
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            tenant_users = manager.tenant_users.get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.user_id == session_info["user_id"] and u.is_active:
@@ -1015,8 +1041,8 @@ class TenantAuth:
     async def _create_user_session(
         self,
         user: TenantUser,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> str:
         """ایجاد session کاربر"""
         session_token = secrets.token_urlsafe(32)
@@ -1050,11 +1076,12 @@ class TenantAuth:
         username: str,
         result: str,
         success: bool,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> None:
         """ثبت تلاش احراز هویت"""
-        await self.tenant_manager._log_audit(
+        manager = self._require_tenant_manager()
+        await manager._log_audit(
             tenant_id=tenant_id,
             action="auth_attempt",
             resource="authentication",

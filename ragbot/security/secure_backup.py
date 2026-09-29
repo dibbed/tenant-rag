@@ -5,23 +5,24 @@ This module provides comprehensive backup and restore capabilities with
 encryption, compression, and integrity verification.
 """
 
-from typing import Dict, List, Any, Optional
-from contextlib import contextmanager
-from dataclasses import dataclass
-from enum import Enum
+import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import tarfile
 import time
-import hashlib
-import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
-from ragbot.security.encryption import EncryptionManager, EncryptionAlgorithm
+from ragbot.security.encryption import EncryptionAlgorithm, EncryptionManager
 from ragbot.security.key_manager import KeyManager, KeyType
 
 
@@ -98,10 +99,10 @@ class BackupResult:
     file_size: int
     compression_ratio: float
     encryption_key_id: str
-    vector_stores_backed_up: List[str]
-    errors: Optional[List[str]] = None
+    vector_stores_backed_up: list[str]
+    errors: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.errors is None:
             self.errors = []
 
@@ -112,12 +113,12 @@ class RestoreResult:
 
     restore_id: str
     status: str
-    restored_stores: List[str]
+    restored_stores: list[str]
     restored_documents: int
     restore_time: float
-    errors: Optional[List[str]] = None
+    errors: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.errors is None:
             self.errors = []
 
@@ -130,9 +131,9 @@ class VerificationResult:
     checksum_match: bool
     signature_valid: bool
     corruption_check: bool
-    errors: Optional[List[str]] = None
+    errors: list[str] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.errors is None:
             self.errors = []
 
@@ -145,7 +146,7 @@ class SecureBackupManager:
     with compression, integrity verification, and metadata tracking.
     """
 
-    def __init__(self, encryption_manager: Optional[EncryptionManager] = None):
+    def __init__(self, encryption_manager: EncryptionManager | None = None):
         """
         Initialize secure backup manager
 
@@ -169,7 +170,7 @@ class SecureBackupManager:
         )
 
     @contextmanager
-    def _get_connection(self):
+    def _get_connection(self) -> Iterator[sqlite3.Connection]:
         """Get managed SQLite connection guaranteeing close() on block exit."""
         conn = sqlite3.connect(self.metadata_db)
         try:
@@ -179,8 +180,8 @@ class SecureBackupManager:
 
     async def create_encrypted_backup(
         self,
-        vector_stores: List[Any],
-        backup_name: Optional[str] = None,
+        vector_stores: list[Any],
+        backup_name: str | None = None,
         backup_type: BackupType = BackupType.FULL,
         compression: bool = True,
         verify_after: bool = True,
@@ -282,7 +283,7 @@ class SecureBackupManager:
     async def restore_from_backup(
         self,
         backup_path: str,
-        target_stores: Optional[List[Any]] = None,
+        target_stores: list[Any] | None = None,
         verify_before: bool = True,
     ) -> RestoreResult:
         """
@@ -428,7 +429,7 @@ class SecureBackupManager:
                 errors=[str(e)],
             )
 
-    async def list_backups(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def list_backups(self, limit: int = 50) -> list[dict[str, Any]]:
         """
         List available backups
 
@@ -454,7 +455,7 @@ class SecureBackupManager:
 
             backups = []
             for row in rows:
-                backup_dict = dict(zip(columns, row))
+                backup_dict = dict(zip(columns, row, strict=False))
                 # Add file existence check
                 backup_path = Path(backup_dict["backup_path"])
                 backup_dict["file_exists"] = backup_path.exists()
@@ -503,11 +504,11 @@ class SecureBackupManager:
 
     async def _create_encrypted_backup_archive(
         self,
-        vector_stores: List[Any],
+        vector_stores: list[Any],
         backup_path: Path,
         encryption_key: Any,
         compression: bool,
-    ):
+    ) -> None:
         """Create encrypted backup archive"""
         temp_backup_dir = self.temp_dir / f"backup_{int(time.time())}"
         temp_backup_dir.mkdir(exist_ok=True)
@@ -554,8 +555,8 @@ class SecureBackupManager:
         self,
         backup_file: Path,
         encryption_key: Any,
-        target_stores: Optional[List[Any]],
-    ) -> List[str]:
+        target_stores: list[Any] | None,
+    ) -> list[str]:
         """Restore from backup archive"""
         # Decrypt backup file
         decrypted_backup = await self._decrypt_backup_file(backup_file, encryption_key)
@@ -590,7 +591,7 @@ class SecureBackupManager:
                             # Restore documents
                             documents_file = store_dir / "documents.json"
                             if documents_file.exists():
-                                with open(documents_file, "r") as f:
+                                with open(documents_file) as f:
                                     documents_data = json.load(f)
 
                                 # Convert back to VectorDocument objects
@@ -614,7 +615,7 @@ class SecureBackupManager:
             if decrypted_backup.exists():
                 decrypted_backup.unlink()
 
-    async def _encrypt_backup_file(self, backup_path: Path, encryption_key: Any):
+    async def _encrypt_backup_file(self, backup_path: Path, encryption_key: Any) -> None:
         """Encrypt backup file and append HMAC signature"""
         import hmac
 
@@ -707,7 +708,7 @@ class SecureBackupManager:
         random_bytes = os.urandom(4)
         return hashlib.sha256(timestamp.encode() + random_bytes).hexdigest()[:12]
 
-    def _initialize_metadata_db(self):
+    def _initialize_metadata_db(self) -> None:
         """Initialize backup metadata database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -749,10 +750,10 @@ class SecureBackupManager:
         backup_id: str,
         backup_path: Path,
         encryption_key_id: str,
-        vector_stores: List[Any],
+        vector_stores: list[Any],
         file_size: int,
         backup_type: str = "full",
-    ):
+    ) -> None:
         """Record backup metadata in database"""
         # Calculate checksum
         checksum = await self._calculate_file_checksum(backup_path)
@@ -781,7 +782,7 @@ class SecureBackupManager:
 
     async def _get_backup_metadata(
         self, backup_filename: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get backup metadata by filename"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -798,11 +799,11 @@ class SecureBackupManager:
                 return None
 
             columns = [description[0] for description in cursor.description]
-            return dict(zip(columns, row))
+            return dict(zip(columns, row, strict=False))
 
     async def _get_backup_metadata_by_id(
         self, backup_id: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get backup metadata by ID"""
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -818,16 +819,16 @@ class SecureBackupManager:
                 return None
 
             columns = [description[0] for description in cursor.description]
-            return dict(zip(columns, row))
+            return dict(zip(columns, row, strict=False))
 
     async def _log_restore_operation(
         self,
         restore_id: str,
         backup_path: str,
-        restored_stores: List[str],
+        restored_stores: list[str],
         restore_time: float,
         backup_id: str = "",
-    ):
+    ) -> None:
         """Log restore operation in database"""
         with self._get_connection() as conn:
             cursor = conn.cursor()

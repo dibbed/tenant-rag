@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
-from typing import Optional
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ragbot.api.dependencies import (
@@ -20,8 +22,10 @@ from ragbot.rag.exceptions import (
     TenantStorageError,
     VectorStoreError,
 )
-from ragbot.services.integration_service import IntegrationService
-from ragbot.services.rag_service import QueryResult, RAGService
+
+if TYPE_CHECKING:
+    from ragbot.services.integration_service import IntegrationService
+    from ragbot.services.rag_service import QueryResult, RAGService
 
 router = APIRouter(prefix="/api/v1", tags=["Query"])
 
@@ -31,7 +35,7 @@ async def query_documents(
     payload: QueryRequest,
     rag_service: RAGService = Depends(get_rag_service_dep),
     integration_service: IntegrationService = Depends(get_integration_service_dep),
-    tenant_id: Optional[str] = Depends(get_tenant_context),
+    tenant_id: str | None = Depends(get_tenant_context),
 ) -> QueryResponse:
     """
     Execute a RAG query against the ingested knowledge base.
@@ -53,19 +57,17 @@ async def query_documents(
         processing_time = time.time() - start_time
 
         # Track user action best-effort without blocking
-        try:
+        with contextlib.suppress(Exception):
             await integration_service.track_user_action(
                 user_id="api_user",
                 action="query",
-                details={
+                metadata={
                     "query": payload.question[:100],
                     "processing_time": processing_time,
                     "confidence_score": getattr(result, "confidence_score", None),
                     "sources_count": len(result.sources) if result.sources else 0,
                 },
             )
-        except Exception:
-            pass
 
         return QueryResponse(
             answer=result.answer,

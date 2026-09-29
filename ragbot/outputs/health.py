@@ -6,11 +6,13 @@ including external services, internal services, and infrastructure.
 """
 
 import asyncio
+import contextlib
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 import requests
 
@@ -34,12 +36,12 @@ class ComponentHealth:
     name: str
     status: HealthStatus
     last_check: datetime
-    response_time: Optional[float] = None
+    response_time: float | None = None
     error_count: int = 0
-    error_message: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error_message: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "name": self.name,
@@ -57,11 +59,11 @@ class SystemHealth:
     """Overall system health status."""
 
     overall_status: HealthStatus
-    components: Dict[str, ComponentHealth]
+    components: dict[str, ComponentHealth]
     timestamp: datetime
     uptime: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "overall_status": self.overall_status.value,
@@ -87,10 +89,10 @@ class HealthChecker:
     def __init__(self) -> None:
         """Initialize health checker."""
         self.start_time = time.time()
-        self.component_health: Dict[str, ComponentHealth] = {}
+        self.component_health: dict[str, ComponentHealth] = {}
         self.check_interval = settings.monitoring.health_check_interval
         self.running = False
-        self._check_task: Optional[asyncio.Task] = None
+        self._check_task: asyncio.Task[None] | None = None
 
         logger.info("Health checker initialized", interval=self.check_interval)
 
@@ -116,10 +118,8 @@ class HealthChecker:
         self.running = False
         if self._check_task:
             self._check_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._check_task
-            except asyncio.CancelledError:
-                pass
 
         logger.info("Health monitoring stopped")
 
@@ -129,7 +129,7 @@ class HealthChecker:
             try:
                 await self.check_all_components()
                 await asyncio.sleep(self.check_interval)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # noqa: PERF203 - intentional per-iteration fault isolation
                 break
             except Exception as e:
                 logger.error(f"Error in health monitoring loop: {e}")
@@ -215,9 +215,11 @@ class HealthChecker:
         # If any critical component is unhealthy, system is unhealthy
         critical_components = ["llm_service", "vector_store"]
         for comp_name in critical_components:
-            if comp_name in self.component_health:
-                if self.component_health[comp_name].status == HealthStatus.UNHEALTHY:
-                    return HealthStatus.UNHEALTHY
+            if (
+                comp_name in self.component_health
+                and self.component_health[comp_name].status == HealthStatus.UNHEALTHY
+            ):
+                return HealthStatus.UNHEALTHY
 
         # If any component is unhealthy, system is degraded
         if HealthStatus.UNHEALTHY in statuses:
@@ -488,7 +490,7 @@ class HealthChecker:
             messages=[{"role": "user", "content": "Health check"}],
         )
 
-        if not response.content or not response.content[0].text:
+        if not response.content or not getattr(response.content[0], "text", None):
             raise ValueError("No response from Anthropic API")
 
     async def _check_ollama_api(self) -> None:
@@ -498,18 +500,17 @@ class HealthChecker:
         # Ollama typically runs on localhost:11434
         ollama_url = "http://localhost:11434/api/generate"
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                ollama_url,
-                json={
-                    "model": settings.llm.model,
-                    "prompt": "Health check",
-                    "stream": False,
-                },
-                timeout=aiohttp.ClientTimeout(total=10.0),
-            ) as response:
-                if response.status != 200:
-                    raise ValueError(f"Ollama API returned status {response.status}")
+        async with aiohttp.ClientSession() as session, session.post(
+            ollama_url,
+            json={
+                "model": settings.llm.model,
+                "prompt": "Health check",
+                "stream": False,
+            },
+            timeout=aiohttp.ClientTimeout(total=10.0),
+        ) as response:
+            if response.status != 200:
+                raise ValueError(f"Ollama API returned status {response.status}")
 
     async def check_embedding_service(self) -> ComponentHealth:
         """Check embedding service health."""
@@ -914,8 +915,6 @@ class HealthChecker:
         component_name = "file_system"
 
         try:
-            import os
-
             # Check if required directories exist and are writable
             directories_to_check = [
                 settings.store_path,
@@ -934,9 +933,9 @@ class HealthChecker:
                 test_file.write_text("test")
                 test_file.unlink()  # Clean up
 
-            # Check available disk space
-            statvfs = os.statvfs(str(settings.store_path))
-            free_space_gb = (statvfs.f_frsize * statvfs.f_bavail) / (1024**3)
+            # Check available disk space with a cross-platform API.
+            disk_usage = shutil.disk_usage(settings.store_path)
+            free_space_gb = disk_usage.free / (1024**3)
 
             response_time = time.time() - start_time
 
@@ -1091,7 +1090,7 @@ class HealthChecker:
 
             return health
 
-    def get_health_summary(self) -> Dict[str, Any]:
+    def get_health_summary(self) -> dict[str, Any]:
         """Get a summary of current health status."""
         if not self.component_health:
             return {

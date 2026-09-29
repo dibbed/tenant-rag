@@ -10,36 +10,36 @@ __author__ = "TenantRAG Contributors"
 
 # Core RAG components
 from ragbot.rag import (
+    AdvancedFilter,
+    BaseVectorStore,
+    CustomScorer,
     # Query features
     QueryAggregator,
-    AdvancedFilter,
-    CustomScorer,
     QueryOptimizer,
+    VectorDocument,
     # Store components
     VectorStoreFactory,
-    BaseVectorStore,
-    VectorDocument,
 )
 
 # Security components
 from ragbot.security import EncryptionManager, KeyManager, SecureBackupManager
 
 __all__ = [
-    # Version info
-    "__version__",
-    "__author__",
-    "__email__",
-    # Query features
-    "QueryAggregator",
     "AdvancedFilter",
-    "CustomScorer",
-    "QueryOptimizer",
-    # Store components
-    "VectorStoreFactory",
     "BaseVectorStore",
-    "VectorDocument",
+    "CustomScorer",
     # Security components
     "EncryptionManager",
     "KeyManager",
+    # Query features
+    "QueryAggregator",
+    "QueryOptimizer",
     "SecureBackupManager",
+    "VectorDocument",
+    # Store components
+    "VectorStoreFactory",
+    "__author__",
+    "__email__",
+    # Version info
+    "__version__",
 ]

@@ -21,7 +21,7 @@ Permissions attached to a key never raise the authorization level.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class AuthorizationLevel(str, Enum):
@@ -75,7 +75,7 @@ def is_system_admin(principal: Any) -> bool:
     return authorization_level(principal) is AuthorizationLevel.SYSTEM_ADMIN
 
 
-def can_access_tenant(principal: Any, tenant_id: Optional[str]) -> bool:
+def can_access_tenant(principal: Any, tenant_id: str | None) -> bool:
     """Return True if the principal may act on ``tenant_id`` at all."""
     if principal is None or not tenant_id:
         return False
@@ -84,7 +84,7 @@ def can_access_tenant(principal: Any, tenant_id: Optional[str]) -> bool:
     return getattr(principal, "tenant_id", None) == tenant_id
 
 
-def can_manage_tenant(principal: Any, tenant_id: Optional[str]) -> bool:
+def can_manage_tenant(principal: Any, tenant_id: str | None) -> bool:
     """Return True if the principal may manage ``tenant_id``.
 
     tenant_admin: own tenant only. system_admin: any tenant.
@@ -94,7 +94,7 @@ def can_manage_tenant(principal: Any, tenant_id: Optional[str]) -> bool:
     return authorization_level(principal) in _ADMIN_LEVELS
 
 
-def can_reset_tenant_store(principal: Any, tenant_id: Optional[str]) -> bool:
+def can_reset_tenant_store(principal: Any, tenant_id: str | None) -> bool:
     """Return True if the principal may reset the vector store of ``tenant_id``.
 
     Allowed: system_admin on any tenant, tenant_admin on its own tenant, and

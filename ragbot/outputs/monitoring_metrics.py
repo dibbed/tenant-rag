@@ -7,35 +7,59 @@ Persian developer notes:
 
 from __future__ import annotations
 
-try:
-    from prometheus_client import Gauge, Histogram
-except Exception:  # Fallback stubs when prometheus_client missing
+from typing import Protocol
 
-    class _Stub:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
 
-        def set(self, *args, **kwargs) -> None:
-            pass
+class _GaugeLike(Protocol):
+    def set(self, value: float) -> None: ...
 
-        def observe(self, *args, **kwargs) -> None:
-            pass
 
-    Gauge = _Stub  # type: ignore
-    Histogram = _Stub  # type: ignore
+class _HistogramLike(Protocol):
+    def observe(self, value: float) -> None: ...
+
+
+class _Stub:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def set(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def observe(self, *args: object, **kwargs: object) -> None:
+        pass
+
+
+def _create_gauge(name: str, description: str) -> _GaugeLike:
+    try:
+        from prometheus_client import Gauge
+    except Exception:
+        return _Stub()
+    metric: _GaugeLike = Gauge(name, description)
+    return metric
+
+
+def _create_histogram(name: str, description: str) -> _HistogramLike:
+    try:
+        from prometheus_client import Histogram
+    except Exception:
+        return _Stub()
+    metric: _HistogramLike = Histogram(name, description)
+    return metric
 
 
 class MonitoringMetrics:
     """Facilitates updating and recording monitoring metrics."""
 
     def __init__(self) -> None:
-        self.system_health = Gauge("rag_system_health", "System health score")
-        self.response_time = Histogram(
+        self.system_health = _create_gauge("rag_system_health", "System health score")
+        self.response_time = _create_histogram(
             "rag_response_time_ms", "Response time in milliseconds"
         )
-        self.error_rate = Gauge("rag_error_rate_percent", "Error rate percent")
-        self.cpu_usage = Gauge("rag_cpu_usage_percent", "CPU usage percent")
-        self.memory_usage = Gauge("rag_memory_usage_percent", "Memory usage percent")
+        self.error_rate = _create_gauge("rag_error_rate_percent", "Error rate percent")
+        self.cpu_usage = _create_gauge("rag_cpu_usage_percent", "CPU usage percent")
+        self.memory_usage = _create_gauge(
+            "rag_memory_usage_percent", "Memory usage percent"
+        )
 
     def update_system_health(self, health_score: float) -> None:
         self.system_health.set(health_score)

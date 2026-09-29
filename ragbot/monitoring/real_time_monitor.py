@@ -12,7 +12,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 import psutil
 
@@ -36,7 +36,7 @@ class SystemMetrics:
     cpu_usage: float
     memory_usage: float
     disk_usage: float
-    network_io: Dict[str, int]
+    network_io: dict[str, int]
     active_connections: int
     response_time: float
     error_rate: float
@@ -59,11 +59,11 @@ class RealTimeMonitor:
 
     def __init__(self, check_interval: int = 10) -> None:
         self.check_interval = check_interval
-        self.metrics_history: List[SystemMetrics] = []
-        self.active_alerts: List[Alert] = []
+        self.metrics_history: list[SystemMetrics] = []
+        self.active_alerts: list[Alert] = []
         self.monitoring_active = False
 
-        self.alert_thresholds: Dict[str, float] = {
+        self.alert_thresholds: dict[str, float] = {
             "cpu_usage": 80.0,
             "memory_usage": 85.0,
             "disk_usage": 90.0,
@@ -71,8 +71,8 @@ class RealTimeMonitor:
             "error_rate": 10.0,
         }
 
-        self._monitoring_task: asyncio.Task | None = None
-        self._alert_check_task: asyncio.Task | None = None
+        self._monitoring_task: asyncio.Task[None] | None = None
+        self._alert_check_task: asyncio.Task[None] | None = None
 
     async def start_monitoring(self) -> None:
         """Start the monitoring background tasks."""
@@ -100,7 +100,7 @@ class RealTimeMonitor:
                 if len(self.metrics_history) > 1000:
                     self.metrics_history = self.metrics_history[-500:]
                 await asyncio.sleep(self.check_interval)
-            except Exception as exc:
+            except Exception as exc:  # noqa: PERF203 - intentional per-iteration fault isolation
                 print(f"❌ Error in monitoring loop: {exc}")
                 await asyncio.sleep(self.check_interval)
 
@@ -109,7 +109,7 @@ class RealTimeMonitor:
             try:
                 await self._check_alerts()
                 await asyncio.sleep(30)
-            except Exception as exc:
+            except Exception as exc:  # noqa: PERF203 - intentional per-iteration fault isolation
                 print(f"❌ Error in alert check loop: {exc}")
                 await asyncio.sleep(30)
 
@@ -149,7 +149,7 @@ class RealTimeMonitor:
         if not self.metrics_history:
             return
         latest = self.metrics_history[-1]
-        to_create: List[Dict[str, Any]] = []
+        to_create: list[dict[str, Any]] = []
         if latest.cpu_usage > self.alert_thresholds["cpu_usage"]:
             to_create.append(
                 {
@@ -193,7 +193,7 @@ class RealTimeMonitor:
         for data in to_create:
             await self._create_alert(data)
 
-    async def _create_alert(self, alert_data: Dict[str, Any]) -> None:
+    async def _create_alert(self, alert_data: dict[str, Any]) -> None:
         existing = None
         now = datetime.now()
         for alert in self.active_alerts:
@@ -219,7 +219,7 @@ class RealTimeMonitor:
     async def _send_alert(self, alert: Alert) -> None:
         print(f"🚨 ALERT [{alert.severity.upper()}]: {alert.message}")
 
-    async def get_current_status(self) -> Dict[str, Any]:
+    async def get_current_status(self) -> dict[str, Any]:
         if not self.metrics_history:
             return {"no_data": True}
         latest = self.metrics_history[-1]
@@ -269,7 +269,7 @@ class RealTimeMonitor:
             return "poor"
         return "critical"
 
-    async def get_metrics_history(self, hours: int = 24) -> List[Dict[str, Any]]:
+    async def get_metrics_history(self, hours: int = 24) -> list[dict[str, Any]]:
         cutoff = datetime.now() - timedelta(hours=hours)
         return [
             {

@@ -5,7 +5,7 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -16,9 +16,9 @@ class UserSession:
 
     user_id: str
     start_time: datetime
-    end_time: Optional[datetime]
-    queries: List[str]
-    documents_added: List[str]
+    end_time: datetime | None
+    queries: list[str]
+    documents_added: list[str]
     satisfaction_score: float
 
 
@@ -29,7 +29,7 @@ class UserProfile:
     user_id: str
     total_sessions: int
     total_queries: int
-    favorite_topics: List[str]
+    favorite_topics: list[str]
     usage_pattern: str
     satisfaction_avg: float
     last_active: datetime
@@ -38,16 +38,16 @@ class UserProfile:
 class UserBehaviorAnalyzer:
     """تحلیلگر رفتار کاربران"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize user behavior analyzer"""
-        self.user_sessions = defaultdict(list)
-        self.user_profiles = {}
-        self.query_patterns = defaultdict(list)
-        self.topic_preferences = defaultdict(Counter)
+        self.user_sessions: defaultdict[str, list[UserSession]] = defaultdict(list)
+        self.user_profiles: dict[str, UserProfile] = {}
+        self.query_patterns: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+        self.topic_preferences: defaultdict[str, Counter[str]] = defaultdict(Counter)
 
     async def track_user_action(
-        self, user_id: str, action: str, metadata: Dict[str, Any] = None
-    ):
+        self, user_id: str, action: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         """ردیابی عمل کاربر"""
         try:
             current_time = datetime.now()
@@ -90,7 +90,7 @@ class UserBehaviorAnalyzer:
         except Exception as e:
             logger.error(f"Error tracking user action: {e}")
 
-    async def _analyze_query_pattern(self, user_id: str, query: str):
+    async def _analyze_query_pattern(self, user_id: str, query: str) -> None:
         """تحلیل الگوی پرسش"""
         try:
             # استخراج کلمات کلیدی
@@ -107,7 +107,7 @@ class UserBehaviorAnalyzer:
         except Exception as e:
             logger.error(f"Error analyzing query pattern: {e}")
 
-    async def _extract_keywords(self, query: str) -> List[str]:
+    async def _extract_keywords(self, query: str) -> list[str]:
         """استخراج کلمات کلیدی از پرسش"""
         try:
             # حذف کلمات توقف
@@ -251,7 +251,7 @@ class UserBehaviorAnalyzer:
                 last_active=datetime.now(),
             )
 
-    async def _determine_usage_pattern(self, sessions: List[UserSession]) -> str:
+    async def _determine_usage_pattern(self, sessions: list[UserSession]) -> str:
         """تعیین الگوی استفاده"""
         try:
             if not sessions:
@@ -290,7 +290,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error determining usage pattern: {e}")
             return "unknown"
 
-    async def get_user_insights(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_insights(self, user_id: str) -> dict[str, Any]:
         """دریافت بینش‌های کاربر"""
         try:
             profile = await self.generate_user_profile(user_id)
@@ -307,7 +307,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error getting user insights: {e}")
             return {"error": str(e)}
 
-    async def _get_recent_activity(self, user_id: str) -> Dict[str, Any]:
+    async def _get_recent_activity(self, user_id: str) -> dict[str, Any]:
         """دریافت فعالیت اخیر"""
         try:
             sessions = self.user_sessions.get(user_id, [])
@@ -333,7 +333,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error getting recent activity: {e}")
             return {"error": str(e)}
 
-    async def _get_usage_trends(self, user_id: str) -> Dict[str, Any]:
+    async def _get_usage_trends(self, user_id: str) -> dict[str, Any]:
         """دریافت روندهای استفاده"""
         try:
             sessions = self.user_sessions.get(user_id, [])
@@ -342,7 +342,7 @@ class UserBehaviorAnalyzer:
                 return {"insufficient_data": True}
 
             # تحلیل روند هفتگی
-            weekly_stats = defaultdict(int)
+            weekly_stats: defaultdict[str, int] = defaultdict(int)
             for session in sessions:
                 week_start = session.start_time - timedelta(
                     days=session.start_time.weekday()
@@ -358,7 +358,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error getting usage trends: {e}")
             return {"error": str(e)}
 
-    async def _calculate_growth_rate(self, sessions: List[UserSession]) -> float:
+    async def _calculate_growth_rate(self, sessions: list[UserSession]) -> float:
         """محاسبه نرخ رشد"""
         try:
             if len(sessions) < 4:
@@ -380,7 +380,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error calculating growth rate: {e}")
             return 0.0
 
-    async def _generate_recommendations(self, profile: UserProfile) -> List[str]:
+    async def _generate_recommendations(self, profile: UserProfile) -> list[str]:
         """تولید توصیه‌ها"""
         try:
             recommendations = []
@@ -413,7 +413,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error generating recommendations: {e}")
             return []
 
-    async def analyze_search_patterns(self) -> Dict[str, Any]:
+    async def analyze_search_patterns(self) -> dict[str, Any]:
         """تحلیل الگوهای جستجو"""
         try:
             logger.info("Analyzing search patterns...")
@@ -422,7 +422,7 @@ class UserBehaviorAnalyzer:
             all_queries = []
             query_times = []
 
-            for _, sessions in self.user_sessions.items():
+            for sessions in self.user_sessions.values():
                 for session in sessions:
                     all_queries.extend(session.queries)
                     query_times.extend([session.start_time] * len(session.queries))
@@ -448,15 +448,15 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error analyzing search patterns: {e}")
             return {"error": str(e)}
 
-    async def identify_user_segments(self) -> List[Dict[str, Any]]:
+    async def identify_user_segments(self) -> list[dict[str, Any]]:
         """شناسایی بخش‌بندی کاربران"""
         try:
             logger.info("Identifying user segments...")
 
-            segments = []
+            segments: list[dict[str, Any]] = []
 
             # تحلیل پروفایل‌های کاربران
-            for user_id in self.user_sessions.keys():
+            for user_id in self.user_sessions:
                 profile = await self.generate_user_profile(user_id)
 
                 # تعیین بخش کاربر
@@ -473,7 +473,7 @@ class UserBehaviorAnalyzer:
                 )
 
             # گروه‌بندی بر اساس بخش
-            segment_groups = {}
+            segment_groups: dict[str, list[dict[str, Any]]] = {}
             for user_segment in segments:
                 segment_name = user_segment["segment"]
                 if segment_name not in segment_groups:
@@ -481,7 +481,7 @@ class UserBehaviorAnalyzer:
                 segment_groups[segment_name].append(user_segment)
 
             # تولید خلاصه بخش‌ها
-            segment_summary = []
+            segment_summary: list[dict[str, Any]] = []
             for segment_name, users in segment_groups.items():
                 segment_summary.append(
                     {
@@ -504,14 +504,14 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error identifying user segments: {e}")
             return []
 
-    async def predict_user_churn(self) -> Dict[str, Any]:
+    async def predict_user_churn(self) -> dict[str, Any]:
         """پیش‌بینی ترک کاربران"""
         try:
             logger.info("Predicting user churn...")
 
-            churn_predictions = []
+            churn_predictions: list[dict[str, Any]] = []
 
-            for user_id in self.user_sessions.keys():
+            for user_id in self.user_sessions:
                 profile = await self.generate_user_profile(user_id)
 
                 # محاسبه امتیاز ترک
@@ -562,7 +562,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error predicting user churn: {e}")
             return {"error": str(e)}
 
-    async def recommend_personalization(self, user_id: str) -> Dict[str, Any]:
+    async def recommend_personalization(self, user_id: str) -> dict[str, Any]:
         """توصیه شخصی‌سازی برای کاربر"""
         try:
             logger.info(
@@ -603,7 +603,7 @@ class UserBehaviorAnalyzer:
             return {"error": str(e)}
 
     # Helper methods for advanced analytics
-    def _analyze_query_lengths(self, queries: List[str]) -> Dict[str, int]:
+    def _analyze_query_lengths(self, queries: list[str]) -> dict[str, int]:
         """تحلیل توزیع طول پرسش‌ها"""
         try:
             length_distribution = {
@@ -616,21 +616,21 @@ class UserBehaviorAnalyzer:
             return {"short": 0, "medium": 0, "long": 0}
 
     def _analyze_query_temporal_patterns(
-        self, query_times: List[datetime]
-    ) -> Dict[str, Any]:
+        self, query_times: list[datetime]
+    ) -> dict[str, Any]:
         """تحلیل الگوهای زمانی پرسش‌ها"""
         try:
             if not query_times:
                 return {"error": "no_data"}
 
             # تحلیل ساعتی
-            hourly_counts = {}
+            hourly_counts: dict[int, int] = {}
             for time in query_times:
                 hour = time.hour
                 hourly_counts[hour] = hourly_counts.get(hour, 0) + 1
 
             # تحلیل روزانه
-            daily_counts = {}
+            daily_counts: dict[int, int] = {}
             for time in query_times:
                 day = time.weekday()
                 daily_counts[day] = daily_counts.get(day, 0) + 1
@@ -649,7 +649,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error analyzing temporal patterns: {e}")
             return {"error": str(e)}
 
-    def _analyze_query_complexity(self, queries: List[str]) -> Dict[str, Any]:
+    def _analyze_query_complexity(self, queries: list[str]) -> dict[str, Any]:
         """تحلیل پیچیدگی پرسش‌ها"""
         try:
             complexity_scores = []
@@ -692,7 +692,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error analyzing query complexity: {e}")
             return {"error": str(e)}
 
-    def _extract_popular_keywords(self, queries: List[str]) -> List[Tuple[str, int]]:
+    def _extract_popular_keywords(self, queries: list[str]) -> list[tuple[str, int]]:
         """استخراج کلمات کلیدی محبوب"""
         try:
             from collections import Counter
@@ -714,10 +714,10 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error extracting keywords: {e}")
             return []
 
-    def _categorize_queries(self, queries: List[str]) -> Dict[str, List[str]]:
+    def _categorize_queries(self, queries: list[str]) -> dict[str, list[str]]:
         """دسته‌بندی پرسش‌ها"""
         try:
-            categories = {"questions": [], "commands": [], "requests": [], "other": []}
+            categories: dict[str, list[str]] = {"questions": [], "commands": [], "requests": [], "other": []}
 
             for query in queries:
                 query_lower = query.lower()
@@ -754,7 +754,7 @@ class UserBehaviorAnalyzer:
 
     def _get_segment_characteristics(
         self, profile: UserProfile, segment: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """دریافت ویژگی‌های بخش"""
         try:
             characteristics = {
@@ -785,8 +785,8 @@ class UserBehaviorAnalyzer:
             return {}
 
     def _get_segment_summary_characteristics(
-        self, users: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, users: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """دریافت ویژگی‌های خلاصه بخش"""
         try:
             if not users:
@@ -806,7 +806,7 @@ class UserBehaviorAnalyzer:
             logger.error(f"Error getting segment summary: {e}")
             return {}
 
-    def _get_segment_recommendations(self, segment: str) -> List[str]:
+    def _get_segment_recommendations(self, segment: str) -> list[str]:
         """دریافت توصیه‌های بخش"""
         try:
             recommendations_map = {
@@ -900,7 +900,7 @@ class UserBehaviorAnalyzer:
         except Exception:
             return "unknown"
 
-    def _identify_churn_risk_factors(self, profile: UserProfile) -> List[str]:
+    def _identify_churn_risk_factors(self, profile: UserProfile) -> list[str]:
         """شناسایی عوامل ریسک ترک"""
         try:
             risk_factors = []
@@ -920,7 +920,7 @@ class UserBehaviorAnalyzer:
         except Exception:
             return ["unknown_risks"]
 
-    def _get_retention_recommendations(self, churn_status: str) -> List[str]:
+    def _get_retention_recommendations(self, churn_status: str) -> list[str]:
         """دریافت توصیه‌های حفظ کاربر"""
         try:
             recommendations_map = {
@@ -947,7 +947,7 @@ class UserBehaviorAnalyzer:
         except Exception:
             return ["خطا در تولید توصیه"]
 
-    async def _analyze_user_behavior_patterns(self, user_id: str) -> Dict[str, Any]:
+    async def _analyze_user_behavior_patterns(self, user_id: str) -> dict[str, Any]:
         """تحلیل الگوهای رفتاری کاربر"""
         try:
             sessions = self.user_sessions.get(user_id, [])
@@ -957,7 +957,7 @@ class UserBehaviorAnalyzer:
 
             # تحلیل الگوهای زمانی
             session_times = [session.start_time for session in sessions]
-            hourly_patterns = {}
+            hourly_patterns: dict[int, int] = {}
             for time in session_times:
                 hour = time.hour
                 hourly_patterns[hour] = hourly_patterns.get(hour, 0) + 1
@@ -1005,8 +1005,8 @@ class UserBehaviorAnalyzer:
             return 0.0
 
     def _generate_content_recommendations(
-        self, profile: UserProfile, behavior_analysis: Dict[str, Any]
-    ) -> List[str]:
+        self, profile: UserProfile, behavior_analysis: dict[str, Any]
+    ) -> list[str]:
         """تولید توصیه‌های محتوا"""
         try:
             recommendations = []
@@ -1027,7 +1027,7 @@ class UserBehaviorAnalyzer:
         except Exception:
             return ["محتوای عمومی"]
 
-    def _generate_interface_recommendations(self, profile: UserProfile) -> List[str]:
+    def _generate_interface_recommendations(self, profile: UserProfile) -> list[str]:
         """تولید توصیه‌های رابط کاربری"""
         try:
             recommendations = []
@@ -1048,8 +1048,8 @@ class UserBehaviorAnalyzer:
             return ["رابط کاربری استاندارد"]
 
     def _generate_feature_recommendations(
-        self, profile: UserProfile, behavior_analysis: Dict[str, Any]
-    ) -> List[str]:
+        self, profile: UserProfile, behavior_analysis: dict[str, Any]
+    ) -> list[str]:
         """تولید توصیه‌های قابلیت"""
         try:
             recommendations = []
@@ -1068,8 +1068,8 @@ class UserBehaviorAnalyzer:
             return ["قابلیت‌های پایه"]
 
     def _generate_timing_recommendations(
-        self, behavior_analysis: Dict[str, Any]
-    ) -> List[str]:
+        self, behavior_analysis: dict[str, Any]
+    ) -> list[str]:
         """تولید توصیه‌های زمان‌بندی"""
         try:
             recommendations = []
@@ -1083,7 +1083,7 @@ class UserBehaviorAnalyzer:
         except Exception:
             return ["زمان‌بندی عمومی"]
 
-    def _get_priority_personalization_actions(self, profile: UserProfile) -> List[str]:
+    def _get_priority_personalization_actions(self, profile: UserProfile) -> list[str]:
         """دریافت اقدامات اولویت‌دار شخصی‌سازی"""
         try:
             actions = []
@@ -1101,7 +1101,7 @@ class UserBehaviorAnalyzer:
         except Exception:
             return ["تحلیل بیشتر"]
 
-    async def get_all_users_summary(self) -> Dict[str, Any]:
+    async def get_all_users_summary(self) -> dict[str, Any]:
         """دریافت خلاصه تمام کاربران"""
         try:
             total_users = len(self.user_sessions)
@@ -1114,8 +1114,8 @@ class UserBehaviorAnalyzer:
             )
 
             # الگوهای استفاده
-            usage_patterns = Counter()
-            for user_id in self.user_sessions.keys():
+            usage_patterns: Counter[str] = Counter()
+            for user_id in self.user_sessions:
                 profile = await self.generate_user_profile(user_id)
                 usage_patterns[profile.usage_pattern] += 1
 

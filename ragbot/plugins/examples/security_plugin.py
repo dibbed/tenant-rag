@@ -10,16 +10,22 @@ This plugin provides comprehensive security features for RAG Bot including:
 
 import asyncio
 import re
-from typing import Dict, Any, Optional, List
+from typing import Any, TypedDict
 
+from ragbot.outputs.logger import logger
 from ragbot.plugins.base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
     PluginResult,
-    PluginType,
     PluginStatus,
+    PluginType,
 )
-from ragbot.outputs.logger import logger
+
+
+class ThreatLevelConfig(TypedDict):
+    score_threshold: float
+    action: str
 
 
 class AdvancedSecurityPlugin(BasePlugin):
@@ -30,7 +36,7 @@ class AdvancedSecurityPlugin(BasePlugin):
     and threat detection capabilities.
     """
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str, config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
 
         # Default security configuration
@@ -56,12 +62,12 @@ class AdvancedSecurityPlugin(BasePlugin):
         self.config.update(self.default_config)
 
         # Security state tracking
-        self.security_event_log: List[Dict[str, Any]] = []
-        self.blocked_queries: List[str] = []
-        self.suspicious_users: Dict[int, Dict[str, Any]] = {}
+        self.security_event_log: list[dict[str, Any]] = []
+        self.blocked_queries: list[str] = []
+        self.suspicious_users: dict[int, dict[str, Any]] = {}
 
         # Threat detection thresholds
-        self.threat_levels = {
+        self.threat_levels: dict[str, ThreatLevelConfig] = {
             "low": {"score_threshold": 0.3, "action": "log"},
             "medium": {"score_threshold": 0.6, "action": "warn"},
             "high": {"score_threshold": 0.8, "action": "block"},
@@ -103,9 +109,13 @@ class AdvancedSecurityPlugin(BasePlugin):
             self.set_status(PluginStatus.ACTIVE)
 
             # Register security hooks
-            self.register_hook("pre_query", self.analyze_query_security)
-            self.register_hook("pre_document_ingest", self.filter_document_content)
-            self.register_hook("on_user_interaction", self.monitor_user_behavior)
+            self.register_hook(HookType.PRE_QUERY, self.analyze_query_security)
+            self.register_hook(
+                HookType.PRE_DOCUMENT_INGEST, self.filter_document_content
+            )
+            self.register_hook(
+                HookType.ON_USER_INTERACTION, self.monitor_user_behavior
+            )
 
             logger.info("Advanced Security Plugin initialized successfully")
             return True
@@ -125,18 +135,27 @@ class AdvancedSecurityPlugin(BasePlugin):
             Security analysis results
         """
         try:
-            command = (
-                context.data.get("command", "analyze") if context.data else "analyze"
-            )
+            context_data = context.data or {}
+            command = context_data.get("command", "analyze")
 
             if command == "analyze":
                 return await self._perform_security_analysis(context)
             elif command == "report":
                 return await self._generate_security_report()
             elif command == "block_user":
-                return await self._block_user(context.data.get("user_id"))
+                user_id = context_data.get("user_id")
+                if not isinstance(user_id, int):
+                    return PluginResult(
+                        success=False, error_message="A numeric user_id is required"
+                    )
+                return await self._block_user(user_id)
             elif command == "unblock_user":
-                return await self._unblock_user(context.data.get("user_id"))
+                user_id = context_data.get("user_id")
+                if not isinstance(user_id, int):
+                    return PluginResult(
+                        success=False, error_message="A numeric user_id is required"
+                    )
+                return await self._unblock_user(user_id)
             else:
                 return PluginResult(
                     success=False, error_message=f"Unknown security command: {command}"
@@ -321,7 +340,9 @@ class AdvancedSecurityPlugin(BasePlugin):
                 success=False, error_message=f"Behavior monitoring error: {e}"
             )
 
-    async def _analyze_query_content(self, query: str, user_id: int) -> Dict[str, Any]:
+    async def _analyze_query_content(
+        self, query: str, user_id: int | None
+    ) -> dict[str, Any]:
         """
         Analyze query content for security threats
 
@@ -355,14 +376,14 @@ class AdvancedSecurityPlugin(BasePlugin):
                 issues.append(f"Matches suspicious pattern: {pattern}")
 
         # Check user history for suspicious behavior
-        if user_id in self.suspicious_users:
-            user_score = self.suspicious_users[user_id].get("score", 0)
+        if user_id is not None and user_id in self.suspicious_users:
+            user_score = float(self.suspicious_users[user_id].get("score", 0) or 0)
             threat_score += user_score * 0.2
             if user_score > 0.5:
                 issues.append("User has suspicious history")
 
         sensitivity = self.get_config("sensitivity_level", "medium")
-        threshold = self.threat_levels[sensitivity]["score_threshold"]
+        threshold = float(self.threat_levels[str(sensitivity)]["score_threshold"])
 
         return {
             "threat_score": threat_score,
@@ -376,7 +397,7 @@ class AdvancedSecurityPlugin(BasePlugin):
             },
         }
 
-    async def _analyze_document_content(self, content: str) -> Dict[str, Any]:
+    async def _analyze_document_content(self, content: str) -> dict[str, Any]:
         """
         Analyze document content for security issues
 
@@ -438,16 +459,16 @@ class AdvancedSecurityPlugin(BasePlugin):
             return 0.0
 
         profile = self.suspicious_users[user_id]
-        score = profile["score"]
+        score = float(profile["score"])
 
         # Normalize based on query count
-        query_count = profile.get("query_count", 1)
+        query_count = int(profile.get("query_count", 1) or 1)
         normalized_score = score / max(query_count, 1)
 
         return min(normalized_score, 1.0)
 
     async def _log_security_event(
-        self, event_type: str, data: Dict[str, Any], threat_level: str
+        self, event_type: str, data: dict[str, Any], threat_level: str
     ) -> None:
         """Log security event"""
         if not self.get_config("log_security_events", True):
@@ -465,7 +486,9 @@ class AdvancedSecurityPlugin(BasePlugin):
         # Log to main logger
         logger.warning(f"Security event: {event_type} (threat: {threat_level})")
 
-    async def _perform_security_analysis(self, context: PluginContext) -> PluginResult:
+    async def _perform_security_analysis(
+        self, context: PluginContext | None
+    ) -> PluginResult:
         """Perform comprehensive security analysis"""
         try:
             analysis_data = {
@@ -507,7 +530,7 @@ class AdvancedSecurityPlugin(BasePlugin):
                 success=False, error_message=f"Security report error: {e}"
             )
 
-    def _analyze_current_threats(self) -> List[Dict[str, Any]]:
+    def _analyze_current_threats(self) -> list[dict[str, Any]]:
         """Analyze current security threats"""
         threats = []
 
@@ -540,23 +563,27 @@ class AdvancedSecurityPlugin(BasePlugin):
     def _calculate_overall_security_score(self) -> float:
         """Calculate overall security score (0-1, higher is safer)"""
         total_queries = sum(
-            u.get("query_count", 0) for u in self.suspicious_users.values()
+            int(u.get("query_count", 0) or 0) for u in self.suspicious_users.values()
         )
         if total_queries == 0:
             return 1.0
 
         blocked_ratio = len(self.blocked_queries) / max(total_queries, 1)
         suspicious_ratio = len(
-            [u for u in self.suspicious_users.values() if u.get("score", 0) > 0.5]
+            [
+                u
+                for u in self.suspicious_users.values()
+                if float(u.get("score", 0) or 0) > 0.5
+            ]
         ) / max(len(self.suspicious_users), 1)
 
         # Security score decreases with threats
         security_score = 1.0 - (blocked_ratio * 0.3) - (suspicious_ratio * 0.4)
         return max(0.0, security_score)
 
-    def _get_top_blocked_patterns(self) -> List[Dict[str, Any]]:
+    def _get_top_blocked_patterns(self) -> list[dict[str, Any]]:
         """Get most common blocked patterns"""
-        pattern_counts = {}
+        pattern_counts: dict[str, int] = {}
         for query in self.blocked_queries:
             for pattern in self.get_config("suspicious_patterns", []):
                 if re.search(pattern, query, re.IGNORECASE):
@@ -569,7 +596,7 @@ class AdvancedSecurityPlugin(BasePlugin):
             )[:5]
         ]
 
-    def _get_security_recommendations(self) -> List[str]:
+    def _get_security_recommendations(self) -> list[str]:
         """Get security recommendations based on current state"""
         recommendations = []
 

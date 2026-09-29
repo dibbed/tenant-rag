@@ -7,17 +7,17 @@ This plugin demonstrates basic plugin functionality including:
 - Custom response formatting
 """
 
-from typing import Dict, Any, Optional
+from typing import Any
 
+from ragbot.outputs.logger import logger
 from ragbot.plugins.base_plugin import (
     BasePlugin,
+    HookType,
     PluginContext,
     PluginResult,
-    PluginType,
     PluginStatus,
-    HookType,
+    PluginType,
 )
-from ragbot.outputs.logger import logger
 
 
 class SimplePlugin(BasePlugin):
@@ -27,7 +27,7 @@ class SimplePlugin(BasePlugin):
     Demonstrates basic plugin functionality with query enhancement.
     """
 
-    def __init__(self, plugin_id: str, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, plugin_id: str, config: dict[str, Any] | None = None):
         super().__init__(plugin_id, config)
 
         # Default configuration

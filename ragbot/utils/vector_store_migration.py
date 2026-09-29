@@ -5,16 +5,17 @@ This module provides comprehensive tools for migrating data between different
 vector store implementations with validation, progress tracking, and rollback capabilities.
 """
 
-import asyncio
+import contextlib
 import json
 import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Callable
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any
 
 from ragbot.outputs.logger import logger
-from ragbot.rag import VectorStoreFactory, BaseVectorStore, VectorDocument
+from ragbot.rag import BaseVectorStore, VectorDocument, VectorStoreFactory
 
 
 class MigrationStatus(Enum):
@@ -34,10 +35,10 @@ class MigrationProgress:
     total_documents: int = 0
     migrated_documents: int = 0
     failed_documents: int = 0
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: float | None = None
+    end_time: float | None = None
     status: MigrationStatus = MigrationStatus.PENDING
-    error_message: Optional[str] = None
+    error_message: str | None = None
     batch_size: int = 100
     current_batch: int = 0
     total_batches: int = 0
@@ -115,16 +116,16 @@ class VectorStoreMigrator:
         self.store_kwargs = store_kwargs
 
         # Initialize stores
-        self.source_store: Optional[BaseVectorStore] = None
-        self.target_store: Optional[BaseVectorStore] = None
+        self.source_store: BaseVectorStore | None = None
+        self.target_store: BaseVectorStore | None = None
 
         # Migration tracking
         self.progress = MigrationProgress(batch_size=batch_size)
-        self.failed_documents: List[Tuple[VectorDocument, str]] = []
-        self.backup_path: Optional[str] = None
+        self.failed_documents: list[tuple[VectorDocument, str]] = []
+        self.backup_path: str | None = None
 
         # Progress callbacks
-        self.progress_callbacks: List[Callable[[MigrationProgress], None]] = []
+        self.progress_callbacks: list[Callable[[MigrationProgress], None]] = []
 
     def add_progress_callback(
         self, callback: Callable[[MigrationProgress], None]
@@ -137,7 +138,7 @@ class VectorStoreMigrator:
         for callback in self.progress_callbacks:
             try:
                 callback(self.progress)
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.warning(f"Progress callback failed: {e}")
 
     async def initialize_stores(self) -> None:
@@ -159,7 +160,7 @@ class VectorStoreMigrator:
             logger.error(f"Failed to initialize stores: {e}")
             raise
 
-    async def create_backup(self) -> Optional[str]:
+    async def create_backup(self) -> str | None:
         """Create backup of target store before migration."""
         if not self.backup_enabled or not self.target_store:
             return None
@@ -175,7 +176,7 @@ class VectorStoreMigrator:
             logger.warning(f"Backup creation failed: {e}")
             return None
 
-    async def get_all_documents_from_source(self) -> List[VectorDocument]:
+    async def get_all_documents_from_source(self) -> list[VectorDocument]:
         """
         Retrieve all documents from source store.
 
@@ -293,8 +294,8 @@ class VectorStoreMigrator:
             return False
 
     async def migrate_batch(
-        self, batch: List[VectorDocument]
-    ) -> Tuple[List[str], List[Tuple[VectorDocument, str]]]:
+        self, batch: list[VectorDocument]
+    ) -> tuple[list[str], list[tuple[VectorDocument, str]]]:
         """
         Migrate a batch of documents.
 
@@ -325,7 +326,7 @@ class VectorStoreMigrator:
                             successful_ids.append(doc.id)
                         else:
                             failed_docs.append((doc, "Validation failed"))
-                    except Exception as e:
+                    except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                         failed_docs.append((doc, f"Validation error: {e}"))
             else:
                 successful_ids = added_ids
@@ -340,7 +341,7 @@ class VectorStoreMigrator:
     async def migrate_all_documents(
         self,
         resume_from_batch: int = 0,
-        progress_callback: Optional[Callable[[MigrationProgress], None]] = None,
+        progress_callback: Callable[[MigrationProgress], None] | None = None,
     ) -> MigrationProgress:
         """
         Migrate all documents from source to target store.
@@ -442,7 +443,7 @@ class VectorStoreMigrator:
             logger.error(f"❌ Migration failed: {e}")
             raise
 
-    async def verify_migration(self) -> Dict[str, Any]:
+    async def verify_migration(self) -> dict[str, Any]:
         """
         Verify that migration was successful by comparing document counts and sampling.
 
@@ -473,7 +474,7 @@ class VectorStoreMigrator:
                         target_doc = await self.target_store.get_document(doc.id)
                         if target_doc and await self.validate_document(doc, target_doc):
                             verified_documents += 1
-                    except Exception as e:
+                    except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                         logger.warning(
                             f"Verification failed for document {doc.id}: {e}"
                         )
@@ -650,13 +651,13 @@ async def migrate_store_command(
 
         # Print results
         if verification["overall_success"]:
-            print(f"✅ Migration completed successfully!")
+            print("✅ Migration completed successfully!")
             print(f"   • Migrated: {progress.migrated_documents:,} documents")
             print(f"   • Time: {progress.elapsed_time:.1f}s")
             print(f"   • Rate: {progress.migration_rate:.1f} docs/sec")
             return True
         else:
-            print(f"⚠️ Migration completed with issues:")
+            print("⚠️ Migration completed with issues:")
             print(
                 f"   • Migrated: {progress.migrated_documents:,}/{progress.total_documents:,} documents"
             )
@@ -668,9 +669,7 @@ async def migrate_store_command(
         print(f"❌ Migration failed: {e}")
 
         # Save report even on failure
-        try:
+        with contextlib.suppress(Exception):
             migrator.save_migration_report(report_path)
-        except Exception:
-            pass
 
         return False

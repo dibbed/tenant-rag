@@ -2,22 +2,27 @@
 داشبورد تحلیل کاربران
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from .ml_insights import BehaviorPrediction, MLInsightsEngine
+from .predictive import PredictiveAnalyzer
 from .satisfaction_tracker import SatisfactionTracker
 from .usage_patterns import UsagePatternsAnalyzer
 from .user_behavior import UserBehaviorAnalyzer
-from .ml_insights import MLInsightsEngine
-from .predictive import PredictiveAnalyzer
+
+if TYPE_CHECKING:
+    from ragbot.configs.settings import Settings
 
 
 class AnalyticsDashboard:
     """داشبورد تحلیل کاربران"""
 
-    def __init__(self, settings=None):
+    def __init__(self, settings: Settings | None = None) -> None:
         """Initialize analytics dashboard"""
         self.settings = settings
         self.user_behavior = UserBehaviorAnalyzer()
@@ -25,11 +30,13 @@ class AnalyticsDashboard:
         self.satisfaction_tracker = SatisfactionTracker()
 
         # Initialize advanced analytics based on settings
+        self.ml_insights: MLInsightsEngine | None
         if self.settings and getattr(self.settings, "enable_ml_insights", True):
             self.ml_insights = MLInsightsEngine(self.user_behavior, self.usage_patterns)
         else:
             self.ml_insights = None
 
+        self.predictive_analyzer: PredictiveAnalyzer | None
         if self.settings and getattr(
             self.settings, "enable_predictive_analytics", True
         ):
@@ -41,7 +48,7 @@ class AnalyticsDashboard:
 
         self._initialized = False
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize analytics dashboard"""
         try:
             if not self._initialized:
@@ -53,8 +60,8 @@ class AnalyticsDashboard:
             raise
 
     async def track_user_action(
-        self, user_id: str, action: str, metadata: Dict[str, Any] = None
-    ):
+        self, user_id: str, action: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         """ردیابی عمل کاربر در تمام سیستم‌ها"""
         try:
             # ردیابی در تحلیلگر رفتار
@@ -75,8 +82,8 @@ class AnalyticsDashboard:
         query: str,
         answer: str,
         rating: int,
-        feedback_text: str = None,
-    ):
+        feedback_text: str | None = None,
+    ) -> None:
         """ثبت بازخورد رضایت"""
         try:
             await self.satisfaction_tracker.record_feedback(
@@ -92,21 +99,21 @@ class AnalyticsDashboard:
         except Exception as e:
             logger.error(f"Error recording satisfaction feedback: {e}")
 
-    async def record_session_length(self, duration: float):
+    async def record_session_length(self, duration: float) -> None:
         """ثبت مدت جلسه"""
         try:
             await self.usage_patterns.record_session_length(duration)
         except Exception as e:
             logger.error(f"Error recording session length: {e}")
 
-    async def record_document_type(self, doc_type: str):
+    async def record_document_type(self, doc_type: str) -> None:
         """ثبت نوع سند"""
         try:
             await self.usage_patterns.record_document_type(doc_type)
         except Exception as e:
             logger.error(f"Error recording document type: {e}")
 
-    async def get_comprehensive_dashboard(self) -> Dict[str, Any]:
+    async def get_comprehensive_dashboard(self) -> dict[str, Any]:
         """دریافت داشبورد جامع"""
         try:
             dashboard_data = {
@@ -122,7 +129,7 @@ class AnalyticsDashboard:
             logger.error(f"Error getting comprehensive dashboard: {e}")
             return {"error": str(e)}
 
-    async def _get_user_behavior_summary(self) -> Dict[str, Any]:
+    async def _get_user_behavior_summary(self) -> dict[str, Any]:
         """دریافت خلاصه رفتار کاربران"""
         try:
             all_users_summary = await self.user_behavior.get_all_users_summary()
@@ -140,7 +147,7 @@ class AnalyticsDashboard:
             logger.error(f"Error getting user behavior summary: {e}")
             return {"error": str(e)}
 
-    async def _get_usage_patterns_summary(self) -> Dict[str, Any]:
+    async def _get_usage_patterns_summary(self) -> dict[str, Any]:
         """دریافت خلاصه الگوهای استفاده"""
         try:
             patterns = await self.usage_patterns.analyze_usage_patterns()
@@ -159,7 +166,7 @@ class AnalyticsDashboard:
             logger.error(f"Error getting usage patterns summary: {e}")
             return {"error": str(e)}
 
-    async def _get_satisfaction_summary(self) -> Dict[str, Any]:
+    async def _get_satisfaction_summary(self) -> dict[str, Any]:
         """دریافت خلاصه رضایت"""
         try:
             metrics = await self.satisfaction_tracker.get_satisfaction_metrics()
@@ -171,7 +178,7 @@ class AnalyticsDashboard:
             logger.error(f"Error getting satisfaction summary: {e}")
             return {"error": str(e)}
 
-    async def _generate_overall_insights(self) -> Dict[str, Any]:
+    async def _generate_overall_insights(self) -> dict[str, Any]:
         """تولید بینش‌های کلی"""
         try:
             insights = {
@@ -186,7 +193,7 @@ class AnalyticsDashboard:
             logger.error(f"Error generating overall insights: {e}")
             return {"error": str(e)}
 
-    async def _assess_system_health(self) -> Dict[str, Any]:
+    async def _assess_system_health(self) -> dict[str, Any]:
         """ارزیابی سلامت سیستم"""
         try:
             # دریافت آمار کلی
@@ -261,7 +268,7 @@ class AnalyticsDashboard:
             logger.error(f"Error assessing system health: {e}")
             return {"error": str(e)}
 
-    async def _get_key_metrics(self) -> Dict[str, Any]:
+    async def _get_key_metrics(self) -> dict[str, Any]:
         """دریافت متریک‌های کلیدی"""
         try:
             user_summary = await self.user_behavior.get_all_users_summary()
@@ -284,7 +291,7 @@ class AnalyticsDashboard:
             logger.error(f"Error getting key metrics: {e}")
             return {"error": str(e)}
 
-    async def _generate_recommendations(self) -> List[str]:
+    async def _generate_recommendations(self) -> list[str]:
         """تولید توصیه‌ها"""
         try:
             recommendations = []
@@ -334,7 +341,7 @@ class AnalyticsDashboard:
             logger.error(f"Error generating recommendations: {e}")
             return []
 
-    async def _analyze_trends(self) -> Dict[str, Any]:
+    async def _analyze_trends(self) -> dict[str, Any]:
         """تحلیل روندها"""
         try:
             trends = {}
@@ -354,7 +361,7 @@ class AnalyticsDashboard:
             logger.error(f"Error analyzing trends: {e}")
             return {"error": str(e)}
 
-    async def get_user_analytics(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_analytics(self, user_id: str) -> dict[str, Any]:
         """دریافت تحلیل کاربر خاص"""
         try:
             user_insights = await self.user_behavior.get_user_insights(user_id)
@@ -372,10 +379,10 @@ class AnalyticsDashboard:
             logger.error(f"Error getting user analytics: {e}")
             return {"error": str(e)}
 
-    async def get_analytics_report(self, days: int = 30) -> Dict[str, Any]:
+    async def get_analytics_report(self, days: int = 30) -> dict[str, Any]:
         """دریافت گزارش تحلیل"""
         try:
-            cutoff_date = datetime.now() - timedelta(days=days)
+            _cutoff_date = datetime.now() - timedelta(days=days)
 
             report = {
                 "period": f"Last {days} days",
@@ -394,7 +401,7 @@ class AnalyticsDashboard:
             logger.error(f"Error getting analytics report: {e}")
             return {"error": str(e)}
 
-    async def export_analytics_data(self, format: str = "json") -> Dict[str, Any]:
+    async def export_analytics_data(self, format: str = "json") -> dict[str, Any]:
         """صادرات داده‌های تحلیل"""
         try:
             if format.lower() == "json":
@@ -405,7 +412,7 @@ class AnalyticsDashboard:
             logger.error(f"Error exporting analytics data: {e}")
             return {"error": str(e)}
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """خاموش کردن داشبورد"""
         try:
             logger.info("Shutting down analytics dashboard...")
@@ -414,7 +421,7 @@ class AnalyticsDashboard:
         except Exception as e:
             logger.error(f"Error shutting down analytics dashboard: {e}")
 
-    async def get_ml_insights(self) -> Dict[str, Any]:
+    async def get_ml_insights(self) -> dict[str, Any]:
         """دریافت بینش‌های ML"""
         try:
             if not self.ml_insights:
@@ -451,7 +458,7 @@ class AnalyticsDashboard:
             logger.error(f"Error generating ML insights: {e}")
             return {"error": str(e)}
 
-    async def get_predictive_analytics(self) -> Dict[str, Any]:
+    async def get_predictive_analytics(self) -> dict[str, Any]:
         """دریافت تحلیل‌های پیش‌بینانه"""
         try:
             if not self.predictive_analyzer:
@@ -501,7 +508,7 @@ class AnalyticsDashboard:
             logger.error(f"Error generating predictive analytics: {e}")
             return {"error": str(e)}
 
-    async def get_advanced_user_analytics(self, user_id: str) -> Dict[str, Any]:
+    async def get_advanced_user_analytics(self, user_id: str) -> dict[str, Any]:
         """دریافت تحلیل‌های پیشرفته کاربر"""
         try:
             logger.info(f"Generating advanced analytics for user {user_id}")
@@ -531,7 +538,7 @@ class AnalyticsDashboard:
                 )
 
             # پیش‌بینی رفتار کاربر (فقط اگر ML Insights فعال باشد)
-            behavior_prediction = {}
+            behavior_prediction: BehaviorPrediction | dict[str, Any] = {}
             if self.ml_insights:
                 behavior_prediction = await self.ml_insights.predict_user_behavior(
                     user_id
@@ -556,7 +563,7 @@ class AnalyticsDashboard:
 
     async def get_comprehensive_analytics_report(
         self, days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """دریافت گزارش جامع تحلیل"""
         try:
             logger.info("Generating comprehensive analytics report...")
@@ -626,10 +633,12 @@ class AnalyticsDashboard:
 
 
 # Global dashboard instance
-_dashboard: Optional[AnalyticsDashboard] = None
+_dashboard: AnalyticsDashboard | None = None
 
 
-async def get_analytics_dashboard(settings=None) -> AnalyticsDashboard:
+async def get_analytics_dashboard(
+    settings: Settings | None = None,
+) -> AnalyticsDashboard:
     """Get or create the global analytics dashboard instance"""
     global _dashboard
 
@@ -640,7 +649,7 @@ async def get_analytics_dashboard(settings=None) -> AnalyticsDashboard:
     return _dashboard
 
 
-async def shutdown_analytics_dashboard():
+async def shutdown_analytics_dashboard() -> None:
     """Shutdown the global analytics dashboard"""
     global _dashboard
 
