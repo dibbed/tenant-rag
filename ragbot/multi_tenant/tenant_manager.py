@@ -4,11 +4,26 @@ import asyncio
 import json
 import sqlite3
 import uuid
-from dataclasses import asdict
-from datetime import datetime, timedelta
+from dataclasses import asdict, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ragbot.database.engine import DatabaseRuntime
+from ragbot.database.mappers import (
+    apply_tenant_to_records,
+    audit_to_record,
+    tenant_from_records,
+    tenant_to_record,
+    usage_from_record,
+)
+from ragbot.database.repositories import (
+    AuditRepository,
+    QuotaRepository,
+    TenantRepository,
+    UsageRepository,
+)
+from ragbot.database.tenant_context import set_system_context, set_tenant_context
 from ragbot.outputs.logger import logger
 from ragbot.rag.store.base import VectorDocument
 
@@ -30,31 +45,56 @@ class TenantManager:
     """مدیریت tenant ها و جداسازی داده‌ها با پشتیبانی از ذخیره‌سازی پایدار"""
 
     def __init__(
-        self, settings: Any | None = None, db_path: Any | None = None
+        self,
+        settings: Any | None = None,
+        db_path: Any | None = None,
+        *,
+        session_factory: Any | None = None,
     ) -> None:
         self.settings = settings
-        self.tenants: dict[str, TenantConfig] = {}
-        self.tenant_users: dict[str, list[TenantUser]] = {}
-        self.tenant_usage: dict[str, list[TenantUsage]] = {}
         self.tenant_policies: dict[str, list[TenantPolicy]] = {}
-        self.tenant_audit_logs: dict[str, list[TenantAuditLog]] = {}
 
-        # Cache for tenant isolation
+        # Non-authoritative caches used only for request-local isolation helpers.
         self._tenant_cache: dict[str, Any] = {}
         self._isolation_rules: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
-        # Database path setup
-        if db_path is not None:
-            self.db_path = db_path
-        elif settings and getattr(settings, "multi_tenant", None) and getattr(settings.multi_tenant, "data_dir", None):
-            self.db_path = Path(settings.multi_tenant.data_dir) / "tenants.db"
-        else:
-            self.db_path = Path("data/tenants/tenants.db")
+        self._database_runtime: DatabaseRuntime | None = None
+        self._session_factory = session_factory
+        self._legacy_sqlite = db_path is not None
 
-        self._init_db()
-        self._load_persisted_data()
-        logger.info(f"TenantManager initialized (persisted at {self.db_path})")
+        if self._legacy_sqlite:
+            assert db_path is not None
+            self.tenants: dict[str, TenantConfig] = {}
+            self.tenant_users: dict[str, list[TenantUser]] = {}
+            self.tenant_usage: dict[str, list[TenantUsage]] = {}
+            self.tenant_audit_logs: dict[str, list[TenantAuditLog]] = {}
+            self.db_path = db_path
+            self._init_db()
+            self._load_persisted_data()
+            logger.info(f"TenantManager initialized in legacy SQLite mode at {self.db_path}")
+            return
+
+        if self._session_factory is None:
+            if settings is None or getattr(settings, "database", None) is None:
+                raise ValueError(
+                    "PostgreSQL TenantManager requires settings.database or session_factory"
+                )
+            database = settings.database
+            self._database_runtime = DatabaseRuntime(
+                database.url,
+                echo=database.echo,
+                pool_size=database.pool_size,
+                max_overflow=database.max_overflow,
+            )
+            self._session_factory = self._database_runtime.session_factory
+
+        logger.info("TenantManager initialized with PostgreSQL persistence")
+
+    @property
+    def uses_postgres(self) -> bool:
+        """Whether this manager uses the PostgreSQL authoritative store."""
+        return not self._legacy_sqlite
 
     def _init_db(self) -> None:
         """Initialize SQLite persistence tables."""
@@ -342,6 +382,340 @@ class TenantManager:
         except Exception as e:
             logger.debug(f"Error updating API key last_used_at: {e}")
 
+
+    def _begin_postgres(self) -> Any:
+        if self._session_factory is None:
+            raise RuntimeError("PostgreSQL session factory is not configured")
+        return self._session_factory.begin()
+
+    @staticmethod
+    def _is_expired(expires_at: datetime | None) -> bool:
+        if expires_at is None:
+            return False
+        now = datetime.now(expires_at.tzinfo) if expires_at.tzinfo else datetime.now()
+        return now > expires_at
+
+    async def _pg_load_tenant(self, session: Any, tenant_id: str) -> TenantConfig | None:
+        tenant_record = await TenantRepository(session).get(tenant_id)
+        if tenant_record is None:
+            return None
+        quota_record = await QuotaRepository(session).get(tenant_id)
+        if quota_record is None:
+            raise RuntimeError(f"Tenant {tenant_id} has no quota row")
+        return tenant_from_records(tenant_record, quota_record)
+
+    async def _pg_create_tenant(
+        self,
+        *,
+        name: str,
+        tier: TenantTier,
+        plan: TenantPlan,
+        domain: str | None,
+        contact_email: str | None,
+        custom_settings: dict[str, Any] | None,
+        tenant_id: str | None,
+    ) -> TenantConfig:
+        tenant_id = tenant_id or str(uuid.uuid4())
+        base_config = DEFAULT_TIER_CONFIGS[tier]
+        now = datetime.now(timezone.utc)
+
+        expires_at = None
+        if plan == TenantPlan.TRIAL:
+            expires_at = now + timedelta(days=14)
+        elif plan == TenantPlan.MONTHLY:
+            expires_at = now + timedelta(days=30)
+        elif plan == TenantPlan.YEARLY:
+            expires_at = now + timedelta(days=365)
+
+        tenant = TenantConfig(
+            tenant_id=tenant_id,
+            name=name,
+            domain=domain,
+            tier=tier,
+            plan=plan,
+            limits=replace(base_config.limits),
+            features=replace(base_config.features),
+            expires_at=expires_at,
+            contact_email=contact_email,
+            custom_settings=dict(custom_settings or {}),
+            created_at=now,
+            updated_at=now,
+        )
+        tenant_record, quota_record = tenant_to_record(tenant)
+        audit = TenantAuditLog(
+            tenant_id=tenant_id,
+            action="tenant_created",
+            resource="tenant",
+            details={
+                "name": name,
+                "tier": tier.value if isinstance(tier, TenantTier) else str(tier),
+                "plan": plan.value if isinstance(plan, TenantPlan) else str(plan),
+            },
+            timestamp=now,
+        )
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            await TenantRepository(session).add(tenant_record)
+            await QuotaRepository(session).add(quota_record)
+            await AuditRepository(session).add(audit_to_record(audit))
+
+        logger.info(f"Tenant created in PostgreSQL: {tenant_id} ({name})")
+        return tenant
+
+    async def _pg_get_tenant(self, tenant_id: str) -> TenantConfig | None:
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            tenant = await self._pg_load_tenant(session, tenant_id)
+
+        if tenant is not None and self._is_expired(tenant.expires_at):
+            await self._pg_set_status(
+                tenant_id,
+                TenantStatus.SUSPENDED,
+                action="tenant_suspended",
+                details={"reason": "expired"},
+            )
+            return None
+        return tenant
+
+    async def _pg_update_tenant(
+        self,
+        tenant_id: str,
+        merged_updates: dict[str, Any],
+    ) -> TenantConfig | None:
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            tenant_record = await TenantRepository(session).get(tenant_id)
+            if tenant_record is None:
+                return None
+            quota_record = await QuotaRepository(session).get(tenant_id)
+            if quota_record is None:
+                raise RuntimeError(f"Tenant {tenant_id} has no quota row")
+
+            current = tenant_from_records(tenant_record, quota_record)
+            payload = current.model_dump()
+            payload.update(merged_updates)
+            payload["updated_at"] = datetime.now(timezone.utc)
+            updated = TenantConfig.model_validate(payload)
+            apply_tenant_to_records(updated, tenant_record, quota_record)
+
+            audit = TenantAuditLog(
+                tenant_id=tenant_id,
+                action="tenant_updated",
+                resource="tenant",
+                details=merged_updates,
+                timestamp=updated.updated_at,
+            )
+            await AuditRepository(session).add(audit_to_record(audit))
+
+        logger.info(f"Tenant updated in PostgreSQL: {tenant_id}")
+        return updated
+
+    async def _pg_set_status(
+        self,
+        tenant_id: str,
+        status: TenantStatus,
+        *,
+        action: str,
+        details: dict[str, Any],
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            tenant_record = await TenantRepository(session).get(tenant_id)
+            if tenant_record is None:
+                return False
+            tenant_record.status = status.value
+            tenant_record.updated_at = now
+            audit = TenantAuditLog(
+                tenant_id=tenant_id,
+                action=action,
+                resource="tenant",
+                details=details,
+                timestamp=now,
+            )
+            await AuditRepository(session).add(audit_to_record(audit))
+        return True
+
+    async def _pg_delete_tenant(self, tenant_id: str) -> bool:
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            if await TenantRepository(session).get(tenant_id) is None:
+                return False
+            deleted = await TenantRepository(session).delete(tenant_id)
+        if deleted:
+            self._tenant_cache.pop(tenant_id, None)
+            self.tenant_policies.pop(tenant_id, None)
+        return deleted
+
+    async def _pg_get_tenant_usage(self, tenant_id: str) -> TenantUsage:
+        today = datetime.now(timezone.utc).date()
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            record = await UsageRepository(session).get(tenant_id, today)
+        if record is None:
+            return TenantUsage(
+                tenant_id=tenant_id,
+                date=datetime.combine(
+                    today,
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                ),
+            )
+        return usage_from_record(record)
+
+    async def _pg_track_tenant_usage(
+        self,
+        tenant_id: str,
+        operation: str,
+        metadata: dict[str, Any] | None,
+    ) -> None:
+        today = datetime.now(timezone.utc).date()
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            if await TenantRepository(session).get(tenant_id) is None:
+                return
+            await UsageRepository(session).increment(
+                tenant_id=tenant_id,
+                usage_date=today,
+                operation=operation,
+                metadata=metadata,
+            )
+
+    async def _pg_log_audit(
+        self,
+        tenant_id: str,
+        action: str,
+        resource: str,
+        details: dict[str, Any],
+        user_id: str | None,
+        success: bool,
+        error_message: str | None,
+        *,
+        session: Any | None = None,
+    ) -> None:
+        audit = TenantAuditLog(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action=action,
+            resource=resource,
+            details=details,
+            success=success,
+            error_message=error_message,
+            timestamp=datetime.now(timezone.utc),
+        )
+        record = audit_to_record(audit)
+        if session is not None:
+            await AuditRepository(session).add(record)
+            return
+
+        async with self._begin_postgres() as own_session:
+            await set_tenant_context(own_session, tenant_id)
+            await AuditRepository(own_session).add(record)
+
+    async def _pg_list_tenants(self, *, active_only: bool = False) -> list[TenantConfig]:
+        async with self._begin_postgres() as session:
+            await set_system_context(session)
+            repository = TenantRepository(session)
+            records = (
+                await repository.list_active()
+                if active_only
+                else await repository.list_all()
+            )
+            tenants: list[TenantConfig] = []
+            quotas = QuotaRepository(session)
+            for record in records:
+                quota = await quotas.get(record.tenant_id)
+                if quota is None:
+                    logger.error(f"Tenant {record.tenant_id} has no quota row")
+                    continue
+                tenants.append(tenant_from_records(record, quota))
+            return tenants
+
+
+    async def _pg_get_tenant_analytics(
+        self, tenant_id: str, days: int
+    ) -> dict[str, Any]:
+        end_date = datetime.now(timezone.utc).date()
+        start_date = end_date - timedelta(days=days)
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            tenant = await self._pg_load_tenant(session, tenant_id)
+            if tenant is None:
+                return {"error": "Tenant not found"}
+            records = await UsageRepository(session).list_between(
+                tenant_id,
+                start_date,
+                end_date,
+            )
+
+        usage_records = [usage_from_record(record) for record in records]
+        total_queries = sum(usage.queries_count for usage in usage_records)
+        total_documents = sum(usage.documents_count for usage in usage_records)
+        total_storage = sum(usage.storage_used_gb for usage in usage_records)
+        total_api_calls = sum(usage.api_calls for usage in usage_records)
+        total_cost = sum(usage.cost_usd for usage in usage_records)
+
+        count = len(usage_records)
+        avg_response_time = (
+            sum(usage.avg_response_time for usage in usage_records) / count
+            if count
+            else 0.0
+        )
+        avg_error_rate = (
+            sum(usage.error_rate for usage in usage_records) / count
+            if count
+            else 0.0
+        )
+        avg_satisfaction = (
+            sum(usage.satisfaction_score for usage in usage_records) / count
+            if count
+            else 0.0
+        )
+
+        query_capacity = tenant.limits.max_queries_per_day * days
+        return {
+            "tenant_id": tenant_id,
+            "tenant_name": tenant.name,
+            "tier": tenant.tier,
+            "period_days": days,
+            "usage_summary": {
+                "total_queries": total_queries,
+                "total_documents": total_documents,
+                "total_storage_gb": total_storage,
+                "total_api_calls": total_api_calls,
+                "total_cost_usd": total_cost,
+            },
+            "performance_metrics": {
+                "avg_response_time": avg_response_time,
+                "avg_error_rate": avg_error_rate,
+                "avg_satisfaction_score": avg_satisfaction,
+            },
+            "limits": {
+                "max_queries_per_day": tenant.limits.max_queries_per_day,
+                "max_documents": tenant.limits.max_documents,
+                "max_storage_gb": tenant.limits.max_storage_gb,
+                "max_users": tenant.limits.max_users,
+            },
+            "usage_percentage": {
+                "queries": (total_queries / query_capacity * 100)
+                if query_capacity
+                else 0.0,
+                "documents": (
+                    total_documents / tenant.limits.max_documents * 100
+                    if tenant.limits.max_documents
+                    else 0.0
+                ),
+                "storage": (
+                    total_storage / tenant.limits.max_storage_gb * 100
+                    if tenant.limits.max_storage_gb
+                    else 0.0
+                ),
+            },
+            "features_enabled": asdict(tenant.features),
+        }
+
     async def create_tenant(
         self,
         name: str,
@@ -353,6 +727,17 @@ class TenantManager:
         tenant_id: str | None = None,
     ) -> TenantConfig:
         """ایجاد tenant جدید و ذخیره در دیتابیس پایدار"""
+        if self.uses_postgres:
+            return await self._pg_create_tenant(
+                name=name,
+                tier=tier,
+                plan=plan,
+                domain=domain,
+                contact_email=contact_email,
+                custom_settings=custom_settings,
+                tenant_id=tenant_id,
+            )
+
         async with self._lock:
             try:
                 tenant_id = tenant_id or str(uuid.uuid4())
@@ -430,6 +815,9 @@ class TenantManager:
 
     async def get_tenant(self, tenant_id: str) -> TenantConfig | None:
         """دریافت تنظیمات tenant"""
+        if self.uses_postgres:
+            return await self._pg_get_tenant(tenant_id)
+
         try:
             tenant = self.tenants.get(tenant_id)
             # بررسی انقضا
@@ -450,6 +838,9 @@ class TenantManager:
         """به‌روزرسانی تنظیمات tenant"""
         merged_updates = dict(updates or {})
         merged_updates.update(kwargs)
+        if self.uses_postgres:
+            return await self._pg_update_tenant(tenant_id, merged_updates)
+
         async with self._lock:
             try:
                 tenant = self.tenants.get(tenant_id)
@@ -497,10 +888,25 @@ class TenantManager:
 
     async def suspend_tenant(self, tenant_id: str, reason: str = "manual") -> bool:
         """تعلیق tenant"""
+        if self.uses_postgres:
+            return await self._pg_set_status(
+                tenant_id,
+                TenantStatus.SUSPENDED,
+                action="tenant_suspended",
+                details={"reason": reason},
+            )
         return await self._suspend_tenant(tenant_id, reason)
 
     async def _suspend_tenant(self, tenant_id: str, reason: str) -> bool:
         """تعلیق داخلی tenant"""
+        if self.uses_postgres:
+            return await self._pg_set_status(
+                tenant_id,
+                TenantStatus.SUSPENDED,
+                action="tenant_suspended",
+                details={"reason": reason},
+            )
+
         async with self._lock:
             try:
                 tenant = self.tenants.get(tenant_id)
@@ -538,6 +944,14 @@ class TenantManager:
 
     async def activate_tenant(self, tenant_id: str) -> bool:
         """فعال‌سازی tenant"""
+        if self.uses_postgres:
+            return await self._pg_set_status(
+                tenant_id,
+                TenantStatus.ACTIVE,
+                action="tenant_activated",
+                details={},
+            )
+
         async with self._lock:
             try:
                 tenant = self.tenants.get(tenant_id)
@@ -575,6 +989,9 @@ class TenantManager:
 
     async def delete_tenant(self, tenant_id: str) -> bool:
         """حذف tenant"""
+        if self.uses_postgres:
+            return await self._pg_delete_tenant(tenant_id)
+
         async with self._lock:
             try:
                 if tenant_id not in self.tenants:
@@ -742,6 +1159,10 @@ class TenantManager:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """ردیابی استفاده tenant"""
+        if self.uses_postgres:
+            await self._pg_track_tenant_usage(tenant_id, operation, metadata)
+            return
+
         try:
             tenant = await self.get_tenant(tenant_id)
             if not tenant:
@@ -793,6 +1214,9 @@ class TenantManager:
         self, tenant_id: str, days: int = 30
     ) -> dict[str, Any]:
         """دریافت تحلیل‌های tenant"""
+        if self.uses_postgres:
+            return await self._pg_get_tenant_analytics(tenant_id, days)
+
         try:
             tenant = await self.get_tenant(tenant_id)
             if not tenant:
@@ -960,6 +1384,9 @@ class TenantManager:
 
     async def _get_tenant_usage(self, tenant_id: str) -> TenantUsage:
         """دریافت آمار استفاده tenant"""
+        if self.uses_postgres:
+            return await self._pg_get_tenant_usage(tenant_id)
+
         try:
             usage_records = self.tenant_usage.get(tenant_id, [])
             if not usage_records:
@@ -1010,6 +1437,18 @@ class TenantManager:
         error_message: str | None = None,
     ) -> None:
         """ثبت audit log"""
+        if self.uses_postgres:
+            await self._pg_log_audit(
+                tenant_id,
+                action,
+                resource,
+                details,
+                user_id,
+                success,
+                error_message,
+            )
+            return
+
         try:
             audit_log = TenantAuditLog(
                 tenant_id=tenant_id,
@@ -1053,14 +1492,20 @@ class TenantManager:
 
     async def get_all_tenants(self) -> list[TenantConfig]:
         """دریافت تمام tenant ها"""
+        if self.uses_postgres:
+            return await self._pg_list_tenants()
         return list(self.tenants.values())
 
     async def get_tenant_count(self) -> int:
         """تعداد کل tenant ها"""
+        if self.uses_postgres:
+            return len(await self._pg_list_tenants())
         return len(self.tenants)
 
     async def get_active_tenants(self) -> list[TenantConfig]:
         """دریافت tenant های فعال"""
+        if self.uses_postgres:
+            return await self._pg_list_tenants(active_only=True)
         return [
             tenant
             for tenant in self.tenants.values()
@@ -1069,6 +1514,19 @@ class TenantManager:
 
     async def cleanup_expired_tenants(self) -> int:
         """پاکسازی tenant های منقضی شده"""
+        if self.uses_postgres:
+            expired_count = 0
+            for tenant in await self._pg_list_tenants():
+                if self._is_expired(tenant.expires_at) and await self._pg_set_status(
+                    tenant.tenant_id,
+                    TenantStatus.SUSPENDED,
+                    action="tenant_suspended",
+                    details={"reason": "expired"},
+                ):
+                    expired_count += 1
+            logger.info(f"Cleaned up {expired_count} expired PostgreSQL tenants")
+            return expired_count
+
         try:
             expired_count = 0
             current_time = datetime.now()
@@ -1085,8 +1543,17 @@ class TenantManager:
             logger.error(f"Error cleaning up expired tenants: {e}")
             return 0
 
+    async def aclose(self) -> None:
+        """Release resources owned by the manager."""
+        if self._database_runtime is not None:
+            await self._database_runtime.dispose()
+            self._database_runtime = None
+            return
+        if self._legacy_sqlite:
+            self.close()
+
     def close(self) -> None:
-        """Close SQLite database connection."""
+        """Close the legacy SQLite database connection."""
         try:
             if hasattr(self, "_conn") and self._conn:
                 self._conn.close()

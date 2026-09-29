@@ -104,6 +104,25 @@ def tenant_from_records(
     )
 
 
+
+
+def apply_tenant_to_records(
+    tenant: TenantConfig,
+    tenant_record: TenantRecord,
+    quota_record: TenantQuotaRecord,
+) -> None:
+    """Copy a validated domain tenant onto already-loaded ORM rows."""
+    fresh_tenant, fresh_quota = tenant_to_record(tenant)
+
+    for column in TenantRecord.__table__.columns:
+        if column.key != "tenant_id":
+            setattr(tenant_record, column.key, getattr(fresh_tenant, column.key))
+
+    for column in TenantQuotaRecord.__table__.columns:
+        if column.key != "tenant_id":
+            setattr(quota_record, column.key, getattr(fresh_quota, column.key))
+
+
 def user_to_record(user: TenantUser) -> TenantUserRecord:
     return TenantUserRecord(
         user_id=user.user_id,
