@@ -21,7 +21,7 @@ def _config(*, stdout: StringIO | None = None, database_url: str | None = None) 
 
 def test_alembic_has_single_initial_head() -> None:
     scripts = ScriptDirectory.from_config(_config())
-    assert scripts.get_heads() == ["phase5_0001"]
+    assert scripts.get_heads() == ["phase5_0002"]
 
 
 def test_alembic_offline_upgrade_emits_all_phase5_tables() -> None:
