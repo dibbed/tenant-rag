@@ -30,8 +30,8 @@ from ragbot.api.dependencies import (
 )
 from ragbot.configs.settings import MultiTenantSettings, Settings
 from ragbot.multi_tenant.tenant_auth import Permission, TenantAuth, UserRole
-from ragbot.multi_tenant.tenant_manager import TenantManager
 from ragbot.services.rag_service import IngestResult, QueryResult
+from tests.helpers.legacy_sqlite_tenant_manager import LegacySQLiteTenantManager
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def security_tenant_manager(temp_tenant_db):
             data_dir=temp_tenant_db.parent,
         )
     )
-    mgr = TenantManager(settings, db_path=temp_tenant_db)
+    mgr = LegacySQLiteTenantManager(settings, db_path=temp_tenant_db)
     yield mgr
     mgr.close()
 
@@ -427,7 +427,7 @@ async def test_sqlite_api_key_persistence_across_restarts(temp_tenant_db):
     )
 
     # Instance 1: Create tenant and API key
-    mgr1 = TenantManager(settings, db_path=temp_tenant_db)
+    mgr1 = LegacySQLiteTenantManager(settings, db_path=temp_tenant_db)
     auth1 = TenantAuth(mgr1)
     await mgr1.create_tenant(name="Restart Corp", tenant_id="tenant_restart")
     ok, raw_key, _ = await auth1.create_api_key(
@@ -438,7 +438,7 @@ async def test_sqlite_api_key_persistence_across_restarts(temp_tenant_db):
     mgr1.close()
 
     # Instance 2: Start new TenantManager & TenantAuth from same SQLite DB
-    mgr2 = TenantManager(settings, db_path=temp_tenant_db)
+    mgr2 = LegacySQLiteTenantManager(settings, db_path=temp_tenant_db)
     auth2 = TenantAuth(mgr2)
     try:
         # Authenticate with raw key on fresh instance

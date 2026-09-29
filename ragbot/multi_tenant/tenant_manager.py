@@ -50,7 +50,6 @@ class TenantManager:
     def __init__(
         self,
         settings: Any | None = None,
-        db_path: Any | None = None,
         *,
         session_factory: Any | None = None,
     ) -> None:
@@ -64,19 +63,7 @@ class TenantManager:
 
         self._database_runtime: DatabaseRuntime | None = None
         self._session_factory = session_factory
-        self._legacy_sqlite = db_path is not None
-
-        if self._legacy_sqlite:
-            assert db_path is not None
-            self.tenants: dict[str, TenantConfig] = {}
-            self.tenant_users: dict[str, list[TenantUser]] = {}
-            self.tenant_usage: dict[str, list[TenantUsage]] = {}
-            self.tenant_audit_logs: dict[str, list[TenantAuditLog]] = {}
-            self.db_path = db_path
-            self._init_db()
-            self._load_persisted_data()
-            logger.info(f"TenantManager initialized in legacy SQLite mode at {self.db_path}")
-            return
+        self._legacy_sqlite = False
 
         if self._session_factory is None:
             if settings is None or getattr(settings, "database", None) is None:

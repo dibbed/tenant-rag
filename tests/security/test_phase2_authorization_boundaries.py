@@ -39,8 +39,8 @@ from ragbot.multi_tenant.authorization import (
 )
 from ragbot.multi_tenant.models import AuthenticatedPrincipal, TenantTier
 from ragbot.multi_tenant.tenant_auth import Permission, TenantAuth, UserRole
-from ragbot.multi_tenant.tenant_manager import TenantManager
 from ragbot.services.rag_service import IngestResult, QueryResult
+from tests.helpers.legacy_sqlite_tenant_manager import LegacySQLiteTenantManager
 
 MANAGE_PATH = "/phase2-test/tenant-management"
 
@@ -51,7 +51,7 @@ def manager(tmp_path):
     settings = Settings(
         multi_tenant=MultiTenantSettings(enabled=True, default_tier="free", data_dir=tmp_path)
     )
-    mgr = TenantManager(settings, db_path=db_path)
+    mgr = LegacySQLiteTenantManager(settings, db_path=db_path)
     yield mgr
     mgr.close()
 

@@ -12,7 +12,7 @@ from ragbot.multi_tenant.models import (
     TenantTier,
 )
 from ragbot.multi_tenant.tenant_auth import TenantAuth, UserRole
-from ragbot.multi_tenant.tenant_manager import TenantManager
+from tests.helpers.legacy_sqlite_tenant_manager import LegacySQLiteTenantManager
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def test_settings(temp_db_path):
 @pytest.mark.asyncio
 async def test_tenant_crud_operations(test_settings, temp_db_path):
     """Test full tenant lifecycle: create, get, update, suspend, activate, delete."""
-    manager = TenantManager(test_settings, db_path=temp_db_path)
+    manager = LegacySQLiteTenantManager(test_settings, db_path=temp_db_path)
     try:
         # 1. Create tenant
         tenant = await manager.create_tenant(
@@ -96,7 +96,7 @@ async def test_tenant_crud_operations(test_settings, temp_db_path):
 async def test_sqlite_persistence_across_manager_restarts(test_settings, temp_db_path):
     """Verify that tenant and user data survives manager restart via SQLite."""
     # Step 1: Initialize manager 1, create tenant and user
-    manager1 = TenantManager(test_settings, db_path=temp_db_path)
+    manager1 = LegacySQLiteTenantManager(test_settings, db_path=temp_db_path)
     try:
         tenant = await manager1.create_tenant(
             name="Persistent Corp",
@@ -124,7 +124,7 @@ async def test_sqlite_persistence_across_manager_restarts(test_settings, temp_db
     assert temp_db_path.exists()
 
     # Step 2: Initialize a completely fresh TenantManager pointing to the same DB file
-    manager2 = TenantManager(test_settings, db_path=temp_db_path)
+    manager2 = LegacySQLiteTenantManager(test_settings, db_path=temp_db_path)
     try:
         # Verify tenant was loaded into manager2 cache on boot
         loaded_tenant = await manager2.get_tenant(t_id)
@@ -150,7 +150,7 @@ async def test_sqlite_persistence_across_manager_restarts(test_settings, temp_db
 @pytest.mark.asyncio
 async def test_tenant_limits_and_usage(test_settings, temp_db_path):
     """Test quota enforcement and usage tracking."""
-    manager = TenantManager(test_settings, db_path=temp_db_path)
+    manager = LegacySQLiteTenantManager(test_settings, db_path=temp_db_path)
     try:
         tenant = await manager.create_tenant(
             name="Limited Corp",

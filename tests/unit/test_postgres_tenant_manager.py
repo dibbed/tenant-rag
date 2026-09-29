@@ -291,3 +291,15 @@ async def test_postgres_manager_lists_usage_for_date_range() -> None:
 
     assert len(usage) == 1
     assert usage[0].queries_count == 3
+
+
+
+def test_postgres_manager_rejects_sqlite_database_url() -> None:
+    settings = MagicMock()
+    settings.database.url = "sqlite:///./data/ragbot.db"
+    settings.database.echo = False
+    settings.database.pool_size = 5
+    settings.database.max_overflow = 10
+
+    with pytest.raises(ValueError, match="PostgreSQL"):
+        TenantManager(settings)
