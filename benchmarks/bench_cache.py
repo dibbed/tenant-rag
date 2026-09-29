@@ -37,7 +37,7 @@ async def run_benchmark(iterations: int, tenant_id: str) -> dict[str, Any]:
         ("What is Retrieval-Augmented Generation?", "RAG combines search with generative LLMs."),
         ("How does multi-tenancy work in vector search?", "It isolates index files per customer."),
         ("What is semantic caching?", "Semantic caching returns stored answers for similar queries."),
-        ("How are API keys validated?", "API keys are hashed with SHA-256 and matched in SQLite."),
+        ("How are API keys validated?", "API key secrets use salted scrypt hashes stored in PostgreSQL."),
         ("Which vector databases are supported?", "FAISS, ChromaDB, and Qdrant are supported."),
     ]
 
