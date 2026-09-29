@@ -2481,6 +2481,12 @@ class RAGService:
             last_query_time=self.last_query_time,
         )
 
+    async def shutdown(self) -> None:
+        """Release resources owned by the RAG service."""
+        tenant_manager = getattr(self, "tenant_manager", None)
+        if tenant_manager is not None and hasattr(tenant_manager, "aclose"):
+            await tenant_manager.aclose()
+
     async def health_check(self) -> dict[str, Any]:
         """
         Perform health check on the RAG service.
