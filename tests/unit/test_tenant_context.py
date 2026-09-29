@@ -16,10 +16,15 @@ async def test_set_tenant_context_is_transaction_local() -> None:
 
     await set_tenant_context(session, "tenant_alpha")
 
-    session.execute.assert_awaited_once()
-    statement, params = session.execute.await_args.args
-    assert "set_config('app.tenant_id', :tenant_id, true)" in str(statement)
-    assert params == {"tenant_id": "tenant_alpha"}
+    assert session.execute.await_count == 2
+    first_statement, first_params = session.execute.await_args_list[0].args
+    second_statement, second_params = session.execute.await_args_list[1].args
+    assert "set_config('app.is_system_admin', :is_system_admin, true)" in str(
+        first_statement
+    )
+    assert first_params == {"is_system_admin": "false"}
+    assert "set_config('app.tenant_id', :tenant_id, true)" in str(second_statement)
+    assert second_params == {"tenant_id": "tenant_alpha"}
 
 
 @pytest.mark.asyncio

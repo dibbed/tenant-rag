@@ -68,6 +68,18 @@ def reports(tmp_path, monkeypatch) -> Path:
             "summary": "12 findings: 0 high, 0 medium, 12 low severity",
         },
     )
+    _write(
+        directory,
+        "postgresql.json",
+        {
+            "check": "postgresql",
+            "title": "PostgreSQL Verification",
+            "mode": "blocking",
+            "status": "pass",
+            "summary": "Alembic head plus real PostgreSQL RLS/auth verification passed",
+            "problems": [],
+        },
+    )
     _write(directory, "dependency-audit.json", _audit())
     _write(
         directory,
@@ -151,6 +163,7 @@ def test_every_check_is_listed_and_the_gate_passes(summary, reports):
         "Style check (Ruff)",
         "Type check (MyPy)",
         "Insecure-pattern check (Bandit)",
+        "PostgreSQL Verification",
         "Dependency Vulnerability Check",
         "Container Build Check",
     ):
