@@ -57,7 +57,7 @@ async def main():
                 print(f"  ❌ خطا: {validation['error']}")
 
         except Exception as e:
-            print(f"  ⚠️ خطا در پردازش: {str(e)}")
+            print(f"  ⚠️ خطا در پردازش: {e!s}")
 
     print("\n" + "=" * 50)
     print("🎯 تنظیمات Multi-Format:")
@@ -79,31 +79,31 @@ async def test_specific_loaders():
     # تست PPTX Loader
     from ragbot.rag.loaders.pptx_loader import PPTXLoader
 
-    pptx_loader = PPTXLoader()
+    _pptx_loader = PPTXLoader()
     print("✅ PPTXLoader ایجاد شد")
 
     # تست XLSX Loader
     from ragbot.rag.loaders.xlsx_loader import XLSXLoader
 
-    xlsx_loader = XLSXLoader()
+    _xlsx_loader = XLSXLoader()
     print("✅ XLSXLoader ایجاد شد")
 
     # تست HTML Loader
     from ragbot.rag.loaders.html_loader import HTMLLoader
 
-    html_loader = HTMLLoader()
+    _html_loader = HTMLLoader()
     print("✅ HTMLLoader ایجاد شد")
 
     # تست Markdown Loader
     from ragbot.rag.loaders.markdown_loader import MarkdownLoader
 
-    md_loader = MarkdownLoader()
+    _md_loader = MarkdownLoader()
     print("✅ MarkdownLoader ایجاد شد")
 
     # تست OCR Loader
     from ragbot.rag.loaders.ocr_loader import OCRLoader
 
-    ocr_loader = OCRLoader()
+    _ocr_loader = OCRLoader()
     print("✅ OCRLoader ایجاد شد")
 
     print("✅ تمام Loader ها آماده هستند!")

@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # اضافه کردن مسیر پروژه
 sys.path.insert(0, str(Path(__file__).parent))
@@ -46,7 +46,7 @@ class ComparisonTest:
             logger.error(f"❌ خطا: {e}")
             return False
 
-    async def test_basic_retrieval(self, question: str) -> Dict[str, Any]:
+    async def test_basic_retrieval(self, question: str) -> dict[str, Any]:
         """تست جستجوی پایه"""
         try:
             # غیرفعال کردن Advanced Retrieval موقتاً
@@ -78,7 +78,7 @@ class ComparisonTest:
             return {
                 "type": "basic",
                 "question": question,
-                "answer": f"خطا: {str(e)}",
+                "answer": f"خطا: {e!s}",
                 "sources": [],
                 "processing_time": 0,
                 "answer_length": 0,
@@ -86,7 +86,7 @@ class ComparisonTest:
                 "success": False,
             }
 
-    async def test_advanced_retrieval(self, question: str) -> Dict[str, Any]:
+    async def test_advanced_retrieval(self, question: str) -> dict[str, Any]:
         """تست جستجوی پیشرفته"""
         try:
             # فعال کردن Advanced Retrieval
@@ -114,7 +114,7 @@ class ComparisonTest:
             return {
                 "type": "advanced",
                 "question": question,
-                "answer": f"خطا: {str(e)}",
+                "answer": f"خطا: {e!s}",
                 "sources": [],
                 "processing_time": 0,
                 "answer_length": 0,
@@ -122,7 +122,7 @@ class ComparisonTest:
                 "success": False,
             }
 
-    async def compare_retrieval(self, question: str) -> Dict[str, Any]:
+    async def compare_retrieval(self, question: str) -> dict[str, Any]:
         """مقایسه جستجوی پایه و پیشرفته"""
         try:
             print(f"\n📝 مقایسه: {question}")

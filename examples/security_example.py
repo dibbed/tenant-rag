@@ -6,15 +6,15 @@ and secure backup features in the RAG system.
 """
 
 import asyncio
-import tempfile
 import shutil
-from pathlib import Path
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
-from ragbot.security.encryption import EncryptionManager, EncryptionAlgorithm
-from ragbot.security.key_manager import KeyManager, KeyType
-from ragbot.security.secure_backup import SecureBackupManager, BackupType
 from ragbot.rag.store.base import VectorDocument
+from ragbot.security.encryption import EncryptionManager
+from ragbot.security.key_manager import KeyManager, KeyType
+from ragbot.security.secure_backup import BackupType, SecureBackupManager
 
 
 async def main():
@@ -32,8 +32,8 @@ async def main():
         print("-" * 30)
 
         encryption_manager = EncryptionManager({
-            'algorithm': 'aes_256_gcm',
-            'mode': 'symmetric'
+            "algorithm": "aes_256_gcm",
+            "mode": "symmetric"
         })
 
         # Create sample document
@@ -76,7 +76,7 @@ async def main():
         print(f"🧮 Embeddings encryption test: {embeddings == decrypted_embeddings}")
 
         # Key rotation
-        print(f"\n🔄 Key rotation test:")
+        print("\n🔄 Key rotation test:")
         old_key_id = encryption_manager.get_active_key_id()
         rotation_result = await encryption_manager.rotate_encryption_keys()
         new_key_id = encryption_manager.get_active_key_id()
@@ -87,7 +87,7 @@ async def main():
 
         # Encryption statistics
         stats = encryption_manager.get_encryption_stats()
-        print(f"\n📊 Encryption statistics:")
+        print("\n📊 Encryption statistics:")
         print(f"   Total keys: {stats['total_keys']}")
         print(f"   Active keys: {stats['active_keys']}")
         print(f"   Expired keys: {stats['expired_keys']}")
@@ -105,7 +105,7 @@ async def main():
         encryption_key = await key_manager.generate_key(KeyType.ENCRYPTION, algorithm="RSA-2048")
         backup_key = await key_manager.generate_key(KeyType.BACKUP, algorithm="Fernet")
 
-        print(f"🔑 Generated keys:")
+        print("🔑 Generated keys:")
         print(f"   Data key: {data_key.key_id} ({data_key.algorithm.value})")
         print(f"   Encryption key: {encryption_key.key_id} ({encryption_key.algorithm.value})")
         print(f"   Backup key: {backup_key.key_id} ({backup_key.algorithm.value})")
@@ -118,27 +118,27 @@ async def main():
         # List keys
         all_keys = await key_manager.list_keys()
         data_keys = await key_manager.list_keys(key_type=KeyType.DATA)
-        print(f"📋 Key listing:")
+        print("📋 Key listing:")
         print(f"   Total keys: {len(all_keys)}")
         print(f"   Data keys: {len(data_keys)}")
 
         # Key statistics
         key_stats = await key_manager.get_key_statistics()
-        print(f"📊 Key statistics:")
+        print("📊 Key statistics:")
         print(f"   Total keys: {key_stats['total_keys']}")
         print(f"   Active keys: {key_stats['active_keys']}")
         print(f"   Keys by type: {key_stats['keys_by_type']}")
         print(f"   Keys by algorithm: {key_stats['keys_by_algorithm']}")
 
         # Key rotation
-        print(f"\n🔄 Key rotation test:")
+        print("\n🔄 Key rotation test:")
         new_rotated_key = await key_manager.rotate_key(data_key.key_id)
         print(f"   Original key: {data_key.key_id}")
         print(f"   Rotated key: {new_rotated_key.key_id}")
         print(f"   Rotation successful: {new_rotated_key is not None}")
 
         # Key revocation
-        print(f"\n❌ Key revocation test:")
+        print("\n❌ Key revocation test:")
         revoke_result = await key_manager.revoke_key(encryption_key.key_id, "Test revocation")
         print(f"   Revocation successful: {revoke_result}")
 
@@ -189,7 +189,7 @@ async def main():
             MockVectorStore("2", sample_docs_2)
         ]
 
-        print(f"📦 Mock stores created:")
+        print("📦 Mock stores created:")
         print(f"   Store 1: {len(sample_docs_1)} documents")
         print(f"   Store 2: {len(sample_docs_2)} documents")
 
@@ -202,7 +202,7 @@ async def main():
             verify_after=True
         )
 
-        print(f"💾 Backup created:")
+        print("💾 Backup created:")
         print(f"   Backup ID: {backup_result.backup_id}")
         print(f"   Status: {backup_result.status.value}")
         print(f"   File size: {backup_result.file_size} bytes")
@@ -212,7 +212,7 @@ async def main():
 
         # Verify backup
         verification_result = await backup_manager.verify_backup_integrity(backup_result.backup_path)
-        print(f"✅ Backup verification:")
+        print("✅ Backup verification:")
         print(f"   Is valid: {verification_result.is_valid}")
         print(f"   Checksum match: {verification_result.checksum_match}")
         print(f"   Corruption check: {verification_result.corruption_check}")
@@ -225,7 +225,7 @@ async def main():
             print(f"   - {backup['backup_id']}: {backup['file_size']} bytes")
 
         # Test restore (with new mock stores)
-        print(f"\n🔄 Restore test:")
+        print("\n🔄 Restore test:")
         restore_stores = [
             MockVectorStore("restore_1", []),
             MockVectorStore("restore_2", [])

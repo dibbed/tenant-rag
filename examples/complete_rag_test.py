@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # اضافه کردن مسیر پروژه
 sys.path.insert(0, str(Path(__file__).parent))
@@ -51,7 +51,7 @@ class CompleteRAGTest:
             logger.error(f"❌ خطا در مقداردهی سیستم: {e}")
             return False
 
-    async def process_question(self, question: str) -> Dict[str, Any]:
+    async def process_question(self, question: str) -> dict[str, Any]:
         """پردازش کامل یک سوال"""
         try:
             logger.info(f"📝 پردازش سوال: {question}")
@@ -80,7 +80,7 @@ class CompleteRAGTest:
             logger.error(f"❌ خطا در پردازش سوال: {e}")
             return {
                 "question": question,
-                "answer": f"خطا در پردازش: {str(e)}",
+                "answer": f"خطا در پردازش: {e!s}",
                 "sources": [],
                 "processing_time": 0,
                 "answer_length": 0,
@@ -131,7 +131,7 @@ class CompleteRAGTest:
 
         print(f"💾 اطلاعات سیستم ذخیره شد: {system_file}")
 
-    def save_question_result(self, result: Dict[str, Any], question_num: int):
+    def save_question_result(self, result: dict[str, Any], question_num: int):
         """ذخیره نتیجه یک سوال"""
         question_file = (
             self.output_dir / f"question_{question_num:02d}_{self.timestamp}.txt"
@@ -161,7 +161,7 @@ class CompleteRAGTest:
 
         print(f"💾 سوال {question_num} ذخیره شد: {question_file}")
 
-    def save_summary(self, results: List[Dict[str, Any]]):
+    def save_summary(self, results: list[dict[str, Any]]):
         """ذخیره خلاصه نتایج"""
         summary_file = self.output_dir / f"summary_{self.timestamp}.txt"
 
@@ -203,7 +203,7 @@ class CompleteRAGTest:
 
         print(f"💾 خلاصه ذخیره شد: {summary_file}")
 
-    def print_question_result(self, result: Dict[str, Any]):
+    def print_question_result(self, result: dict[str, Any]):
         """نمایش نتیجه سوال"""
         print(f"\n📝 سوال: {result['question']}")
         print("-" * 80)
@@ -226,7 +226,7 @@ class CompleteRAGTest:
 
         print("-" * 80)
 
-    def print_summary(self, results: List[Dict[str, Any]]):
+    def print_summary(self, results: list[dict[str, Any]]):
         """نمایش خلاصه نتایج"""
         total_time = time.time() - self.start_time
         successful = sum(1 for r in results if r["success"])

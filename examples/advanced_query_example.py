@@ -13,12 +13,12 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock
 
 from ragbot.rag.query import (
-    QueryAggregator,
-    AggregationType,
     AdvancedFilter,
-    FilterOperator,
-    FilterCondition,
+    AggregationType,
     CustomScorer,
+    FilterCondition,
+    FilterOperator,
+    QueryAggregator,
     QueryOptimizer,
 )
 
@@ -51,6 +51,7 @@ async def main():
 
     # Mock async methods
     async def mock_get_documents_by_metadata(filters=None):
+        del filters
         return sample_docs
 
     async def mock_get_all_documents():

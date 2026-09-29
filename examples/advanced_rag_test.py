@@ -12,7 +12,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # اضافه کردن مسیر پروژه
 sys.path.insert(0, str(Path(__file__).parent))
@@ -58,7 +58,7 @@ class AdvancedRAGTest:
             logger.error(f"❌ خطا در مقداردهی سیستم: {e}")
             return False
 
-    async def test_basic_retrieval(self, question: str) -> Dict[str, Any]:
+    async def test_basic_retrieval(self, question: str) -> dict[str, Any]:
         """تست جستجوی پایه"""
         try:
             logger.info(f"🔍 تست جستجوی پایه: {question}")
@@ -85,7 +85,7 @@ class AdvancedRAGTest:
             return {
                 "type": "basic",
                 "question": question,
-                "answer": f"خطا در پردازش: {str(e)}",
+                "answer": f"خطا در پردازش: {e!s}",
                 "sources": [],
                 "processing_time": 0,
                 "answer_length": 0,
@@ -93,7 +93,7 @@ class AdvancedRAGTest:
                 "success": False,
             }
 
-    async def test_advanced_retrieval(self, question: str) -> Dict[str, Any]:
+    async def test_advanced_retrieval(self, question: str) -> dict[str, Any]:
         """تست جستجوی پیشرفته با Advanced Retrieval"""
         try:
             logger.info(f"🚀 تست جستجوی پیشرفته: {question}")
@@ -135,7 +135,7 @@ class AdvancedRAGTest:
             return {
                 "type": "advanced",
                 "question": question,
-                "answer": f"خطا در پردازش: {str(e)}",
+                "answer": f"خطا در پردازش: {e!s}",
                 "sources": [],
                 "processing_time": 0,
                 "answer_length": 0,
@@ -143,7 +143,7 @@ class AdvancedRAGTest:
                 "success": False,
             }
 
-    async def test_performance_comparison(self, question: str) -> Dict[str, Any]:
+    async def test_performance_comparison(self, question: str) -> dict[str, Any]:
         """تست مقایسه عملکرد"""
         try:
             logger.info(f"⚡ تست مقایسه عملکرد: {question}")
@@ -202,7 +202,7 @@ class AdvancedRAGTest:
                 "success": False,
             }
 
-    async def test_query_expansion(self, question: str) -> Dict[str, Any]:
+    async def test_query_expansion(self, question: str) -> dict[str, Any]:
         """تست گسترش پرسش"""
         try:
             logger.info(f"🔍 تست گسترش پرسش: {question}")
@@ -319,7 +319,7 @@ class AdvancedRAGTest:
 
         print(f"💾 اطلاعات سیستم ذخیره شد: {system_file}")
 
-    def save_test_result(self, result: Dict[str, Any], test_num: int):
+    def save_test_result(self, result: dict[str, Any], test_num: int):
         """ذخیره نتیجه یک تست"""
         test_file = self.output_dir / f"test_{test_num:02d}_{self.timestamp}.txt"
 
@@ -404,7 +404,7 @@ class AdvancedRAGTest:
 
         print(f"💾 تست {test_num} ذخیره شد: {test_file}")
 
-    def save_performance_analysis(self, results: List[Dict[str, Any]]):
+    def save_performance_analysis(self, results: list[dict[str, Any]]):
         """ذخیره تحلیل عملکرد"""
         analysis_file = self.output_dir / f"performance_analysis_{self.timestamp}.json"
 
@@ -476,7 +476,7 @@ class AdvancedRAGTest:
 
         print(f"💾 تحلیل عملکرد ذخیره شد: {analysis_file}")
 
-    def print_test_result(self, result: Dict[str, Any]):
+    def print_test_result(self, result: dict[str, Any]):
         """نمایش نتیجه تست"""
         print(f"\n🧪 تست: {result['type']}")
         print("-" * 80)
@@ -526,7 +526,7 @@ class AdvancedRAGTest:
 
         print("-" * 80)
 
-    def print_performance_summary(self, results: List[Dict[str, Any]]):
+    def print_performance_summary(self, results: list[dict[str, Any]]):
         """نمایش خلاصه عملکرد"""
         total_time = time.time() - self.start_time
         successful = sum(1 for r in results if r["success"])

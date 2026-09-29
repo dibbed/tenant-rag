@@ -17,7 +17,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from ragbot.configs.settings import settings
 from ragbot.outputs.logger import logger
@@ -46,7 +46,7 @@ async def main() -> None:
     integration = await get_integration_service()
 
     # Components
-    components: Dict[str, Any] = integration.components
+    components: dict[str, Any] = integration.components
     vector_store = components.get("vector_store")
     cache = components.get("cache")
     rag_service = components.get("rag_service")

@@ -6,17 +6,18 @@ This script benchmarks different vector store implementations to help users
 choose the best option for their use case based on performance metrics.
 """
 
-import asyncio
-import time
-import psutil
-import statistics
-from typing import Dict, List, Any, Optional
-from pathlib import Path
-import json
 import argparse
+import asyncio
+import json
+import statistics
+import time
+from pathlib import Path
+from typing import Any
 
-from ragbot.rag import VectorStoreFactory, VectorDocument
+import psutil
+
 from ragbot.outputs.logger import logger
+from ragbot.rag import VectorDocument, VectorStoreFactory
 
 
 class VectorStoreBenchmark:
@@ -43,9 +44,9 @@ class VectorStoreBenchmark:
         self.document_count = document_count
         self.embedding_dimension = embedding_dimension
         self.test_documents = self._generate_test_documents()
-        self.results: Dict[str, Dict[str, Any]] = {}
+        self.results: dict[str, dict[str, Any]] = {}
 
-    def _generate_test_documents(self) -> List[VectorDocument]:
+    def _generate_test_documents(self) -> list[VectorDocument]:
         """Generate test documents with random embeddings."""
         import random
 
@@ -72,7 +73,7 @@ class VectorStoreBenchmark:
 
         return documents
 
-    async def benchmark_store(self, store_type: str, **store_kwargs) -> Dict[str, Any]:
+    async def benchmark_store(self, store_type: str, **store_kwargs) -> dict[str, Any]:
         """
         Benchmark a specific store type.
 
@@ -211,8 +212,8 @@ class VectorStoreBenchmark:
             }
 
     async def run_all_benchmarks(
-        self, stores: Optional[List[str]] = None
-    ) -> Dict[str, Dict[str, Any]]:
+        self, stores: list[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         """
         Run benchmarks for all available stores.
 
@@ -235,7 +236,7 @@ class VectorStoreBenchmark:
             try:
                 result = await self.benchmark_store(store_type)
                 results[store_type] = result
-            except Exception as e:
+            except Exception as e:  # noqa: PERF203 - intentional per-iteration fault isolation
                 logger.error(f"Failed to benchmark {store_type}: {e}")
                 results[store_type] = {
                     "store_type": store_type,
@@ -245,7 +246,7 @@ class VectorStoreBenchmark:
 
         return results
 
-    def generate_report(self, results: Dict[str, Dict[str, Any]]) -> str:
+    def generate_report(self, results: dict[str, dict[str, Any]]) -> str:
         """
         Generate a human-readable benchmark report.
 
@@ -372,7 +373,7 @@ class VectorStoreBenchmark:
         return "\n".join(report)
 
     def save_results(
-        self, results: Dict[str, Dict[str, Any]], output_path: str
+        self, results: dict[str, dict[str, Any]], output_path: str
     ) -> None:
         """
         Save benchmark results to JSON file.
