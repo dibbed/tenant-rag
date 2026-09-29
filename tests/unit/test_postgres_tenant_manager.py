@@ -226,3 +226,68 @@ async def test_postgres_release_usage_compensates_failed_query() -> None:
     compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
     assert "UPDATE tenant_usage" in compiled
     assert "queries_count" in compiled
+
+
+
+@pytest.mark.asyncio
+async def test_postgres_manager_lists_users_without_process_local_dicts() -> None:
+    from datetime import datetime, timezone
+
+    from ragbot.database.models import TenantUserRecord
+
+    session = _session()
+    result = MagicMock()
+    result.all.return_value = [
+        TenantUserRecord(
+            user_id="user_1",
+            tenant_id="tenant_a",
+            username="alice",
+            email="alice@example.com",
+            role="user",
+            permissions=[],
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+    session.scalars.return_value = result
+    manager = TenantManager(session_factory=_SessionFactory(session))
+
+    users = await manager.list_tenant_users("tenant_a")
+
+    assert [user.user_id for user in users] == ["user_1"]
+    assert session.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_postgres_manager_lists_usage_for_date_range() -> None:
+    from datetime import date, datetime
+
+    from ragbot.database.models import TenantUsageRecord
+
+    session = _session()
+    result = MagicMock()
+    result.all.return_value = [
+        TenantUsageRecord(
+            tenant_id="tenant_a",
+            usage_date=date(2026, 9, 29),
+            documents_count=0,
+            queries_count=3,
+            storage_used_gb=0.0,
+            api_calls=0,
+            avg_response_time=0.0,
+            error_rate=0.0,
+            satisfaction_score=0.0,
+            cost_usd=0.0,
+        )
+    ]
+    session.scalars.return_value = result
+    manager = TenantManager(session_factory=_SessionFactory(session))
+
+    usage = await manager.list_tenant_usage(
+        "tenant_a",
+        start_date=datetime(2026, 9, 29, tzinfo=timezone.utc),
+        end_date=datetime(2026, 9, 29, 23, 59, tzinfo=timezone.utc),
+    )
+
+    assert len(usage) == 1
+    assert usage[0].queries_count == 3

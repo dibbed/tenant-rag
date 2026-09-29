@@ -12,16 +12,19 @@ from typing import Any
 from ragbot.database.engine import DatabaseRuntime
 from ragbot.database.mappers import (
     apply_tenant_to_records,
+    audit_from_record,
     audit_to_record,
     tenant_from_records,
     tenant_to_record,
     usage_from_record,
+    user_from_record,
 )
 from ragbot.database.repositories import (
     AuditRepository,
     QuotaRepository,
     TenantRepository,
     UsageRepository,
+    UserRepository,
 )
 from ragbot.database.tenant_context import set_system_context, set_tenant_context
 from ragbot.outputs.logger import logger
@@ -632,6 +635,69 @@ class TenantManager:
                 tenants.append(tenant_from_records(record, quota))
             return tenants
 
+
+
+    async def list_tenant_users(self, tenant_id: str) -> list[TenantUser]:
+        """Return tenant users from the authoritative persistence layer."""
+        if not self.uses_postgres:
+            return list(self.tenant_users.get(tenant_id, []))
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            records = await UserRepository(session).list_for_tenant(tenant_id)
+            return [user_from_record(record) for record in records]
+
+    async def get_tenant_user_count(self, tenant_id: str) -> int:
+        """Count users without exposing process-local persistence internals."""
+        if not self.uses_postgres:
+            return len(self.tenant_users.get(tenant_id, []))
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            return await UserRepository(session).count_for_tenant(tenant_id)
+
+    async def list_tenant_audit_logs(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 1000,
+    ) -> list[TenantAuditLog]:
+        """Return recent audit events for one tenant."""
+        if not self.uses_postgres:
+            logs = list(self.tenant_audit_logs.get(tenant_id, []))
+            return sorted(logs, key=lambda item: item.timestamp, reverse=True)[:limit]
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            records = await AuditRepository(session).list_for_tenant(
+                tenant_id,
+                limit=limit,
+            )
+            return [audit_from_record(record) for record in records]
+
+    async def list_tenant_usage(
+        self,
+        tenant_id: str,
+        *,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> list[TenantUsage]:
+        """Return usage rows for a tenant and inclusive date range."""
+        if not self.uses_postgres:
+            return [
+                usage
+                for usage in self.tenant_usage.get(tenant_id, [])
+                if start_date <= usage.date <= end_date
+            ]
+
+        async with self._begin_postgres() as session:
+            await set_tenant_context(session, tenant_id)
+            records = await UsageRepository(session).list_between(
+                tenant_id,
+                start_date.date(),
+                end_date.date(),
+            )
+            return [usage_from_record(record) for record in records]
 
     async def _pg_get_tenant_analytics(
         self, tenant_id: str, days: int
