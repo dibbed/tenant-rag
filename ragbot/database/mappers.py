@@ -224,7 +224,7 @@ def audit_from_record(audit: TenantAuditLogRecord) -> TenantAuditLog:
         details=dict(audit.details),
         ip_address=audit.ip_address,
         user_agent=audit.user_agent,
-        success=True if audit.success is None else audit.success,
+        success=audit.success,
         error_message=audit.error_message,
         timestamp=audit.created_at,
     )

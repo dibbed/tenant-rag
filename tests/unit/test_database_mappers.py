@@ -122,3 +122,21 @@ def test_user_api_key_usage_and_audit_records_restore_domain_models() -> None:
     assert usage.queries_count == 3
     assert audit.user_id == "user_1"
     assert audit.details == {"field": "name"}
+
+
+def test_audit_mapper_preserves_unknown_legacy_success() -> None:
+    now = datetime.now(timezone.utc)
+    audit = audit_from_record(
+        TenantAuditLogRecord(
+            id=2,
+            tenant_id="tenant_a",
+            user_id=None,
+            action="legacy_action",
+            resource="tenant",
+            details={},
+            success=None,
+            created_at=now,
+        )
+    )
+
+    assert audit.success is None

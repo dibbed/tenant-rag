@@ -154,10 +154,26 @@ def _normalize_usage(
     source_timezone: str | None,
 ) -> TenantUsage:
     payload = usage.model_dump()
-    payload["date"] = normalize_legacy_datetime(
-        payload.get("date"),
-        source_timezone=source_timezone,
-        field_name="tenant_usage.date",
+    value = payload.get("date")
+    if value is None:
+        raise LegacyMigrationError("tenant_usage.date must not be NULL")
+
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if parsed.tzinfo is None:
+        zone = _source_timezone(source_timezone)
+        if zone is None:
+            raise LegacyMigrationError(
+                "tenant_usage.date contains a naive timestamp; provide --source-timezone"
+            )
+        parsed = parsed.replace(tzinfo=zone)
+
+    # tenant_usage.date is a legacy daily bucket key, not an event timestamp.
+    # Preserve the source-local calendar date while storing an aware UTC marker
+    # so conversion to PostgreSQL DATE cannot shift the bucket by one day.
+    payload["date"] = datetime.combine(
+        parsed.date(),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
     )
     return TenantUsage.model_validate(payload)
 

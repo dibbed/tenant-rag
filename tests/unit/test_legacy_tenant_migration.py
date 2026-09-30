@@ -186,6 +186,21 @@ def test_naive_legacy_timestamp_requires_source_timezone() -> None:
         )
 
 
+def test_usage_daily_bucket_preserves_source_local_calendar_date() -> None:
+    usage = TenantUsage(
+        tenant_id="tenant_a",
+        date=datetime(2026, 9, 3, 0, 0, 0),
+        queries_count=1,
+    )
+
+    normalized = legacy_migration._normalize_usage(
+        usage,
+        source_timezone="Asia/Tehran",
+    )
+
+    assert normalized.date == datetime(2026, 9, 3, 0, 0, tzinfo=timezone.utc)
+
+
 def test_read_snapshot_preserves_hash_and_legacy_unknown_audit_fields(
     tmp_path: Path,
 ) -> None:
