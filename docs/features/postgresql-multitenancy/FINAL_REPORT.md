@@ -3,7 +3,7 @@
 **Project:** TenantRAG  
 **Phase:** Phase 5 — PostgreSQL Multi-Tenant Migration & Schema Unification  
 **Completion date:** 2026-09-30  
-**Verified implementation commit:** `af6da08d078558d321f41dbd7975a49664f1b450`
+**Verified implementation commit:** `2869f3e6ee1c628cd38a23db5e3b2c996f348173`
 
 ## Executive summary
 
@@ -90,6 +90,8 @@ The offline migrator:
 - refuses a non-empty PostgreSQL target;
 - runs target writes in a single transaction;
 - preserves API-key hashes verbatim;
+- preserves the source-local calendar date for legacy daily usage buckets while validating the declared source timezone;
+- preserves unknown legacy audit outcomes as `NULL`/unknown rather than coercing them to success;
 - does not invent missing legacy audit metadata;
 - documents that historical in-memory sessions cannot be migrated;
 - documents that historical usage may be incomplete;
@@ -105,12 +107,12 @@ The offline migrator:
 
 ## Verification results
 
-### Local final verification on `af6da08`
+### Local final verification on `2869f3e`
 
-- Full test suite: **1114 passed, 0 failed, 0 errors, 34 skipped**.
+- Full test suite: **1116 passed, 0 failed, 0 errors, 34 skipped**.
 - Security manifest: **358 collected, 358 present in the manifest**.
 - Focused Phase 5 database/security tests: passing.
-- Legacy migration tests: **7 passed**.
+- Legacy migration tests: **8 passed**.
 - Ruff blocking gate: **0 findings**.
 - MyPy blocking gate: **0 errors**.
 - Bandit blocking gate: **0 HIGH, 0 MEDIUM, 92 LOW**.
@@ -126,7 +128,7 @@ The local development/test environment contains additional optional/dev packages
 
 ### GitHub Actions verification
 
-Verification Pipeline run **#58** for commit `af6da08` completed successfully.
+Verification Pipeline run **#60** for commit `2869f3e` completed successfully.
 
 Blocking jobs confirmed successful include:
 
