@@ -243,6 +243,7 @@
     "tests/security/test_phase3_5_hardening.py::test_tenant_verification_rejects_missing_tenant",
     "tests/security/test_phase5_postgres_security.py::test_phase5_alembic_head_and_revisions",
     "tests/security/test_phase5_postgres_security.py::test_phase5_auth_bootstrap_does_not_return_sensitive_hashes",
+    "tests/security/test_phase5_postgres_security.py::test_phase5_auth_bootstrap_filters_revoked_credentials",
     "tests/security/test_phase5_postgres_security.py::test_phase5_auth_bootstrap_security_definer_and_isolation",
     "tests/security/test_phase5_postgres_security.py::test_phase5_cross_worker_revocation_guarantee",
     "tests/security/test_phase5_postgres_security.py::test_phase5_force_rls_on_all_tables",

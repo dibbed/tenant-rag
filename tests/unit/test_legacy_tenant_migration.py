@@ -22,6 +22,7 @@ from ragbot.database.legacy_migration import (
     normalize_legacy_datetime,
     read_legacy_snapshot,
 )
+from ragbot.database.models import TenantQuotaRecord, TenantRecord
 from ragbot.multi_tenant.models import TenantConfig, TenantUsage, TenantUser
 
 
@@ -230,6 +231,33 @@ def test_dry_run_reports_known_legacy_limitations(tmp_path: Path) -> None:
     assert any("process memory" in warning for warning in report.warnings)
     assert any("authenticate again" in warning for warning in report.warnings)
 
+
+
+@pytest.mark.asyncio
+async def test_insert_snapshot_flushes_parent_tenant_before_quota(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = AsyncMock()
+    session.add = MagicMock()
+    events: list[tuple[str, type[Any] | None]] = []
+    session.add.side_effect = lambda record: events.append(("add", type(record)))
+
+    async def record_flush() -> None:
+        events.append(("flush", None))
+
+    session.flush.side_effect = record_flush
+    monkeypatch.setattr(legacy_migration, "set_tenant_context", AsyncMock())
+    snapshot = LegacySnapshot(
+        tenants=[TenantConfig(tenant_id="tenant_ordered", name="Ordered Legacy")]
+    )
+
+    await legacy_migration._insert_snapshot(session, snapshot)
+
+    assert events[:3] == [
+        ("add", TenantRecord),
+        ("flush", None),
+        ("add", TenantQuotaRecord),
+    ]
 
 
 @pytest.mark.asyncio

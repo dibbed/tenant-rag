@@ -155,6 +155,7 @@ class TenantManager:
         async with self._begin_postgres() as session:
             await set_tenant_context(session, tenant_id)
             await TenantRepository(session).add(tenant_record)
+            await session.flush()
             await QuotaRepository(session).add(quota_record)
             await AuditRepository(session).add(audit_to_record(audit))
 

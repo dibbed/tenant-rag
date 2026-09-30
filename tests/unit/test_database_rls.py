@@ -35,7 +35,7 @@ def _offline_sql() -> str:
 
 def test_rls_migration_is_current_head() -> None:
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == ["phase5_0004"]
+    assert scripts.get_heads() == ["phase5_0005"]
 
 
 def test_all_tenant_tables_enable_row_level_security() -> None:

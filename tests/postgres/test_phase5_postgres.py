@@ -688,8 +688,11 @@ async def test_quota_concurrent_limit() -> None:
             await connection.execute(
                 text(
                     """
-                    INSERT INTO public.tenant_quotas (tenant_id, max_users, max_documents, max_storage_gb, max_queries_per_day, features)
-                    VALUES (:t, 10, 100, 10.0, 1000, '{}'::jsonb)
+                    INSERT INTO public.tenant_quotas (
+                        tenant_id, max_users, max_documents, max_storage_gb,
+                        max_queries_per_day, max_concurrent_queries,
+                        retention_days, api_rate_limit
+                    ) VALUES (:t, 10, 100, 10.0, 1000, 10, 30, 100)
                     """
                 ),
                 {"t": tenant_id},

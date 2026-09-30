@@ -86,7 +86,34 @@ async def test_create_tenant_stages_tenant_quota_and_audit_in_one_transaction() 
     assert sum(isinstance(record, TenantQuotaRecord) for record in added) == 1
     assert sum(isinstance(record, TenantAuditLogRecord) for record in added) == 1
     assert session.execute.await_count == 2
+    assert session.flush.await_count == 1
     session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_tenant_flushes_parent_before_quota() -> None:
+    session = _session()
+    events: list[tuple[str, type[Any] | None]] = []
+    session.add.side_effect = lambda record: events.append(("add", type(record)))
+
+    async def record_flush() -> None:
+        events.append(("flush", None))
+
+    session.flush.side_effect = record_flush
+    manager = TenantManager(session_factory=_SessionFactory(session))
+
+    await manager.create_tenant(
+        name="Ordered Corp",
+        tier=TenantTier.FREE,
+        plan=TenantPlan.MONTHLY,
+        tenant_id="tenant_ordered",
+    )
+
+    assert events[:3] == [
+        ("add", TenantRecord),
+        ("flush", None),
+        ("add", TenantQuotaRecord),
+    ]
 
 
 @pytest.mark.asyncio

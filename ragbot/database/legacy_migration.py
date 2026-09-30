@@ -357,6 +357,7 @@ async def _insert_snapshot(session: AsyncSession, snapshot: LegacySnapshot) -> N
         await set_tenant_context(session, tenant.tenant_id)
         tenant_record, quota_record = tenant_to_record(tenant)
         session.add(tenant_record)
+        await session.flush()
         session.add(quota_record)
         await session.flush()
 

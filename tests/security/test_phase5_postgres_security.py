@@ -59,7 +59,7 @@ def _offline_downgrade_sql() -> str:
 def test_phase5_alembic_head_and_revisions() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["phase5_0004"]
+    assert scripts.get_heads() == ["phase5_0005"]
 
 
 def test_phase5_rls_enabled_on_all_tables() -> None:
@@ -135,6 +135,12 @@ def test_phase5_auth_bootstrap_does_not_return_sensitive_hashes() -> None:
     session_func_sql = sql[session_func_start : session_func_start + 1200]
     returns_table = session_func_sql.split("RETURNS TABLE (")[1].split(")")[0]
     assert "token_hash" not in returns_table
+
+
+def test_phase5_auth_bootstrap_filters_revoked_credentials() -> None:
+    sql = _offline_upgrade_sql()
+    assert "AND k.is_active IS TRUE" in sql
+    assert "AND s.revoked_at IS NULL" in sql
 
 
 @pytest.mark.asyncio
