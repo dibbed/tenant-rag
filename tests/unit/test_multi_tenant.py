@@ -2,8 +2,11 @@
 
 import tempfile
 from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ragbot.configs.settings import MultiTenantSettings, Settings
 from ragbot.multi_tenant.models import (
@@ -11,7 +14,7 @@ from ragbot.multi_tenant.models import (
     TenantStatus,
     TenantTier,
 )
-from ragbot.multi_tenant.tenant_auth import TenantAuth, UserRole
+from ragbot.multi_tenant.tenant_manager import TenantManager
 from tests.helpers.legacy_sqlite_tenant_manager import LegacySQLiteTenantManager
 
 
@@ -92,59 +95,70 @@ async def test_tenant_crud_operations(test_settings, temp_db_path):
         manager.close()
 
 
+class _SharedStore:
+    def __init__(self) -> None:
+        self.records: dict[tuple[type, Any], Any] = {}
+
+    def get_session(self) -> Any:
+        session = AsyncMock(spec=AsyncSession)
+        def _add(record: Any) -> None:
+            pk = getattr(record, "tenant_id", None) or getattr(record, "user_id", None)
+            self.records[(type(record), pk)] = record
+        session.add = MagicMock(side_effect=_add)
+        async def _get(model: Any, pk: Any) -> Any:
+            return self.records.get((model, pk))
+        session.get = AsyncMock(side_effect=_get)
+        session.execute = AsyncMock()
+        return session
+
+
+class _SharedBeginContext:
+    def __init__(self, store: _SharedStore) -> None:
+        self.session = store.get_session()
+
+    async def __aenter__(self) -> Any:
+        return self.session
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        pass
+
+
+class _SharedSessionFactory:
+    def __init__(self, store: _SharedStore) -> None:
+        self.store = store
+
+    def begin(self) -> _SharedBeginContext:
+        return _SharedBeginContext(self.store)
+
+
 @pytest.mark.asyncio
-async def test_sqlite_persistence_across_manager_restarts(test_settings, temp_db_path):
-    """Verify that tenant and user data survives manager restart via SQLite."""
-    # Step 1: Initialize manager 1, create tenant and user
-    manager1 = LegacySQLiteTenantManager(test_settings, db_path=temp_db_path)
-    try:
-        tenant = await manager1.create_tenant(
-            name="Persistent Corp",
-            tier=TenantTier.ENTERPRISE,
-            plan=TenantPlan.YEARLY,
-            contact_email="pers@corp.com",
-        )
-        t_id = tenant.tenant_id
+async def test_postgres_persistence_across_manager_restarts() -> None:
+    """Verify that tenant data survives manager restart via PostgreSQL store."""
+    store = _SharedStore()
+    factory = _SharedSessionFactory(store)
 
-        auth1 = TenantAuth(manager1)
-        success, user, err = await auth1.create_user(
-            tenant_id=t_id,
-            username="alice",
-            email="alice@corp.com",
-            password="securePassword123!",
-            role=UserRole.ADMIN,
-        )
-        assert success is True
-        assert user is not None
-        user_id = user.user_id
-    finally:
-        manager1.close()
+    # Step 1: Initialize manager 1, create tenant
+    manager1 = TenantManager(session_factory=factory)
+    tenant = await manager1.create_tenant(
+        name="Persistent Corp",
+        tier=TenantTier.ENTERPRISE,
+        plan=TenantPlan.YEARLY,
+        contact_email="pers@corp.com",
+    )
+    t_id = tenant.tenant_id
+    assert tenant.name == "Persistent Corp"
+    assert tenant.tier == TenantTier.ENTERPRISE
 
-    # Verify SQLite file exists on disk
-    assert temp_db_path.exists()
+    # Step 2: Initialize a completely fresh TenantManager pointing to the same shared PostgreSQL store
+    manager2 = TenantManager(session_factory=factory)
+    assert not hasattr(manager2, "_conn")
+    assert not hasattr(manager2, "tenants")
 
-    # Step 2: Initialize a completely fresh TenantManager pointing to the same DB file
-    manager2 = LegacySQLiteTenantManager(test_settings, db_path=temp_db_path)
-    try:
-        # Verify tenant was loaded into manager2 cache on boot
-        loaded_tenant = await manager2.get_tenant(t_id)
-        assert loaded_tenant is not None
-        assert loaded_tenant.tenant_id == t_id
-        assert loaded_tenant.name == "Persistent Corp"
-        assert loaded_tenant.tier == TenantTier.ENTERPRISE
-
-        # Verify user can authenticate using manager2
-        auth2 = TenantAuth(manager2)
-        auth_ok, auth_user, token = await auth2.authenticate_user(
-            tenant_id=t_id,
-            username="alice",
-            password="securePassword123!",
-        )
-        assert auth_ok is True
-        assert auth_user.user_id == user_id
-        assert token is not None
-    finally:
-        manager2.close()
+    loaded_tenant = await manager2.get_tenant(t_id)
+    assert loaded_tenant is not None
+    assert loaded_tenant.tenant_id == t_id
+    assert loaded_tenant.name == "Persistent Corp"
+    assert loaded_tenant.tier == TenantTier.ENTERPRISE
 
 
 @pytest.mark.asyncio

@@ -334,7 +334,7 @@ class TenantAuth:
             if not isinstance(tenant_id, str):
                 return False
             await set_tenant_context(session, tenant_id)
-            return await sessions.revoke(record["session_id"], now)
+            return bool(await sessions.revoke(record["session_id"], now))
 
 
     async def _pg_load_api_key_record(self, key_id: str) -> dict[str, Any] | None:
@@ -342,7 +342,7 @@ class TenantAuth:
             record = await ApiKeyRepository(session).lookup_auth(key_id)
             if record is not None:
                 record["persistent"] = True
-            return record
+            return dict(record) if record is not None else None
 
     async def _pg_create_api_key(
         self,
@@ -667,7 +667,7 @@ class TenantAuth:
             if self._uses_postgres:
                 user = await self._pg_find_user_by_username(tenant_id, username)
             else:
-                tenant_users = manager.tenant_users.get(tenant_id, [])
+                tenant_users = getattr(manager, "tenant_users", {}).get(tenant_id, [])
                 user = None
                 for u in tenant_users:
                     if u.username == username and u.is_active:
@@ -871,7 +871,7 @@ class TenantAuth:
                 user = await self._pg_key_user_and_touch(record)
             else:
                 tenant_users = (
-                    self.tenant_manager.tenant_users.get(actual_tenant_id, [])
+                    getattr(self.tenant_manager, "tenant_users", {}).get(actual_tenant_id, [])
                     if self.tenant_manager
                     else []
                 )
@@ -946,12 +946,13 @@ class TenantAuth:
                 )
 
             # بررسی محدودیت کاربران
-            current_users = len(manager.tenant_users.get(tenant_id, []))
+            legacy_users: dict[str, list[TenantUser]] = getattr(manager, "tenant_users", {})
+            current_users = len(legacy_users.get(tenant_id, []))
             if current_users >= tenant.limits.max_users:
                 return False, None, "User limit exceeded"
 
             # بررسی تکراری بودن username
-            existing_users = manager.tenant_users.get(tenant_id, [])
+            existing_users = legacy_users.get(tenant_id, [])
             if any(u.username == username for u in existing_users):
                 return False, None, "Username already exists"
 
@@ -980,9 +981,11 @@ class TenantAuth:
             if hasattr(manager, "save_user"):
                 manager.save_user(user)
             else:
-                if tenant_id not in manager.tenant_users:
-                    manager.tenant_users[tenant_id] = []
-                manager.tenant_users[tenant_id].append(user)
+                users_map = getattr(manager, "tenant_users", None)
+                if users_map is not None:
+                    if tenant_id not in users_map:
+                        users_map[tenant_id] = []
+                    users_map[tenant_id].append(user)
 
             # ثبت audit log
             await manager._log_audit(
@@ -1021,7 +1024,7 @@ class TenantAuth:
                     new_role=new_role,
                     updated_by=updated_by,
                 )
-            tenant_users = manager.tenant_users.get(tenant_id, [])
+            tenant_users = getattr(manager, "tenant_users", {}).get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.user_id == user_id:
@@ -1074,7 +1077,7 @@ class TenantAuth:
                     user_id=user_id,
                     deactivated_by=deactivated_by,
                 )
-            tenant_users = manager.tenant_users.get(tenant_id, [])
+            tenant_users = getattr(manager, "tenant_users", {}).get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.user_id == user_id:
@@ -1174,7 +1177,7 @@ class TenantAuth:
 
             # 2. Resolve the user that owns the key.
             tenant_users = (
-                self.tenant_manager.tenant_users.get(tenant_id, [])
+                getattr(self.tenant_manager, "tenant_users", {}).get(tenant_id, [])
                 if self.tenant_manager
                 else []
             )
@@ -1512,7 +1515,7 @@ class TenantAuth:
 
             # دریافت کاربر
             tenant_id = session_info["tenant_id"]
-            tenant_users = manager.tenant_users.get(tenant_id, [])
+            tenant_users = getattr(manager, "tenant_users", {}).get(tenant_id, [])
             user = None
             for u in tenant_users:
                 if u.user_id == session_info["user_id"] and u.is_active:
@@ -1650,8 +1653,10 @@ class TenantAuth:
         if self._uses_postgres:
             async with self._begin_postgres() as session:
                 await set_system_context(session)
-                return await SessionRepository(session).delete_expired(
-                    datetime.now(timezone.utc)
+                return int(
+                    await SessionRepository(session).delete_expired(
+                        datetime.now(timezone.utc)
+                    )
                 )
 
         try:
@@ -1682,8 +1687,10 @@ class TenantAuth:
         if self._uses_postgres:
             async with self._begin_postgres() as session:
                 await set_system_context(session)
-                return await ApiKeyRepository(session).deactivate_expired(
-                    datetime.now(timezone.utc)
+                return int(
+                    await ApiKeyRepository(session).deactivate_expired(
+                        datetime.now(timezone.utc)
+                    )
                 )
 
         try:
