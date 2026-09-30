@@ -285,11 +285,14 @@ class TestVectorStoreChunkerIntegration(TestVectorStoreRAGIntegration):
                 )
                 mock_chroma_class.return_value = mock_store
 
-                store = await VectorStoreFactory.create_store(
-                    store_type="chroma",
-                    config=sample_config,
-                    collection_name="test_collection",
-                )
+                with patch.object(
+                    VectorStoreFactory, "_check_dependencies", return_value=True
+                ):
+                    store = await VectorStoreFactory.create_store(
+                        store_type="chroma",
+                        config=sample_config,
+                        collection_name="test_collection",
+                    )
 
                 # Test adding hierarchical chunks
                 result = await store.add_chunks(mock_chunks)

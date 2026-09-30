@@ -81,6 +81,14 @@ def expected_checks(versions: list[str]) -> list[dict[str, Any]]:
     ]
     rows.append(
         {
+            "key": ("postgresql", ""),
+            "title": "PostgreSQL Verification",
+            "mode": "blocking",
+            "job": "postgresql",
+        }
+    )
+    rows.append(
+        {
             "key": ("dependency-audit", ""),
             "title": "Dependency Vulnerability Check",
             "mode": "blocking",

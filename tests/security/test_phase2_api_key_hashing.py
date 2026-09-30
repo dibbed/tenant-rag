@@ -39,8 +39,8 @@ from ragbot.multi_tenant.api_key_hashing import (
 )
 from ragbot.multi_tenant.models import TenantApiKey, TenantTier
 from ragbot.multi_tenant.tenant_auth import Permission, TenantAuth, UserRole
-from ragbot.multi_tenant.tenant_manager import TenantManager
 from ragbot.services.rag_service import QueryResult
+from tests.helpers.legacy_sqlite_tenant_manager import LegacySQLiteTenantManager
 
 KEY_FORMAT = re.compile(r"^rgb_[0-9a-f]{32}_[A-Za-z0-9_-]{43}$")
 TENANT = "tenant_keys"
@@ -62,7 +62,7 @@ def db_path(tmp_path):
 
 @pytest.fixture
 def manager(db_path):
-    mgr = TenantManager(_settings(db_path), db_path=db_path)
+    mgr = LegacySQLiteTenantManager(_settings(db_path), db_path=db_path)
     yield mgr
     mgr.close()
 
@@ -194,7 +194,7 @@ async def test_valid_api_key_authenticates_after_restart(db_path, manager, auth)
     ok, raw_key, err = await auth.create_api_key(tenant_id=TENANT, name="svc")
     assert ok, err
 
-    manager2 = TenantManager(_settings(db_path), db_path=db_path)
+    manager2 = LegacySQLiteTenantManager(_settings(db_path), db_path=db_path)
     try:
         auth2 = TenantAuth(manager2)
         ok_auth, principal, error = await auth2.authenticate_principal(raw_key)
@@ -292,7 +292,7 @@ async def test_revocation_by_another_process_takes_effect_immediately(db_path, m
     assert ok, err
     assert (await auth.authenticate_principal(raw_key))[0] is True
 
-    other_process = TenantManager(_settings(db_path), db_path=db_path)
+    other_process = LegacySQLiteTenantManager(_settings(db_path), db_path=db_path)
     try:
         assert other_process.revoke_api_key(parse_api_key(raw_key).key_id, tenant_id=TENANT)
     finally:

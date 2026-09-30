@@ -220,7 +220,7 @@ class TenantAuditLog(BaseModel):
     user_agent: str | None = Field(default=None, description="User Agent")
 
     # نتیجه
-    success: bool = Field(default=True, description="موفقیت")
+    success: bool | None = Field(default=True, description="موفقیت")
     error_message: str | None = Field(default=None, description="پیام خطا")
 
     # زمان

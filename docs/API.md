@@ -42,7 +42,7 @@ When multi-tenancy is enabled (`MULTI_TENANT_ENABLED=true`), API endpoints enfor
    - **Reset Authorization**: `/api/v1/documents/reset` requires `system_admin` (role `super_admin`), `tenant_admin` (role `admin`) of the target tenant, or the explicit `delete_documents` permission on that tenant. Other principals receive `403 Forbidden`.
 3. **Cryptographic Key Storage**:
    - Raw keys follow the format `rgb_<key_id>_<secret>` (`key_id`: 32 hex characters used for lookup; `secret`: `secrets.token_urlsafe(32)`) and are only displayed once upon generation.
-   - Keys are stored only as salted scrypt hashes (`key_hash`, format `scrypt$n$r$p$salt$hash`) in SQLite (`data/tenants/tenants.db`). Legacy SHA-256 keys are rejected with a migration error (see SECURITY.md, 'API key migration').
+   - Keys are stored only as salted scrypt hashes (`key_hash`, format `scrypt$n$r$p$salt$hash`) in PostgreSQL `tenant_api_keys`, protected by tenant RLS. Legacy SHA-256 keys are rejected with a migration error (see SECURITY.md, 'API key migration').
    - Listing keys (`tenantrag tenant list-api-keys`) masks secrets, displaying only a 12-character prefix (`rgb_...`) and metadata.
 4. **Single-Tenant Mode**:
    - When multi-tenancy is disabled (`MULTI_TENANT_ENABLED=false`, the default), API requests are rejected with `HTTP 401` unless `ENVIRONMENT=development` and `ALLOW_ANONYMOUS=true` are both set (insecure local development mode). Health checks stay open.

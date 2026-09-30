@@ -157,15 +157,17 @@ class TenantAnalytics:
                 return {"error": "Tenant not found"}
 
             # دریافت کاربران tenant
-            tenant_users = self.tenant_manager.tenant_users.get(tenant_id, [])
+            tenant_users = await self.tenant_manager.list_tenant_users(tenant_id)
 
             # دریافت audit logs
-            audit_logs = self.tenant_manager.tenant_audit_logs.get(tenant_id, [])
+            audit_logs = await self.tenant_manager.list_tenant_audit_logs(tenant_id)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
 
             filtered_logs = [
-                log for log in audit_logs if start_date <= log.timestamp <= end_date
+                log
+                for log in audit_logs
+                if start_date.date() <= log.timestamp.date() <= end_date.date()
             ]
 
             # تحلیل فعالیت کاربران
@@ -329,12 +331,14 @@ class TenantAnalytics:
                 return {"error": "Tenant not found"}
 
             # دریافت audit logs
-            audit_logs = self.tenant_manager.tenant_audit_logs.get(tenant_id, [])
+            audit_logs = await self.tenant_manager.list_tenant_audit_logs(tenant_id)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
 
             filtered_logs = [
-                log for log in audit_logs if start_date <= log.timestamp <= end_date
+                log
+                for log in audit_logs
+                if start_date.date() <= log.timestamp.date() <= end_date.date()
             ]
 
             # تحلیل امنیتی
@@ -401,7 +405,13 @@ class TenantAnalytics:
     async def _get_daily_usage(self, tenant_id: str, date: date) -> dict[str, Any]:
         """دریافت آمار استفاده روزانه"""
         try:
-            usage_records = self.tenant_manager.tenant_usage.get(tenant_id, [])
+            start = datetime(date.year, date.month, date.day)
+            end = start + timedelta(days=1) - timedelta(microseconds=1)
+            usage_records = await self.tenant_manager.list_tenant_usage(
+                tenant_id,
+                start_date=start,
+                end_date=end,
+            )
 
             for usage in usage_records:
                 if usage.date.date() == date:
@@ -442,13 +452,11 @@ class TenantAnalytics:
             if not start_date:
                 start_date = datetime.now() - timedelta(days=days)
 
-            usage_records = self.tenant_manager.tenant_usage.get(tenant_id, [])
-
-            filtered_usage = [
-                usage
-                for usage in usage_records
-                if start_date <= usage.date <= datetime.now()
-            ]
+            filtered_usage = await self.tenant_manager.list_tenant_usage(
+                tenant_id,
+                start_date=start_date,
+                end_date=datetime.now(),
+            )
 
             if not filtered_usage:
                 return {
@@ -508,10 +516,10 @@ class TenantAnalytics:
     ) -> list[dict[str, Any]]:
         """دریافت آخرین فعالیت‌ها"""
         try:
-            audit_logs = self.tenant_manager.tenant_audit_logs.get(tenant_id, [])
-
-            # مرتب‌سازی بر اساس زمان
-            sorted_logs = sorted(audit_logs, key=lambda x: x.timestamp, reverse=True)
+            sorted_logs = await self.tenant_manager.list_tenant_audit_logs(
+                tenant_id,
+                limit=limit,
+            )
 
             activities = [
                 {
@@ -585,7 +593,9 @@ class TenantAnalytics:
                 ),
                 "users_percentage": min(
                     (
-                        len(self.tenant_manager.tenant_users.get(tenant.tenant_id, []))
+                        await self.tenant_manager.get_tenant_user_count(
+                            tenant.tenant_id
+                        )
                         / limits.max_users
                     )
                     * 100,

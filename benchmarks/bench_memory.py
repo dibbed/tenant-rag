@@ -5,7 +5,7 @@ Benchmark: Process Memory Footprint (RSS)
 Measures:
 - Baseline Python process memory (idle)
 - Memory after importing core modules (FastAPI, FAISS, PyTorch)
-- Memory after initializing TenantManager and loading vector store
+- Memory after initializing the vector store
 - Memory after indexing N document chunks
 
 Usage:
@@ -47,14 +47,12 @@ async def run_benchmark_async(chunk_count: int) -> dict[str, Any]:
     stages["01_baseline_idle_mb"] = get_rss_mb()
 
     # Import heavy packages
-    from ragbot.multi_tenant.tenant_manager import TenantManager
     from ragbot.rag.store.base import VectorDocument
     from ragbot.rag.store.faiss_store import FAISSVectorStore
 
     stages["02_after_imports_mb"] = get_rss_mb()
 
-    # Initialize TenantManager
-    _tm = TenantManager(db_path=Path("data/tenants/bench_tenants.db"))
+    # Initialize the vector store. Tenant metadata persistence is benchmarked separately against PostgreSQL.
     store = FAISSVectorStore(dimension=384, store_path="data/vector_stores/bench_mem")
 
     stages["03_after_init_empty_store_mb"] = get_rss_mb()

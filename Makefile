@@ -1,5 +1,5 @@
 # Makefile for TenantRAG Development
-.PHONY: help setup setup-dev test lint type-check bandit security format clean build deploy all verify verify-tests verify-security verify-static verify-deps verify-container security-manifest
+.PHONY: help setup setup-dev test lint type-check bandit security format clean build deploy all verify verify-tests verify-security verify-static verify-postgres verify-deps verify-container security-manifest
 
 ## 📋 Help
 help:  ## Show this help message
@@ -66,7 +66,7 @@ security:  ## Run blocking security, Bandit, and dependency checks
 
 ## Verification Pipeline: the checks of .github/workflows/ci.yml, run locally
 ## (docs/features/security-verification-pipeline/README.md)
-.PHONY: verify verify-tests verify-security verify-static verify-deps verify-container security-manifest
+.PHONY: verify verify-tests verify-security verify-static verify-postgres verify-deps verify-container security-manifest
 verify:  ## Run every Verification Pipeline check and print the Verification Summary
 	@bash scripts/verify_pipeline.sh all
 
@@ -78,6 +78,9 @@ verify-security:  ## Run the Security Regression Suite (the Redis tests need TES
 
 verify-static:  ## Run Ruff, MyPy, and Bandit as Blocking Checks
 	@bash scripts/verify_pipeline.sh static
+
+verify-postgres:  ## Run Alembic + real PostgreSQL RLS/auth checks (requires TEST_DATABASE_URL)
+	@bash scripts/verify_pipeline.sh postgres
 
 verify-deps:  ## Run the Dependency Vulnerability Check (pip-audit and OSV)
 	@bash scripts/verify_pipeline.sh deps

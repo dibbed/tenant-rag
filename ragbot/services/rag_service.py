@@ -1097,7 +1097,7 @@ class RAGService:
                     processing_time=0.0,
                     error_message=f"Tenant '{tenant_id}' is not active or does not exist",
                 )
-            can_proceed = await self.tenant_manager.check_tenant_limits(
+            can_proceed = await self.tenant_manager.reserve_tenant_usage(
                 tenant_id, "document"
             )
             if not can_proceed:
@@ -1215,7 +1215,7 @@ class RAGService:
 
             # Track tenant usage
             if tenant_id and self.tenant_manager:
-                await self.tenant_manager.track_tenant_usage(
+                await self.tenant_manager.finalize_tenant_usage(
                     tenant_id,
                     "document",
                     metadata={"chunks": len(chunks), "document_id": document_id},
@@ -1257,6 +1257,12 @@ class RAGService:
                 self.component_error_counts["embedder"] += 1
             elif "store" in str(e).lower() or "vector" in str(e).lower():
                 self.component_error_counts["vector_store"] += 1
+
+            # Release a reserved quota slot because the ingest did not succeed.
+            if tenant_id and self.tenant_manager:
+                await self.tenant_manager.release_tenant_usage(
+                    tenant_id, "document"
+                )
 
             # Record failed ingest metrics
             self._record_metric("ingest_duration", processing_time)
@@ -1431,7 +1437,7 @@ class RAGService:
                     language=lang,
                     metadata={"error": "tenant_inactive_or_not_found", "tenant_id": tenant_id},
                 )
-            can_proceed = await self.tenant_manager.check_tenant_limits(
+            can_proceed = await self.tenant_manager.reserve_tenant_usage(
                 tenant_id, "query"
             )
             if not can_proceed:
@@ -1496,6 +1502,12 @@ class RAGService:
                         HookType.POST_RESPONSE,
                         {"result": cached_qr, "tenant_id": tenant_id},
                     )
+                    if tenant_id and self.tenant_manager:
+                        await self.tenant_manager.finalize_tenant_usage(
+                            tenant_id,
+                            "query",
+                            metadata={"cached": True},
+                        )
                     return cached_qr
             except Exception as e:
                 logger.warning(f"Error checking semantic cache: {e}")
@@ -1809,7 +1821,7 @@ class RAGService:
 
             # Track tenant usage
             if tenant_id and self.tenant_manager:
-                await self.tenant_manager.track_tenant_usage(
+                await self.tenant_manager.finalize_tenant_usage(
                     tenant_id,
                     "query",
                     metadata={
@@ -1839,6 +1851,8 @@ class RAGService:
             # Security (C1): a tenant storage failure must fail closed. Do not turn it
             # into a degraded answer that could come from another store; let the API
             # layer return an explicit error.
+            if tenant_id and self.tenant_manager:
+                await self.tenant_manager.release_tenant_usage(tenant_id, "query")
             self._increment_counter("failed_queries")
             raise
         except Exception as e:
@@ -1881,6 +1895,9 @@ class RAGService:
                 self.component_error_counts["vector_store"] += 1
             elif "answer" in str(e).lower() or "generate" in str(e).lower():
                 self.component_error_counts["qa_chain"] += 1
+
+            if tenant_id and self.tenant_manager:
+                await self.tenant_manager.release_tenant_usage(tenant_id, "query")
 
             # Record failed query metrics
             self._record_metric("query_duration", processing_time)
@@ -2463,6 +2480,12 @@ class RAGService:
             document_count=document_count,
             last_query_time=self.last_query_time,
         )
+
+    async def shutdown(self) -> None:
+        """Release resources owned by the RAG service."""
+        tenant_manager = getattr(self, "tenant_manager", None)
+        if tenant_manager is not None and hasattr(tenant_manager, "aclose"):
+            await tenant_manager.aclose()
 
     async def health_check(self) -> dict[str, Any]:
         """

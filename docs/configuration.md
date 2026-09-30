@@ -118,14 +118,17 @@ Fine-tunes the asynchronous HTML and web document ingestion engine.
 
 ## 9. Multi-Tenant Subsystem Settings
 
-Configures tenant isolation, SQLite storage, API key authentication, and quota management.
+Configures tenant isolation, PostgreSQL-backed tenant metadata, API key/session authentication, and quota management.
 
 | Environment Variable | Type | Default | Description |
 |:---|:---|:---|:---|
-| `MULTI_TENANT_ENABLED` | `boolean` | `false` | Enable multi-tenant data, cache partitioning, and API key authentication. |
+| `MULTI_TENANT_ENABLED` | `boolean` | `false` | Enable multi-tenant data, cache partitioning, and API key authentication. When enabled, `DATABASE_URL` must be PostgreSQL; SQLite is rejected. |
+| `DATABASE_URL` | `string` | `sqlite:///./data/ragbot.db` | General database setting. Multi-tenant runtime requires a PostgreSQL/`asyncpg` URL for a non-owner runtime role. Run Alembic with separate migration-owner credentials. |
 | `MULTI_TENANT_DEFAULT_TIER` | `string` | `"free"` | Default subscription tier (`free`, `basic`, `premium`, `enterprise`). |
-| `MULTI_TENANT_DATA_DIR` | `string` | `"./data/tenants"` | Storage location for `tenants.db` and SQLite metadata. |
+| `MULTI_TENANT_DATA_DIR` | `string` | `"./data/tenants"` | Legacy compatibility setting only; it is no longer the authoritative tenant metadata store. The offline migrator takes the old SQLite file via `--source`. |
 | `MULTI_TENANT_AUTO_PROVISION` | `boolean` | `false` | Automatically provision tenants on first detected request. |
+
+For deployment, migration, runtime-role grants, RLS assumptions, and SQLite cutover instructions, see [Phase 5 PostgreSQL Multi-Tenancy Operations](features/postgresql-multitenancy/README.md).
 
 ### CLI Key Management Commands
 When `MULTI_TENANT_ENABLED=true`, manage API keys via the CLI (both `tenantrag` and `ragbot-cli` work):

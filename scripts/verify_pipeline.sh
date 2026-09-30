@@ -11,7 +11,9 @@
 #              collected tests match tests/security/suite_manifest.json (Blocking).
 #              The Redis tests need a Redis server and TEST_REDIS_URL, for
 #              example TEST_REDIS_URL=redis://localhost:6379/15.
-#   static     Ruff and MyPy (Report-Only); Bandit HIGH/MEDIUM gate (Blocking)
+#   static     Ruff, MyPy, and Bandit (Blocking)
+#   postgres   Alembic head + real PostgreSQL RLS/auth verification (Blocking)
+#              Requires TEST_DATABASE_URL pointing to a disposable PostgreSQL DB.
 #   deps       Locked default install + Dependency Vulnerability Check (Blocking)
 #   container  Container Build Check: build, start, health, auth, non-root (Blocking, needs Docker)
 #   all        every check above
@@ -46,7 +48,7 @@ if [ "${#CHECKS[@]}" -eq 0 ]; then
 fi
 for check in "${CHECKS[@]}"; do
   case "$check" in
-    all|tests|security|static|deps|container) ;;
+    all|tests|security|static|postgres|deps|container) ;;
     -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "Unknown check: $check (see --help)" >&2; exit 2 ;;
   esac
@@ -86,12 +88,49 @@ if wants security; then
 fi
 
 if wants static; then
-  for tool in ruff mypy; do
-    # Report-Only Checks: findings remain visible and do not change the gate.
-    "$PY" scripts/verification/static_analysis.py "$tool" --mode report-only --report "$OUT/static-$tool.json" || true
+  for tool in ruff mypy bandit; do
+    blocking "$PY" scripts/verification/static_analysis.py "$tool" --mode blocking --report "$OUT/static-$tool.json"
   done
-  # Bandit is blocking on HIGH/MEDIUM findings. LOW findings stay visible.
-  blocking "$PY" scripts/verification/static_analysis.py bandit --mode blocking --report "$OUT/static-bandit.json"
+fi
+
+if wants postgres; then
+  if [ -z "${TEST_DATABASE_URL:-}" ]; then
+    echo "error: TEST_DATABASE_URL is required for the PostgreSQL Verification check." >&2
+    BLOCKING_FAILED=1
+  else
+    if ! DATABASE_URL="$TEST_DATABASE_URL" "$PY" -m alembic upgrade head; then
+      BLOCKING_FAILED=1
+    fi
+    if TEST_DATABASE_URL="$TEST_DATABASE_URL" "$PY" -m pytest tests/postgres/test_phase5_postgres.py -v --tb=short --no-cov; then
+      pg_status=0
+    else
+      pg_status=$?
+    fi
+    STATUS="$pg_status" REPORT_PATH="$OUT/postgresql.json" "$PY" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+status = int(os.environ["STATUS"])
+report = {
+    "check": "postgresql",
+    "title": "PostgreSQL Verification",
+    "mode": "blocking",
+    "status": "pass" if status == 0 else "fail",
+    "summary": (
+        "Alembic head plus real PostgreSQL RLS/auth verification passed"
+        if status == 0
+        else "Real PostgreSQL verification failed"
+    ),
+    "problems": [] if status == 0 else ["PostgreSQL pytest verification failed"],
+}
+path = Path(os.environ["REPORT_PATH"])
+path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+PY
+    if [ "$pg_status" -ne 0 ]; then
+      BLOCKING_FAILED=1
+    fi
+  fi
 fi
 
 if wants deps; then

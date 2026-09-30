@@ -19,10 +19,11 @@ def test_makefile_security_does_not_mask_tool_failures(repo_root):
     assert "||" not in security
 
 
-def test_local_pipeline_treats_bandit_as_blocking(repo_root):
+def test_local_pipeline_treats_all_static_tools_as_blocking(repo_root):
     text = (repo_root / "scripts" / "verify_pipeline.sh").read_text(encoding="utf-8")
-    assert "static_analysis.py bandit --mode blocking" in text
-    assert 'static_analysis.py "$tool" --mode report-only' in text
+    assert "for tool in ruff mypy bandit" in text
+    assert 'static_analysis.py "$tool" --mode blocking' in text
+    assert "report-only" not in text
 
 
 def test_generated_requirements_are_derived_from_uv_lock(repo_root):

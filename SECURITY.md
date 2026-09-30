@@ -56,7 +56,7 @@ This document defines the security model, tenant boundaries, credential storage,
 - Clients send the key in `X-API-Key: <key>` or `Authorization: Bearer <key>`.
 - The server parses the key id, loads that one record, and verifies the full key against the stored scrypt hash with a constant-time comparison (`hmac.compare_digest`).
 - The stored hash is never accepted as a credential, and there is no lookup by the raw presented value.
-- Revocation and expiry are read from SQLite on every request. A key revoked from the CLI (a different process) stops working immediately.
+- Revocation and expiry are read from PostgreSQL on every authentication path. A key revoked by another process or worker stops working immediately.
 - To avoid running scrypt on every request, each process remembers a successful verification for up to 5 minutes (the key id and a SHA-256 digest of the presented key, in memory only). The revocation and expiry checks still run on every request.
 - Users without a password hash (for example, users created automatically for an API key) cannot log in with a password.
 
@@ -66,12 +66,12 @@ Keys created before Phase 2 have the format `rgb_<token>` and are stored as unsa
 
 `Legacy API key format is no longer accepted. Issue a new API key and revoke the old one (see SECURITY.md, 'API key migration').`
 
-There is no automatic migration, because the server never had the raw keys. No database schema change is needed: new keys use the existing `tenant_api_keys` columns.
+There is no automatic secret conversion, because the server never had the raw legacy key material. The Phase 5 SQLite-to-PostgreSQL migrator copies legacy hashes verbatim so audit/history is preserved, but those credentials remain rejected and must be re-issued.
 
 For each tenant:
 
 1. Find the legacy keys. Query the database:
-   `SELECT key_id, tenant_id, name FROM tenant_api_keys WHERE is_active = 1 AND key_hash NOT LIKE 'scrypt$%';`
+   `SELECT key_id, tenant_id, name FROM tenant_api_keys WHERE is_active IS TRUE AND key_hash NOT LIKE 'scrypt$%';`
    or look for `hash_scheme: legacy-sha256` in the key listing.
 2. Issue a replacement key: `tenantrag tenant create-api-key --tenant-id <tenant_id> --name <name>`. Store the printed key in your secret manager. It is shown only once.
 3. Deploy the new key to every client of that tenant.
@@ -195,8 +195,8 @@ Phase 3 hardening for audit findings C9, C10 and C11. Configuration, migration n
 
 ## 7. Known Security & Architectural Limitations
 
-1. **Single-node focus:** SQLite and FAISS are designed for single-node deployments. For scale-out, use a centralized vector store (Qdrant) and external database configuration.
-2. **In-process state:** user sessions and the key verification cache are per process. Sessions do not survive restarts and are not shared between workers.
+1. **Vector-store topology:** PostgreSQL tenant metadata, API keys, sessions, quotas, and audit state are multi-worker capable. FAISS remains a local filesystem vector backend; scale-out deployments should use a centralized vector store such as Qdrant.
+2. **Verification cache:** successful API-key secret verification is cached per process for a short TTL, but key active/expiry state is re-read from PostgreSQL. User sessions themselves are PostgreSQL-backed and shared across workers.
 3. **Rate limiting:** without `SECURITY_RATE_LIMIT_STORAGE_URL`, each instance and worker process counts on its own, and during a shared store outage the effective limit is multiplied by the number of instances. A request with a credential is counted only after its body has been received (bounded by the request size limit). A failed credential check runs scrypt before it is counted.
 4. **Request parsing:** FastAPI 0.141.1 and Starlette 1.7.0 are pinned. Starlette 0.40.0 fixed CVE-2024-47874: a multipart form field without a file name is limited by `max_part_size` (1 MiB by default) and is no longer kept in memory without a limit. The Phase 3 measurement (a 40 MiB field took 2.2 seconds and raised peak memory by 79 MiB) was made with Starlette 0.37.2 and was not repeated with Starlette 1.7.0. Content that expands during parsing (ZIP-based DOCX, XLSX and PPTX files) is still not bounded by the upload limit.
 5. **In-process plugins:** plugins run in-process. Exceptions are contained, but a faulty plugin can block the event loop or use too much CPU or memory. Do not install untrusted plugins.

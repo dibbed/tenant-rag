@@ -78,10 +78,10 @@ In single-tenant mode (anonymous access works only with `ENVIRONMENT=development
 When `MULTI_TENANT_ENABLED=true`:
 - **Vector Stores**: FAISS partitions indexes into tenant-specific filesystem directories (`data/vector_store/tenants/<tenant_id>`), while Chroma and Qdrant use tenant-isolated collections (`tenant_<tenant_id>`).
 - **Semantic Cache**: Cache entries are prefixed by tenant ID (`{tenant_id}:{query_hash}`) and cosine similarity searches only compare entries within the caller's tenant partition.
-- **Persistence**: Tenant configs, quotas, and users are durably saved in an embedded SQLite database (`data/tenants/tenants.db`).
+- **Persistence**: Tenant configs, users, API keys, sessions, quotas, usage, and audit records are durably stored in PostgreSQL with tenant Row-Level Security (RLS).
 
 ### How does API key authentication work?
-API keys follow the format `rgb_<key_id>_<secret>`. The raw key is displayed only once upon generation. The system stores only a salted scrypt hash (`key_hash`) in SQLite and finds the key by its key id; legacy SHA-256 keys are rejected. Authenticated principals are verified before tenant routing headers (`X-Tenant-ID`) are evaluated, preventing tenant impersonation and cross-tenant data leakage.
+API keys follow the format `rgb_<key_id>_<secret>`. The raw key is displayed only once upon generation. PostgreSQL stores only a salted scrypt hash (`key_hash`); session tokens are likewise stored only as hashes. Narrow authentication lookup functions resolve the tenant before normal RLS-scoped access, and legacy SHA-256 keys are rejected. Authenticated principals are verified before tenant routing headers (`X-Tenant-ID`) are evaluated, preventing tenant impersonation and cross-tenant data leakage.
 
 ### How do I manage API keys via the CLI?
 Use `tenantrag` (or `ragbot-cli`):
