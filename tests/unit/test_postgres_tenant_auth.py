@@ -223,20 +223,20 @@ async def test_postgres_create_api_key_stages_key_and_audit_atomically() -> None
 @pytest.mark.asyncio
 async def test_postgres_cleanup_expired_sessions_uses_database() -> None:
     session = _session()
-    delete_result = MagicMock()
-    delete_result.rowcount = 3
-    session.execute.side_effect = [MagicMock(), MagicMock(), delete_result]
+    session.scalar.return_value = 3
     auth = TenantAuth(_PgManager(session))
 
     assert await auth.cleanup_expired_sessions() == 3
+    statement, _params = session.scalar.await_args.args
+    assert "public.delete_expired_sessions_admin(:before)" in str(statement)
 
 
 @pytest.mark.asyncio
 async def test_postgres_cleanup_expired_api_keys_deactivates_in_database() -> None:
     session = _session()
-    update_result = MagicMock()
-    update_result.rowcount = 2
-    session.execute.side_effect = [MagicMock(), MagicMock(), update_result]
+    session.scalar.return_value = 2
     auth = TenantAuth(_PgManager(session))
 
     assert await auth.cleanup_expired_api_keys() == 2
+    statement, _params = session.scalar.await_args.args
+    assert "public.deactivate_expired_api_keys_admin(:before)" in str(statement)

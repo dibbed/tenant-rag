@@ -110,7 +110,7 @@ flowchart TD
 - **پایگاه داده مرجع**: متادیتای مستأجرها در PostgreSQL نگهداری می‌شود. دسترسی runtime با SQLAlchemy 2.x به‌صورت async و درایور `asyncpg` است و تغییرات schema فقط با Alembic انجام می‌شود.
 - **مرز تراکنش**: هر عملیات کسب‌وکاری یک تراکنش کوتاه مستقل دارد؛ repositoryها commit نمی‌کنند و عملیات شبکه‌ای RAG/LLM/vector خارج از تراکنش پایگاه داده انجام می‌شود.
 - **عدم وابستگی به حافظه پردازش**: تنظیمات مستأجر، کاربران، کلیدهای API، نشست‌ها، سهمیه، مصرف و audit از PostgreSQL خوانده می‌شوند و دیکشنری‌های محلی منبع حقیقت نیستند.
-- **RLS**: همه جدول‌های tenant دارای PostgreSQL Row-Level Security هستند. role زمان اجرا باید مالک جدول نباشد و با `NOSUPERUSER` و `NOBYPASSRLS` ساخته شود.
+- **RLS**: همه جدول‌های tenant دارای PostgreSQL Row-Level Security اجباری هستند. عملیات tenant با `app.tenant_id` محدود می‌شود و دسترسی cross-tenant فقط در context مالک جدول و از طریق توابع محدود `SECURITY DEFINER` انجام می‌شود؛ role عادی runtime با set کردن `app.is_system_admin` نمی‌تواند RLS را دور بزند. role زمان اجرا باید مالک جدول نباشد و با `NOSUPERUSER` و `NOBYPASSRLS` ساخته شود.
 
 ### اصول ایزولاسیون داده‌ها
 1. **ایزولاسیون مخزن برداری**:

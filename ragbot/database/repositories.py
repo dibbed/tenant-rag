@@ -48,6 +48,13 @@ class TenantRepository:
         )
         return list(result.all())
 
+    async def list_ids_admin(self, *, active_only: bool = False) -> list[str]:
+        result = await self.session.scalars(
+            text("SELECT tenant_id FROM public.list_tenant_ids_admin(:active_only)"),
+            {"active_only": active_only},
+        )
+        return [str(tenant_id) for tenant_id in result.all()]
+
     async def count(self) -> int:
         value = await self.session.scalar(select(func.count()).select_from(TenantRecord))
         return int(value or 0)
@@ -156,6 +163,13 @@ class ApiKeyRepository:
         result = await self.session.execute(self.deactivate_expired_statement(before))
         return int(result.rowcount or 0)
 
+    async def deactivate_expired_admin(self, before: datetime) -> int:
+        value = await self.session.scalar(
+            text("SELECT public.deactivate_expired_api_keys_admin(:before)"),
+            {"before": before},
+        )
+        return int(value or 0)
+
     async def lookup_auth(self, key_id: str) -> dict[str, Any] | None:
         result = await self.session.execute(
             text("SELECT * FROM public.lookup_api_key_auth(:key_id)"),
@@ -257,6 +271,13 @@ class SessionRepository:
             delete(TenantSessionRecord).where(TenantSessionRecord.expires_at <= before)
         )
         return int(result.rowcount or 0)
+
+    async def delete_expired_admin(self, before: datetime) -> int:
+        value = await self.session.scalar(
+            text("SELECT public.delete_expired_sessions_admin(:before)"),
+            {"before": before},
+        )
+        return int(value or 0)
 
 
 class UsageRepository:

@@ -53,6 +53,9 @@ GRANT USAGE, SELECT
     ON ALL SEQUENCES IN SCHEMA public TO tenantrag_app;
 GRANT EXECUTE ON FUNCTION public.lookup_api_key_auth(text) TO tenantrag_app;
 GRANT EXECUTE ON FUNCTION public.lookup_session_auth(text) TO tenantrag_app;
+GRANT EXECUTE ON FUNCTION public.list_tenant_ids_admin(boolean) TO tenantrag_app;
+GRANT EXECUTE ON FUNCTION public.deactivate_expired_api_keys_admin(timestamptz) TO tenantrag_app;
+GRANT EXECUTE ON FUNCTION public.delete_expired_sessions_admin(timestamptz) TO tenantrag_app;
 ```
 
 The migration owner should also configure equivalent default privileges for future tables and sequences if subsequent migrations create additional objects.
@@ -65,16 +68,13 @@ DATABASE_URL=postgresql+asyncpg://tenantrag_app:<password>@localhost:5432/tenant
 
 ## RLS model
 
-Every tenant table has Row-Level Security enabled. Normal operations set transaction-local PostgreSQL settings:
+Every tenant table has Row-Level Security enabled and forced for the table owner. Normal tenant operations set transaction-local `app.tenant_id`.
 
-- `app.tenant_id` for tenant-scoped work
-- `app.is_system_admin` for explicitly authorized cross-tenant system work
+Cross-tenant access is owner-gated: `app.is_system_admin=true` is accepted by RLS only when `current_user` is the actual table owner. A non-owner runtime role therefore cannot bypass RLS by setting the custom GUC itself.
 
-Policies enforce both row visibility and `WITH CHECK` writes.
+Runtime cross-tenant operations use narrowly scoped `SECURITY DEFINER` functions owned by the migration/table owner. The currently supported entrypoints are tenant-ID listing, expired API-key deactivation, expired-session deletion, API-key authentication bootstrap, and session authentication bootstrap. Each function fixes `search_path`, enables owner-gated system context only inside the function, and has `PUBLIC` execution revoked.
 
-The runtime role must remain a non-owner with `NOBYPASSRLS`. Superuser or `BYPASSRLS` credentials invalidate the isolation assumptions.
-
-`tenant_api_keys` and `tenant_sessions` use narrowly scoped `SECURITY DEFINER` lookup functions to bootstrap tenant identity before normal RLS-scoped queries. Public execution is revoked. Grant only those functions to the runtime role.
+Policies enforce both row visibility and `WITH CHECK` writes. The runtime role must remain a non-owner with `NOBYPASSRLS`; superuser, `BYPASSRLS`, or table-owner credentials invalidate the runtime isolation assumptions.
 
 ## Fresh deployment
 

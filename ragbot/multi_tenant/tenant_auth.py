@@ -27,7 +27,7 @@ from ragbot.database.repositories import (
     SessionRepository,
     UserRepository,
 )
-from ragbot.database.tenant_context import set_system_context, set_tenant_context
+from ragbot.database.tenant_context import set_tenant_context
 from ragbot.outputs.logger import logger
 
 from .api_key_hashing import (
@@ -1652,9 +1652,8 @@ class TenantAuth:
         """پاکسازی session های منقضی شده"""
         if self._uses_postgres:
             async with self._begin_postgres() as session:
-                await set_system_context(session)
                 return int(
-                    await SessionRepository(session).delete_expired(
+                    await SessionRepository(session).delete_expired_admin(
                         datetime.now(timezone.utc)
                     )
                 )
@@ -1686,9 +1685,8 @@ class TenantAuth:
         """پاکسازی API key های منقضی شده"""
         if self._uses_postgres:
             async with self._begin_postgres() as session:
-                await set_system_context(session)
                 return int(
-                    await ApiKeyRepository(session).deactivate_expired(
+                    await ApiKeyRepository(session).deactivate_expired_admin(
                         datetime.now(timezone.utc)
                     )
                 )

@@ -23,7 +23,7 @@ from ragbot.database.repositories import (
     UsageRepository,
     UserRepository,
 )
-from ragbot.database.tenant_context import set_system_context, set_tenant_context
+from ragbot.database.tenant_context import set_tenant_context
 from ragbot.outputs.logger import logger
 from ragbot.rag.store.base import VectorDocument
 
@@ -313,19 +313,18 @@ class TenantManager:
 
     async def _pg_list_tenants(self, *, active_only: bool = False) -> list[TenantConfig]:
         async with self._begin_postgres() as session:
-            await set_system_context(session)
             repository = TenantRepository(session)
-            records = (
-                await repository.list_active()
-                if active_only
-                else await repository.list_all()
-            )
+            tenant_ids = await repository.list_ids_admin(active_only=active_only)
             tenants: list[TenantConfig] = []
             quotas = QuotaRepository(session)
-            for record in records:
-                quota = await quotas.get(record.tenant_id)
+            for tenant_id in tenant_ids:
+                await set_tenant_context(session, tenant_id)
+                record = await repository.get(tenant_id)
+                if record is None:
+                    continue
+                quota = await quotas.get(tenant_id)
                 if quota is None:
-                    logger.error(f"Tenant {record.tenant_id} has no quota row")
+                    logger.error(f"Tenant {tenant_id} has no quota row")
                     continue
                 tenants.append(tenant_from_records(record, quota))
             return tenants

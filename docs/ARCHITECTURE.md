@@ -185,7 +185,7 @@ RAGBot provides enterprise multi-tenancy with hard data and cache isolation:
 - **Storage**: PostgreSQL is the authoritative tenant metadata store. SQLAlchemy 2.x async sessions use `asyncpg`; schema changes are owned by Alembic.
 - **Transactions**: Each business operation owns one short-lived database transaction. Repositories stage/query data but do not commit, and external RAG/LLM/vector I/O is kept outside SQL transactions.
 - **Process Independence**: Tenant configs, users, API keys, sessions, quotas, usage, and audit records are read from PostgreSQL rather than process-local authority dictionaries.
-- **Row-Level Security**: Every tenant table has PostgreSQL RLS enabled. Runtime connections set transaction-local `app.tenant_id` or an explicitly authorized system context; the runtime role must be a non-owner with `NOSUPERUSER` and `NOBYPASSRLS`.
+- **Row-Level Security**: Every tenant table has PostgreSQL RLS enabled and forced. Tenant work uses transaction-local `app.tenant_id`. Cross-tenant system access is owner-gated and exposed to the non-owner runtime role only through narrow `SECURITY DEFINER` functions; setting `app.is_system_admin` directly as the runtime role does not bypass RLS. The runtime role must use `NOSUPERUSER` and `NOBYPASSRLS`.
 
 ### Multi-Tenant Isolation Invariants
 1. **Vector Store Isolation**:
